@@ -7,8 +7,13 @@ public enum InkMode: String, CaseIterable, Sendable {
     case auto
     /// Hard black/white cutoff: sharp text and barcodes.
     case crisp
-    /// Atkinson dithering: grays and photos.
+    /// Error diffusion with dot-gain compensation: grays and photos.
     case photo
+    /// Clustered-dot screen: big flat grays, steady across printer heat.
+    case halftone
+
+    /// Converts grays to dots rather than a hard cutoff.
+    public var dithers: Bool { self == .photo || self == .halftone }
 }
 
 public struct LabelOptions: Sendable {
@@ -18,8 +23,14 @@ public struct LabelOptions: Sendable {
     public var paddingMM: Double = 2
     public var rotation: RotationMode = .auto
     public var ink: InkMode = .auto
-    /// 0...1, the gray level below which a pixel prints black.
+    /// 0...1, the gray level below which a pixel prints black. In Photo and Halftone it shifts
+    /// the midtones instead: above 0.5 prints darker.
     public var cutoff: Double = 0.5
+    /// The printer's dot gain: a requested coverage c prints about c^toneGamma dark.
+    /// 1 turns compensation off. Measure it with the step wedge (docs/CALIBRATION.md).
+    public var toneGamma: Double = Dither.defaultGamma
+    /// In Photo and Halftone, threshold solid text and lines on gray and give them a white halo.
+    public var protectText = true
     public var dpi: Double = 200
     /// Shift in millimetres; positive x moves right, positive y moves down.
     public var nudgeMM: CGPoint = .zero
@@ -75,6 +86,9 @@ public struct ComposedLabel {
     public let scannableCodes: [Barcode]
     /// How each expected code lands on the dot grid, with its print-time severity.
     public let codeReports: [CodeReport]
+    /// Codes and their quiet zones in bitmap pixels (row 0 at the top). Photo and Halftone
+    /// threshold these exactly like Crisp.
+    public let codeAreas: [CGRect]
     public let warnings: [String]
 
     public var missingCodes: [Barcode] {
@@ -154,10 +168,16 @@ public enum LabelComposer {
             }
         }
 
-        let level = Float(o.cutoff * 255)
+        let level = UInt8(o.cutoff * 255)
+        let codeAreas = codeRects(expected: expected, geometry: geometry, placement: placement, dots: dots, height: bitmap.height)
+        let gray = bitmap
         func convert(_ ink: InkMode) -> (GrayBitmap, [Barcode]) {
-            var b = bitmap
-            if ink == .photo { atkinson(&b, level: level) } else { threshold(&b, level: UInt8(level)) }
+            var b = gray
+            if ink.dithers {
+                dither(&b, ink: ink, options: o, codes: codeAreas)
+            } else {
+                threshold(&b, level: level)
+            }
             return (b, expected.isEmpty ? [] : BarcodeReader.read(b))
         }
         func scanCount(_ found: [Barcode]) -> Int { expected.filter { e in found.contains { $0.payload == e.payload } }.count }
@@ -193,7 +213,7 @@ public enum LabelComposer {
 
         return ComposedLabel(page: page, placement: placement, bitmap: bitmap, ink: ink, smoothGray: smoothGray, crop: crop, rotated: rotated,
                              scale: scale, oneDotFeatures: thin, expectedCodes: expected,
-                             scannableCodes: scannable, codeReports: reports, warnings: warnings)
+                             scannableCodes: scannable, codeReports: reports, codeAreas: codeAreas, warnings: warnings)
     }
 
     /// Mid-gray pixels whose neighbours are also mid-gray, as a share of all non-white pixels.
@@ -218,24 +238,35 @@ public enum LabelComposer {
         for i in b.pixels.indices { b.pixels[i] = b.pixels[i] < level ? 0 : 255 }
     }
 
-    /// Atkinson dithering, as in the original MacPaint: spreads 6/8 of the error.
-    static func atkinson(_ b: inout GrayBitmap, level: Float) {
-        let w = b.width, h = b.height
-        var buf = b.pixels.map(Float.init)
-        let spread = [(1, 0), (2, 0), (-1, 1), (0, 1), (1, 1), (0, 2)]
-        for y in 0..<h {
-            for x in 0..<w {
-                let old = buf[y * w + x]
-                let new: Float = old < level ? 0 : 255
-                buf[y * w + x] = new
-                let err = (old - new) / 8
-                for (dx, dy) in spread {
-                    let nx = x + dx, ny = y + dy
-                    if nx >= 0, nx < w, ny < h { buf[ny * w + nx] += err }
-                }
-            }
+    /// Photo or halftone, keeping codes and (optionally) solid text on the crisp threshold.
+    static func dither(_ b: inout GrayBitmap, ink: InkMode, options o: LabelOptions, codes: [CGRect]) {
+        let level = UInt8(o.cutoff * 255)
+        let mask = Dither.mask(b, level: level, codes: codes, text: o.protectText)
+        let lut = Dither.toneLUT(gamma: o.toneGamma, cutoff: o.cutoff)
+        if ink == .halftone { Dither.halftone(&b, lut: lut, mask: mask) } else { Dither.floydSteinberg(&b, lut: lut, mask: mask) }
+    }
+
+    /// Codes on the label in bitmap pixels (row 0 at the top), with their quiet zones.
+    static func codeRects(expected: [Barcode], geometry: [CodeGeometry], placement p: Placement, dots: CGFloat, height: Int) -> [CGRect] {
+        let t = p.transform
+        func toBitmap(_ r: CGRect) -> CGRect {
+            let l = r.applying(t)
+            return CGRect(x: l.minX * dots, y: CGFloat(height) - l.maxY * dots, width: l.width * dots, height: l.height * dots)
         }
-        b.pixels = buf.map { $0 < 128 ? 0 : 255 }
+        var rects: [CGRect] = []
+        for g in geometry {
+            let m = g.narrow
+            // 1D: a generous quiet zone along the scan (dither texture next to the bars reads as
+            // bars to some scanners), four modules across. 2D: four modules all round.
+            let (qx, qy): (CGFloat, CGFloat) = g.isLinear ? (g.scanAlongX ? (15 * m, 4 * m) : (4 * m, 15 * m)) : (4 * m, 4 * m)
+            rects.append(toBitmap(g.bounds.insetBy(dx: -qx, dy: -qy)).insetBy(dx: -1, dy: -1))
+        }
+        // Vision's box as a backstop (and the only box for codes that couldn't be measured).
+        for c in expected {
+            let pad = max(c.rect.width, c.rect.height) * 0.05
+            rects.append(toBitmap(c.rect.insetBy(dx: -pad, dy: -pad)))
+        }
+        return rects
     }
 
     /// Counts black or white runs exactly one dot long, bounded by the other colour, in both directions.

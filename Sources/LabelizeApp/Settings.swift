@@ -249,6 +249,7 @@ struct PrinterDetail: View {
                                 Text("Auto").tag(InkMode.auto)
                                 Text("Crisp").tag(InkMode.crisp)
                                 Text("Photo").tag(InkMode.photo)
+                                Text("Halftone").tag(InkMode.halftone)
                             }
                             .pickerStyle(.segmented)
                             .labelsHidden()

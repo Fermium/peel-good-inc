@@ -121,7 +121,7 @@ enum InkCompareWindow {
     }
 }
 
-/// Drop a file and see it next to its Auto, Crisp and Photo versions.
+/// Drop a file and see it next to its Auto, Crisp, Photo and Halftone versions.
 struct InkCompareView: View {
     let store: Store
     let printer: PrinterInfo
@@ -161,7 +161,7 @@ struct InkCompareView: View {
                     }
                 }
                 if results.isEmpty {
-                    ProgressView().frame(width: 3 * 150)
+                    ProgressView().frame(width: 4 * 150)
                 }
             }
             .frame(height: 300)
@@ -186,7 +186,8 @@ struct InkCompareView: View {
         switch r.mode {
         case .auto: "Picks \(r.resolved.rawValue.capitalized) for this file"
         case .crisp: "Black or white"
-        case .photo: "Grays as dots"
+        case .photo: "Grays as fine dots"
+        case .halftone: "Grays as a dot screen"
         }
     }
 
@@ -222,7 +223,7 @@ struct InkCompareView: View {
         original = Self.colorImage(page)
         Task.detached {
             var out: [Result] = []
-            for mode in [InkMode.auto, .crisp, .photo] {
+            for mode in [InkMode.auto, .crisp, .photo, .halftone] {
                 var o = base
                 o.ink = mode
                 let label = LabelComposer.compose(page, o)
