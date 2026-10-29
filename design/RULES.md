@@ -30,10 +30,10 @@ file.
 │ │ ☑ Photos to Canon TS9500 series                                  │ │
 │ │   (drag rows to reorder)                                         │ │
 │ ├──────────────────────────────────────────────────────────────────┤ │
-│ │ ↳ Everything else                                      [Edit…]   │ │
-│ │   Any other file → Current printer · loaded roll                 │ │
+│ │ ↳ Everything else                                                │ │
+│ │   Default printer and its settings                               │ │
 │ ├──────────────────────────────────────────────────────────────────┤ │
-│ │ [+▾] [−]                  Drag rules to change their order. [Edit…]│
+│ │ [+▾] [−]                    Double-click to edit. Drag to reorder. │
 │ └──────────────────────────────────────────────────────────────────┘ │
 │ Test a File                                                          │
 │ ┌╌╌╌╌╌╌╌╌┐  return.png                                                │
@@ -44,7 +44,7 @@ file.
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
-Editor sheet (600 × 720, grouped Form):
+Editor sheet (600 × 700, grouped Form):
 
 ```
  Name            [Amazon returns                     ]
@@ -53,16 +53,15 @@ Editor sheet (600 × 720, grouped Form):
    [Codes on the page ▾]  [include ▾]  [a QR code ▾]           (−)(+)
    [Source website ▾]     [is ▾]       (amazon.com)(amazon.co.uk)  (−)(+)
  Then print it
-   Printer               [Current printer (Label Printer) ▾]
-   Label size            [Loaded roll ▾]
-   Scaling               [Default ▾]
-   Ink                   [Default ▾]
+   Printer               [Default printer (Label Printer) ▾]
+   Label size            [Default (4 × 6 in) ▾]
+   Scaling               [Default (Fit) ▾]
+   Ink                   [Default (Auto) ▾]
    When a file matches   [Default ▾]
-                         Prints after a short countdown. Files from watched folders ask first.
+                         Follows Before printing in General. Files in watched folders follow New files.
    Copies                1 [⌃⌄]
  After printing
-   Add a Finder tag      [on]   [Printed] [● Green ▾]
-   Play a sound          [off]
+   Add Finder tag        [on]   [Printed] [● Green ▾]
  ⚠ Fill in or remove the marked conditions.          [Cancel] [OK]
 ```
 
@@ -102,22 +101,26 @@ label pages → Label Printer · 4 × 6 in · Crisp".
 
 ## Outcome
 
-Printer (*Current printer* or a named one) · Label size (*Loaded roll* or one the printer supports) ·
+Printer (*Default printer* or a named one) · Label size (*Default (W × H in)* or one the printer supports) ·
 Scaling (Default / Fit / Fill) · Ink (Default / Auto / Crisp / Photo; turned off for non-thermal
-printers) · When a file matches (Default / *Print after a short countdown* / *Show a preview first* /
-*Ask with a notification*) · Copies 1–20 · Finder tag with color (after a successful print) · Play a sound.
+printers) · When a file matches (Default / *Print* / *Show preview* / *Ask*) · Copies 1–20 ·
+Finder tag with color (after a successful print). Sounds follow General; older rules' *Play a sound* is ignored.
 
-The Default action prints after the countdown for files you hand over (drop, clipboard, Finder) and
-*asks* for unattended ones (watched folder, API). *Ask* applies only to unattended triggers. For a file
-you dropped yourself it becomes *Show a preview first*, because you're already looking at the screen.
+The Default action follows General > Before printing for files you hand over (drop, clipboard, Finder) and
+Rules > New files (Ask, Print or Show preview; Ask by default) for watched folders. *Ask* sends a notification
+and applies only to unattended triggers. For a file you dropped yourself it becomes *Show preview*, because
+you're already looking at the screen.
+
+*Everything else* is fixed: the default printer and its settings. It can't be edited in Settings or over MCP,
+and anything older versions saved in it is ignored.
 
 ## Edge cases
 
-- **The rule's printer isn't connected**: the file uses the current printer, and the decision carries a
+- **The rule's printer isn't connected**: the file uses the default printer, and the decision carries a
   note ("The rule's printer isn't connected, so this uses …") for the job view. The editor keeps the
   missing printer selectable as "Name (not connected)" so the setting isn't lost.
 - **The size isn't supported by the target printer** (`resolve` returns nil): the file uses the printer's
-  loaded roll and gets a note. The editor shows the size as "(not supported by this printer)".
+  label size and gets a note. The editor shows the size as "(not supported by this printer)".
 - **A condition is blank** (no tokens, no folder): it never matches. The editor marks it ⚠ and disables
   OK, and the row shows ⚠. A rule with no conditions never matches, so it can't swallow every file.
 - **No source website**: common for screenshots, AirDrop files and files from Mail. *is unknown* matches

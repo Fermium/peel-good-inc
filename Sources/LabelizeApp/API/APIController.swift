@@ -19,11 +19,11 @@ final class APIController: ObservableObject {
 
     private enum Key {
         static let http = "apiHTTPEnabled", mcp = "apiMCPEnabled", port = "apiPort"
-        static let mcpLocalFiles = "apiMCPLocalFiles", mcpSettings = "apiMCPSettings"
-        static let mcpSettingsAutoOff = "apiMCPSettingsAutoOff", mcpSettingsUntil = "apiMCPSettingsUntil"
+        static let mcpLocalFiles = "apiMCPLocalFiles", mcpSettingsGrant = "apiMCPSettingsGrant", mcpSettingsUntil = "apiMCPSettingsUntil"
+        static let legacySettings = "apiMCPSettings", legacyAutoOff = "apiMCPSettingsAutoOff"
     }
 
-    /// How long "Let MCP change settings" stays on when it turns itself off.
+    /// How long "Let MCP change settings" stays on when set to For 45 Minutes.
     static let settingsGrant: TimeInterval = 45 * 60
 
     @Published private(set) var status: Status = .off
@@ -52,38 +52,45 @@ final class APIController: ObservableObject {
         set { objectWillChange.send(); defaults.set(newValue, forKey: Key.mcpLocalFiles); Log.notice(.api, "MCP local files \(newValue ? "allowed" : "not allowed")") }
     }
 
-    /// MCP may change settings, rules and watched folders. Off by default; only Settings can change it.
-    /// Unless the user turns `mcpSettingsAutoOff` off, it switches itself off 45 minutes after it's granted.
-    var mcpCanChangeSettings: Bool {
-        get {
-            guard defaults.bool(forKey: Key.mcpSettings) else { return false }
-            if let until = mcpSettingsUntil, until <= Date() { return false }
-            return true
-        }
-        set {
-            objectWillChange.send()
-            defaults.set(newValue, forKey: Key.mcpSettings)
-            mcpSettingsUntil = newValue && mcpSettingsAutoOff ? Date().addingTimeInterval(Self.settingsGrant) : nil
-            Log.notice(.api, "MCP settings changes \(newValue ? "allowed" : "not allowed")" + (mcpSettingsUntil.map { " until \($0.formatted(date: .omitted, time: .shortened))" } ?? ""))
-            scheduleSettingsExpiry()
-        }
-    }
+    /// "Let MCP change settings": Off, For 45 Minutes, or Always.
+    enum SettingsGrant: String, CaseIterable {
+        case off, timed, always
 
-    /// On by default: "Let MCP change settings" turns itself off after 45 minutes. Off makes it permanent.
-    var mcpSettingsAutoOff: Bool {
-        get { defaults.object(forKey: Key.mcpSettingsAutoOff) as? Bool ?? true }
-        set {
-            objectWillChange.send()
-            defaults.set(newValue, forKey: Key.mcpSettingsAutoOff)
-            if defaults.bool(forKey: Key.mcpSettings) {
-                mcpSettingsUntil = newValue ? Date().addingTimeInterval(Self.settingsGrant) : nil
+        var title: String {
+            switch self {
+            case .off: "Off"
+            case .timed: "For 45 Minutes"
+            case .always: "Always"
             }
-            Log.notice(.api, newValue ? "MCP settings permission turns off after 45 minutes" : "MCP settings permission is permanent")
+        }
+    }
+
+    /// MCP may change settings, rules and watched folders. Off by default; only Settings can change it.
+    /// For 45 Minutes turns itself off when the time is up, including after a relaunch.
+    var mcpSettingsGrant: SettingsGrant {
+        get {
+            let grant = SettingsGrant(rawValue: defaults.string(forKey: Key.mcpSettingsGrant) ?? "") ?? .off
+            if grant == .timed, let until = mcpSettingsUntil, until <= Date() { return .off }
+            return grant
+        }
+        set {
+            objectWillChange.send()
+            defaults.set(newValue.rawValue, forKey: Key.mcpSettingsGrant)
+            mcpSettingsUntil = newValue == .timed ? Date().addingTimeInterval(Self.settingsGrant) : nil
+            Log.notice(.api, "MCP settings changes: \(newValue.title.lowercased())" + (mcpSettingsUntil.map { ", until \($0.formatted(date: .omitted, time: .shortened))" } ?? ""))
             scheduleSettingsExpiry()
         }
     }
 
-    /// When the settings permission turns itself off; nil when it's off or permanent.
+    /// True while `mcpSettingsGrant` isn't Off. Turning it on from Off grants 45 minutes.
+    var mcpCanChangeSettings: Bool {
+        get { mcpSettingsGrant != .off }
+        set {
+            if !newValue { mcpSettingsGrant = .off } else if mcpSettingsGrant == .off { mcpSettingsGrant = .timed }
+        }
+    }
+
+    /// When the settings permission turns itself off; nil when it's off or Always.
     private(set) var mcpSettingsUntil: Date? {
         get { defaults.object(forKey: Key.mcpSettingsUntil) as? Date }
         set { defaults.set(newValue, forKey: Key.mcpSettingsUntil) }
@@ -91,12 +98,12 @@ final class APIController: ObservableObject {
 
     private var settingsExpiry: Task<Void, Never>?
 
-    /// Turns the settings permission off when its time is up, including after a relaunch.
+    /// Turns the timed settings permission off when its time is up, including after a relaunch.
     private func scheduleSettingsExpiry() {
         settingsExpiry?.cancel()
-        guard defaults.bool(forKey: Key.mcpSettings), mcpSettingsAutoOff else { return }
+        guard defaults.string(forKey: Key.mcpSettingsGrant) == SettingsGrant.timed.rawValue else { return }
         guard let until = mcpSettingsUntil else {
-            // On from before the timer existed: give it a fresh 45 minutes.
+            // No end time saved: give it a fresh 45 minutes.
             mcpSettingsUntil = Date().addingTimeInterval(Self.settingsGrant)
             return scheduleSettingsExpiry()
         }
@@ -105,10 +112,25 @@ final class APIController: ObservableObject {
             if wait > 0 { try? await Task.sleep(for: .seconds(wait)) }
             guard !Task.isCancelled, let self else { return }
             self.objectWillChange.send()
-            self.defaults.set(false, forKey: Key.mcpSettings)
+            self.defaults.set(SettingsGrant.off.rawValue, forKey: Key.mcpSettingsGrant)
             self.mcpSettingsUntil = nil
             Log.notice(.api, "MCP settings changes turned off after 45 minutes")
         }
+    }
+
+    /// Before the pop-up, a switch (`apiMCPSettings`) and "Turn off after 45 minutes" (`apiMCPSettingsAutoOff`, on by default).
+    /// Runs once: on with auto-off becomes For 45 Minutes (keeping its end time), on without it Always.
+    func migrateSettingsGrant() {
+        guard defaults.object(forKey: Key.mcpSettingsGrant) == nil,
+              defaults.object(forKey: Key.legacySettings) != nil || defaults.object(forKey: Key.legacyAutoOff) != nil else { return }
+        let on = defaults.bool(forKey: Key.legacySettings)
+        let autoOff = defaults.object(forKey: Key.legacyAutoOff) as? Bool ?? true
+        let grant: SettingsGrant = !on ? .off : autoOff ? .timed : .always
+        defaults.set(grant.rawValue, forKey: Key.mcpSettingsGrant)
+        if grant != .timed { mcpSettingsUntil = nil }
+        defaults.removeObject(forKey: Key.legacySettings)
+        defaults.removeObject(forKey: Key.legacyAutoOff)
+        Log.notice(.api, "MCP settings permission moved to the pop-up: \(grant.title)")
     }
 
     /// What MCP's configuration tools edit. Set by `attach`.
@@ -140,7 +162,7 @@ final class APIController: ObservableObject {
 
     private init() {
         token = APISettings.loadOrCreateToken()
-        defer { scheduleSettingsExpiry() }
+        defer { migrateSettingsGrant(); scheduleSettingsExpiry() }
         NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { _ in
             APISettings.removeServerInfo()
         }

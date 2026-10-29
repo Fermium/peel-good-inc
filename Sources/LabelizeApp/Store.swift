@@ -2,7 +2,7 @@ import AppKit
 import Combine
 import LabelKit
 
-/// Remembered choices: the default printer, app behaviour, and per printer the loaded roll,
+/// Remembered choices: the default printer, app behaviour, and per printer the label size,
 /// scaling, ink and calibration. Observable so the Settings window stays in sync with the menu.
 @MainActor
 final class Store: ObservableObject {
@@ -53,9 +53,17 @@ final class Store: ObservableObject {
         set { set(newValue, "countdown") }
     }
 
+    /// General > Before printing: Show preview.
     var alwaysReview: Bool {
         get { defaults.bool(forKey: "alwaysReview") }
         set { set(newValue, "alwaysReview") }
+    }
+
+    /// Rules > New files: what happens to files that turn up in a watched folder when no rule
+    /// says otherwise. Ask posts a notification with Print and Preview.
+    var newFilesAction: RuleAction {
+        get { RuleAction(rawValue: defaults.string(forKey: "newFilesAction") ?? "") ?? .ask }
+        set { set(newValue.rawValue, "newFilesAction") }
     }
 
     var playSounds: Bool {

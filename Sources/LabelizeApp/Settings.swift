@@ -23,7 +23,6 @@ final class SettingsWindowController {
             tabs.addTabViewItem(tab("General", "gearshape", GeneralPane(store: store)))
             tabs.addTabViewItem(tab("Printers", "printer", PrintersPane(store: store, testLabel: testLabel)))
             tabs.addTabViewItem(tab("Rules", "list.bullet.rectangle", RulesSettingsView(store: store)))
-            tabs.addTabViewItem(tab("Files", "doc", FilesPane(store: store)))
             tabs.addTabViewItem(tab("API", "point.3.connected.trianglepath.dotted", APIPane(api: .shared)))
             tabs.addTabViewItem(tab("About", "info.circle", AboutView()))
             let window = NSWindow(contentViewController: tabs)
@@ -75,9 +74,11 @@ enum AppWindows {
 
 // MARK: General
 
+/// Default printer, what happens before and after printing, and the saved labels.
 struct GeneralPane: View {
     @ObservedObject var store: Store
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
+    @State private var historySummary = History.summary
 
     var body: some View {
         Form {
@@ -90,15 +91,15 @@ struct GeneralPane: View {
                         Text("\(p.displayName) · \(store.size(for: p).display)").tag(p.name)
                     }
                 }
-                Picker("Print after drop", selection: Binding(get: { store.alwaysReview ? -1 : store.countdown },
-                                                              set: { v in store.alwaysReview = v < 0; if v >= 0 { store.countdown = v } })) {
+                Picker("Before printing", selection: Binding(get: { store.alwaysReview ? -1 : store.countdown },
+                                                             set: { v in store.alwaysReview = v < 0; if v >= 0 { store.countdown = v } })) {
                     Text("Immediately").tag(0.0)
-                    Text("After 1.5 seconds").tag(1.5)
-                    Text("After 3 seconds").tag(3.0)
-                    Text("Ask first").tag(-1.0)
+                    Text("After 1.5 s").tag(1.5)
+                    Text("After 3 s").tag(3.0)
+                    Text("Show preview").tag(-1.0)
                 }
             } footer: {
-                Text("Hold a file over the icon to pick another printer. Hold ⌥ to preview first.")
+                Text("Hold a file over the icon to pick another printer. Hold ⌥ to show the preview.")
                     .font(.callout).foregroundStyle(.secondary)
             }
             Section {
@@ -125,9 +126,84 @@ struct GeneralPane: View {
                         }
                     }
             }
+            Section("After Printing") {
+                Toggle("Add Finder tag", isOn: Binding(get: { store.tagAfterPrint }, set: { store.tagAfterPrint = $0 }))
+                if store.tagAfterPrint {
+                    LabeledContent("Tag") {
+                        HStack(spacing: 10) {
+                            TextField("", text: Binding(get: { store.tagName }, set: { store.tagName = $0 })).frame(width: 120)
+                            TagColorDots(color: Binding(get: { store.tagColor }, set: { store.tagColor = $0 }))
+                        }
+                    }
+                }
+                Picker("Then", selection: Binding(get: { store.afterPrintAction }, set: { store.afterPrintAction = $0 })) {
+                    ForEach(AfterPrintAction.allCases) { Text($0.title).tag($0) }
+                }
+                switch store.afterPrintAction {
+                case .rename:
+                    LabeledContent("Suffix") {
+                        TextField("", text: Binding(get: { store.renameSuffix }, set: { store.renameSuffix = $0 })).frame(width: 140)
+                    }
+                    LabeledContent("Example") {
+                        Text("order-1234-label\(store.renameSuffix).pdf").foregroundStyle(.secondary)
+                    }
+                case .move:
+                    LabeledContent("Folder") {
+                        HStack {
+                            Text(store.moveFolder?.lastPathComponent ?? "None").foregroundStyle(.secondary)
+                            Button("Choose…", action: chooseFolder)
+                        }
+                    }
+                case .leave, .trash:
+                    EmptyView()
+                }
+            }
+            Section {
+                Picker("Keep printed labels", selection: Binding(get: { store.historyDays }, set: { store.historyDays = $0; History.prune(keepingDays: $0); historySummary = History.summary })) {
+                    Text("1 day").tag(1)
+                    Text("1 week").tag(7)
+                    Text("1 month").tag(30)
+                    Text("3 months").tag(90)
+                    Text("1 year").tag(365)
+                    Text("Forever").tag(0)
+                }
+                LabeledContent("Saved", value: historySummary)
+                HStack {
+                    Spacer()
+                    Button("Show in Finder") { NSWorkspace.shared.open(Store.historyFolder) }
+                    Button("Delete All…", role: .destructive, action: deleteHistory)
+                }
+            } header: {
+                Text("History")
+            } footer: {
+                Text("Copies of printed labels, used for Reprint Last Label.")
+                    .font(.callout).foregroundStyle(.secondary)
+            }
         }
         .formStyle(.grouped)
-        .frame(width: 560, height: 330)
+        .frame(width: 560, height: 610)
+        .onAppear { historySummary = History.summary }
+    }
+
+    private func chooseFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        panel.prompt = "Choose"
+        if panel.runModal() == .OK { store.moveFolder = panel.url }
+    }
+
+    private func deleteHistory() {
+        let alert = NSAlert()
+        alert.messageText = "Delete all printed labels?"
+        alert.informativeText = "Reprint Last Label won't work until you print again."
+        alert.addButton(withTitle: "Delete")
+        alert.addButton(withTitle: "Cancel")
+        alert.buttons[0].hasDestructiveAction = true
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        History.deleteAll()
+        historySummary = History.summary
     }
 }
 
@@ -228,6 +304,7 @@ struct PrinterDetail: View {
     let printer: PrinterInfo
     let testLabel: () -> Void
     @State private var preview: NSImage?
+    @State private var showAdvanced = false
 
     var body: some View {
         Form {
@@ -272,19 +349,23 @@ struct PrinterDetail: View {
                     }
                 }
             }
-            Section("Alignment") {
-                LabeledContent("Horizontal offset") { mmField(\.x) }
-                LabeledContent("Vertical offset") { mmField(\.y) }
+            Section {
+                DisclosureGroup("Advanced", isExpanded: $showAdvanced) {
+                    LabeledContent("Horizontal offset") { mmField(\.x) }
+                    LabeledContent("Vertical offset") { mmField(\.y) }
+                }
+            }
+            Section {
                 HStack {
+                    if printer.name != store.printer?.name {
+                        Button("Use as Default") { store.printer = printer }
+                    }
                     Spacer()
                     Button("Print Test Label") {
                         store.printer = printer
                         testLabel()
                     }
                 }
-            }
-            if printer.name != store.printer?.name {
-                Button("Use as Default") { store.printer = printer }
             }
         }
         .formStyle(.grouped)
@@ -315,92 +396,5 @@ struct PrinterDetail: View {
             let image = label.bitmap.cgImage().map { NSImage(cgImage: $0, size: size.points) }
             await MainActor.run { preview = image }
         }
-    }
-}
-
-// MARK: Files
-
-struct FilesPane: View {
-    @ObservedObject var store: Store
-    @State private var historySummary = History.summary
-
-    var body: some View {
-        Form {
-            Section("After printing") {
-                Toggle("Add tag", isOn: Binding(get: { store.tagAfterPrint }, set: { store.tagAfterPrint = $0 }))
-                if store.tagAfterPrint {
-                    LabeledContent("Tag") {
-                        HStack(spacing: 10) {
-                            TextField("", text: Binding(get: { store.tagName }, set: { store.tagName = $0 })).frame(width: 120)
-                            TagColorDots(color: Binding(get: { store.tagColor }, set: { store.tagColor = $0 }))
-                        }
-                    }
-                }
-                Picker("Then", selection: Binding(get: { store.afterPrintAction }, set: { store.afterPrintAction = $0 })) {
-                    ForEach(AfterPrintAction.allCases) { Text($0.title).tag($0) }
-                }
-                switch store.afterPrintAction {
-                case .rename:
-                    LabeledContent("Suffix") {
-                        TextField("", text: Binding(get: { store.renameSuffix }, set: { store.renameSuffix = $0 })).frame(width: 140)
-                    }
-                    LabeledContent("Example") {
-                        Text("order-1234-label\(store.renameSuffix).pdf").foregroundStyle(.secondary)
-                    }
-                case .move:
-                    LabeledContent("Folder") {
-                        HStack {
-                            Text(store.moveFolder?.lastPathComponent ?? "None").foregroundStyle(.secondary)
-                            Button("Choose…", action: chooseFolder)
-                        }
-                    }
-                case .leave, .trash:
-                    EmptyView()
-                }
-            }
-            Section {
-                Picker("Keep printed labels", selection: Binding(get: { store.historyDays }, set: { store.historyDays = $0; History.prune(keepingDays: $0); historySummary = History.summary })) {
-                    Text("1 day").tag(1)
-                    Text("1 week").tag(7)
-                    Text("1 month").tag(30)
-                    Text("3 months").tag(90)
-                    Text("1 year").tag(365)
-                    Text("Forever").tag(0)
-                }
-                LabeledContent("Saved", value: historySummary)
-                HStack {
-                    Spacer()
-                    Button("Show in Finder") { NSWorkspace.shared.open(Store.historyFolder) }
-                    Button("Delete All…", role: .destructive, action: deleteHistory)
-                }
-            } footer: {
-                Text("Copies of printed labels, used for Reprint Last Label.")
-                    .font(.callout).foregroundStyle(.secondary)
-            }
-        }
-        .formStyle(.grouped)
-        .frame(width: 560, height: 430)
-        .onAppear { historySummary = History.summary }
-    }
-
-    private func chooseFolder() {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.canCreateDirectories = true
-        panel.prompt = "Choose"
-        if panel.runModal() == .OK { store.moveFolder = panel.url }
-    }
-
-    private func deleteHistory() {
-        let alert = NSAlert()
-        alert.messageText = "Delete all printed labels?"
-        alert.informativeText = "Reprint Last Label won't work until you print again."
-        alert.addButton(withTitle: "Delete")
-        alert.addButton(withTitle: "Cancel")
-        alert.buttons[0].hasDestructiveAction = true
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
-        History.deleteAll()
-        historySummary = History.summary
     }
 }

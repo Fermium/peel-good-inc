@@ -221,23 +221,23 @@ enum CodeKind: String, Codable, CaseIterable {
 /// What to do with a matching file. Every field left nil falls back to the printer's remembered settings.
 /// There is deliberately no way to skip or drop pages: every page of every file always prints.
 struct RuleOutcome: Codable, Hashable {
-    /// CUPS queue name; nil means whichever printer is selected in the menu.
+    /// CUPS queue name; nil means the default printer.
     var printer: String?
-    /// "4x6"; nil means the roll loaded in that printer.
+    /// "4x6"; nil means that printer's label size.
     var size: String?
     var fit: FitMode?
     var ink: InkMode?
-    /// nil means print after the countdown for files you hand over, ask for unattended ones.
+    /// nil follows General > Before printing for files you hand over, Rules > New files for watched folders.
     var action: RuleAction?
     var copies = 1
     var tag: FinderTag? = FinderTag()
-    var playSound = true
 
     var labelSize: LabelSize? { size.flatMap(LabelSize.init(parsing:)) }
 
     init() {}
 
-    enum CodingKeys: String, CodingKey { case printer, size, fit, ink, action, copies, tag, playSound }
+    /// Older files also have `playSound`; it's ignored, since sounds follow General.
+    enum CodingKeys: String, CodingKey { case printer, size, fit, ink, action, copies, tag }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -248,7 +248,6 @@ struct RuleOutcome: Codable, Hashable {
         action = try c.decodeIfPresent(RuleAction.self, forKey: .action)
         copies = max(1, try c.decodeIfPresent(Int.self, forKey: .copies) ?? 1)
         tag = try c.decodeIfPresent(FinderTag.self, forKey: .tag)
-        playSound = try c.decodeIfPresent(Bool.self, forKey: .playSound) ?? true
     }
 
     func encode(to encoder: Encoder) throws {
@@ -260,14 +259,13 @@ struct RuleOutcome: Codable, Hashable {
         try c.encodeIfPresent(action, forKey: .action)
         try c.encode(copies, forKey: .copies)
         try c.encodeIfPresent(tag, forKey: .tag)
-        try c.encode(playSound, forKey: .playSound)
     }
 }
 
 enum RuleAction: String, Codable, CaseIterable {
     /// Print after the short cancel countdown.
     case print
-    /// Open the preview with Print / Cancel.
+    /// Show the preview with Print / Cancel.
     case review
     /// Post a notification with Print / Preview buttons; for files you dropped, this is the same as review.
     case ask
@@ -275,7 +273,7 @@ enum RuleAction: String, Codable, CaseIterable {
     var title: String {
         switch self {
         case .print: "Print"
-        case .review: "Preview first"
+        case .review: "Show preview"
         case .ask: "Ask"
         }
     }
@@ -283,7 +281,7 @@ enum RuleAction: String, Codable, CaseIterable {
     var shortTitle: String {
         switch self {
         case .print: "prints"
-        case .review: "previews"
+        case .review: "shows preview"
         case .ask: "asks"
         }
     }

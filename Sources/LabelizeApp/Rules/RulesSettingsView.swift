@@ -3,14 +3,15 @@ import LabelKit
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// The Rules tab of Settings: an ordered list of rules (first match wins), "Everything else" last,
-/// and a test well that shows what a file would do without printing it.
+/// The Rules tab of Settings: the watched folders, an ordered list of rules (first match wins),
+/// "Everything else" last, and a test well that shows what a file would do without printing it.
 struct RulesSettingsView: View {
     @ObservedObject var engine: RuleEngine
-    /// Supplies printers, the current printer and its remembered options. Created on appear when nil.
+    /// Supplies printers, the default printer and its remembered options. Created on appear when nil.
     private let providedStore: Store?
     /// Fixed printers for previews; skips CUPS.
     private let previewPrinters: [PrinterInfo]?
+    private let folders: WatchedFoldersSection.Folders
 
     @State private var store: Store?
     @State private var printers: [PrinterInfo] = []
@@ -19,10 +20,12 @@ struct RulesSettingsView: View {
     @State private var test: TestResult?
 
     @MainActor
-    init(engine: RuleEngine? = nil, store: Store? = nil, previewPrinters: [PrinterInfo]? = nil) {
+    init(engine: RuleEngine? = nil, store: Store? = nil, previewPrinters: [PrinterInfo]? = nil,
+         folders: WatchedFoldersSection.Folders? = nil) {
         self.engine = engine ?? .shared
         self.providedStore = store
         self.previewPrinters = previewPrinters
+        self.folders = folders ?? .live
     }
 
     private struct EditRequest: Identifiable {
@@ -36,33 +39,34 @@ struct RulesSettingsView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("The first rule that matches, from the top, decides how a file prints.")
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+        VStack(alignment: .leading, spacing: 16) {
+            WatchedFoldersSection(folders: folders, store: providedStore ?? store)
 
-            WatchedFoldersRow()
-
-            VStack(spacing: 0) {
-                list
-                Divider()
-                FallbackRow(summary: RuleSummary.outcome(engine.fallback.outcome, printers: printers),
-                            matched: test?.ruleID == engine.fallback.id) { edit(engine.fallback.id) }
-                Divider()
-                toolbar
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Rules").font(.headline)
+                Text("The first rule that matches, from the top, decides how a file prints.")
+                    .font(.callout).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                VStack(spacing: 0) {
+                    list
+                    Divider()
+                    FallbackRow(matched: test?.ruleID == engine.fallback.id)
+                    Divider()
+                    toolbar
+                }
+                .background(Color(nsColor: .controlBackgroundColor))
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+                .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color(nsColor: .separatorColor)))
             }
-            .background(Color(nsColor: .controlBackgroundColor))
-            .clipShape(RoundedRectangle(cornerRadius: 6))
-            .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color(nsColor: .separatorColor)))
 
             TestFileBox(result: $test, engine: engine, printers: printers, current: current, decide: decide)
         }
         .padding(20)
-        .frame(width: 680, height: 600)
+        .frame(width: 680, height: 760)
         .onAppear(perform: loadPrinters)
         .sheet(item: $editing) { request in
-            RuleEditorView(rule: request.rule, isFallback: request.rule.id == engine.fallback.id,
-                           printers: printers, current: current) { rule in
+            RuleEditorView(rule: request.rule, printers: printers, current: current,
+                           defaults: { [store] p in store?.options(for: p) ?? LabelOptions() }) { rule in
                 if request.isNew { engine.add(rule); selection = [rule.id] } else { engine.update(rule) }
             }
         }
@@ -88,16 +92,14 @@ struct RulesSettingsView: View {
         }
         .listStyle(.inset)
         .scrollContentBackground(.hidden)
-        .frame(minHeight: 200, maxHeight: .infinity)
+        .frame(minHeight: 150, maxHeight: .infinity)
         .contextMenu(forSelectionType: Rule.ID.self) { ids in
             if ids.count == 1, let id = ids.first {
                 Button("Edit…") { edit(id) }
-                if id != engine.fallback.id {
-                    Button("Duplicate") { engine.duplicate(id) }
-                    Button("Move to Top") { moveToTop(id) }
-                }
+                Button("Duplicate") { engine.duplicate(id) }
+                Button("Move to Top") { moveToTop(id) }
             }
-            if !ids.subtracting([engine.fallback.id]).isEmpty {
+            if !ids.isEmpty {
                 Divider()
                 Button("Delete", role: .destructive) { delete(ids) }
             }
@@ -127,15 +129,13 @@ struct RulesSettingsView: View {
 
             Button { delete(selection) } label: { Image(systemName: "minus").frame(width: 24, height: 20) }
                 .buttonStyle(.borderless)
-                .disabled(selection.subtracting([engine.fallback.id]).isEmpty)
+                .disabled(selection.isEmpty)
                 .help("Delete the selected rule").accessibilityLabel("Delete Rule")
 
             Spacer()
 
-            Text("Drag to reorder.").font(.caption).foregroundStyle(.tertiary)
+            Text("Double-click to edit. Drag to reorder.").font(.caption).foregroundStyle(.tertiary)
                 .padding(.trailing, 8)
-            Button("Edit…") { selection.first.map(edit) }
-                .disabled(selection.count != 1)
         }
         .padding(.horizontal, 6).padding(.vertical, 4)
     }
@@ -147,7 +147,7 @@ struct RulesSettingsView: View {
     // MARK: Actions
 
     private func loadPrinters() {
-        if let previewPrinters { printers = previewPrinters; return }
+        if let previewPrinters { printers = previewPrinters; store = providedStore; return }
         let s = providedStore ?? store ?? Store()
         s.refresh()
         store = s
@@ -155,12 +155,12 @@ struct RulesSettingsView: View {
     }
 
     private func decide(_ ctx: RuleContext) -> RuleDecision? {
-        engine.decide(ctx, printers: printers, current: current, defaults: { p in store?.options(for: p) ?? LabelOptions() })
+        engine.decide(ctx, printers: printers, current: current, defaults: { p in store?.options(for: p) ?? LabelOptions() },
+                      unattended: store?.newFilesAction ?? .ask)
     }
 
     private func edit(_ id: Rule.ID) {
-        if id == engine.fallback.id { editing = EditRequest(rule: engine.fallback, isNew: false) }
-        else if let rule = engine.rules.first(where: { $0.id == id }) { editing = EditRequest(rule: rule, isNew: false) }
+        if let rule = engine.rules.first(where: { $0.id == id }) { editing = EditRequest(rule: rule, isNew: false) }
     }
 
     private func newRule() {
@@ -173,7 +173,6 @@ struct RulesSettingsView: View {
     }
 
     private func delete(_ ids: Set<Rule.ID>) {
-        let ids = ids.subtracting([engine.fallback.id])
         guard !ids.isEmpty else { return }
         engine.remove(ids)
         selection.subtract(ids)
@@ -216,11 +215,9 @@ private struct RuleRow: View {
     }
 }
 
-/// Pinned under the list so it's always visible and can't be moved or deleted.
+/// Pinned under the list so it's always visible and can't be moved, edited or deleted.
 private struct FallbackRow: View {
-    let summary: String
     let matched: Bool
-    let onEdit: () -> Void
 
     var body: some View {
         HStack(alignment: .center, spacing: 8) {
@@ -228,16 +225,12 @@ private struct FallbackRow: View {
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
                 Text("Everything else").fontWeight(.medium)
-                Text("Any other file: \(summary)").font(.callout).foregroundStyle(.secondary).lineLimit(1)
+                Text("Default printer and its settings").font(.callout).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer(minLength: 8)
             if matched { MatchBadge() }
-            Button("Edit…", action: onEdit).controlSize(.small)
-                .accessibilityLabel("Edit Everything else")
         }
         .padding(.horizontal, 14).padding(.vertical, 7)
-        .contentShape(Rectangle())
-        .onTapGesture(count: 2, perform: onEdit)
         .help("Applies when no rule above matches.")
         .accessibilityElement(children: .combine)
     }

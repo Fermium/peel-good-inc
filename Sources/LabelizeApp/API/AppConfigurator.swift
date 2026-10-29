@@ -42,6 +42,7 @@ final class AppConfigurator {
                 "defaultPrinter": store.printer?.name ?? NSNull(),
                 "countdownSeconds": store.countdown,
                 "alwaysPreview": store.alwaysReview,
+                "newFilesAction": store.newFilesAction.rawValue,
                 "playSounds": store.playSounds,
                 "hiddenPrinters": store.hiddenPrinters,
             ] as [String: Any],
@@ -70,7 +71,10 @@ final class AppConfigurator {
     }
 
     func listRules() throws -> [String: Any] {
-        ["rules": try rules.rules.map(Self.object), "everythingElse": try Self.object(rules.fallback)]
+        var fallback = try Self.object(rules.fallback)
+        fallback["outcome"] = nil
+        fallback["description"] = "Default printer and its settings."
+        return ["rules": try rules.rules.map(Self.object), "everythingElse": fallback]
     }
 
     func rule(_ id: String) throws -> [String: Any] {
@@ -100,6 +104,12 @@ final class AppConfigurator {
             case "alwaysPreview":
                 let v = try Self.bool(value, key)
                 steps.append { self.change(key, self.store.alwaysReview, v) { self.store.alwaysReview = v } }
+            case "newFilesAction":
+                let text = try Self.string(value, key)
+                guard let v = RuleAction(rawValue: text) else {
+                    throw APIError.badRequest("newFilesAction must be \(RuleAction.allCases.map(\.rawValue).joined(separator: ", ")).", code: "invalid_newFilesAction")
+                }
+                steps.append { self.change(key, self.store.newFilesAction.rawValue, v.rawValue) { self.store.newFilesAction = v } }
             case "playSounds":
                 let v = try Self.bool(value, key)
                 steps.append { self.change(key, self.store.playSounds, v) { self.store.playSounds = v } }
@@ -228,22 +238,10 @@ final class AppConfigurator {
         return try Self.object(rule)
     }
 
-    /// "Everything else": only its outcome can change; it never has conditions.
+    /// "Everything else" is fixed: the default printer and its settings.
     func updateEverythingElse(_ input: [String: Any]) throws -> [String: Any] {
-        if let extra = input.keys.first(where: { $0 != "outcome" }) {
-            throw APIError.badRequest("Only outcome can change on Everything else, not \(extra).", code: "invalid_rule")
-        }
-        let old = rules.fallback
-        var merged = try Self.object(old)
-        if let outcome = input["outcome"] {
-            guard let o = outcome as? [String: Any] else { throw APIError.badRequest("outcome must be an object.", code: "invalid_rule") }
-            merged["outcome"] = Self.merge(merged["outcome"] as? [String: Any] ?? [:], Self.normalizeOutcome(o))
-        }
-        var rule = try decodeRule(merged)
-        rule.conditions = []
-        rules.fallback = rule
-        Log.notice(.api, "MCP changed Everything else: \(Self.dump(old.outcome)) → \(Self.dump(rule.outcome))")
-        return try Self.object(rule)
+        throw APIError.badRequest("Everything else always uses the default printer and its settings. Change those with update_settings and set_printer_settings, or add a rule.",
+                                  code: "protected_rule")
     }
 
     func deleteRule(_ id: String) throws -> String {

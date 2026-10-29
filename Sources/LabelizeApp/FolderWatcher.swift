@@ -149,36 +149,82 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
     }
 }
 
-/// The watched folders, as a compact row of chips above the rules.
-struct WatchedFoldersRow: View {
-    @ObservedObject var watcher = FolderWatcher.shared
+/// Rules > Watched Folders: the folders, + and −, and what new files do when no rule says otherwise.
+struct WatchedFoldersSection: View {
+    enum Folders {
+        /// `FolderWatcher.shared`, saved and watched.
+        case live
+        /// A fixed list kept in memory (screenshots, previews).
+        case preview([URL])
+    }
+
+    let folders: Folders
+    let store: Store?
+    @ObservedObject private var watcher = FolderWatcher.shared
+    @State private var previewList: [URL] = []
+    @State private var selection: URL?
+
+    init(folders: Folders, store: Store?) {
+        self.folders = folders
+        self.store = store
+    }
+
+    private var list: [URL] {
+        if case .live = folders { return watcher.folders }
+        return previewList
+    }
+
+    private func set(_ urls: [URL]) {
+        if case .live = folders { watcher.folders = urls } else { previewList = urls }
+    }
 
     var body: some View {
-        HStack(spacing: 6) {
-            Text("Watch").foregroundStyle(.secondary)
-            if watcher.folders.isEmpty {
-                Text("No folders").foregroundStyle(.tertiary)
-            }
-            ForEach(watcher.folders, id: \.self) { folder in
-                HStack(spacing: 4) {
-                    Image(nsImage: NSWorkspace.shared.icon(forFile: folder.path)).resizable().frame(width: 14, height: 14)
-                    Text(folder.lastPathComponent)
-                    Button { watcher.folders.removeAll { $0 == folder } } label: {
-                        Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Watched Folders").font(.headline)
+            VStack(spacing: 0) {
+                List(selection: $selection) {
+                    ForEach(list, id: \.self) { folder in
+                        HStack(spacing: 8) {
+                            Image(nsImage: NSWorkspace.shared.icon(forFile: folder.path)).resizable().frame(width: 18, height: 18)
+                            Text(folder.lastPathComponent)
+                            Text((folder.deletingLastPathComponent().path as NSString).abbreviatingWithTildeInPath)
+                                .font(.callout).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                        }
+                        .help(folder.path)
+                        .tag(folder)
                     }
-                    .buttonStyle(.plain)
-                    .help("Stop watching \(folder.lastPathComponent)")
+                    if list.isEmpty {
+                        Text("No folders. Click + to watch one.")
+                            .font(.callout).foregroundStyle(.secondary)
+                            .selectionDisabled()
+                    }
                 }
-                .padding(.horizontal, 7).padding(.vertical, 3)
-                .background(Capsule().fill(Color.primary.opacity(0.07)))
-                .help(folder.path)
-            }
-            Button { add() } label: { Image(systemName: "plus") }
+                .listStyle(.inset)
+                .scrollContentBackground(.hidden)
+                .frame(height: 74)
+                .onDeleteCommand(perform: removeSelected)
+                Divider()
+                HStack(spacing: 0) {
+                    Button(action: add) { Image(systemName: "plus").frame(width: 24, height: 20) }
+                        .help("Watch a folder").accessibilityLabel("Add Folder")
+                    Divider().frame(height: 16)
+                    Button(action: removeSelected) { Image(systemName: "minus").frame(width: 24, height: 20) }
+                        .disabled(selection == nil)
+                        .help("Stop watching the selected folder").accessibilityLabel("Remove Folder")
+                    Spacer()
+                    if let store { NewFilesPicker(store: store) }
+                }
                 .buttonStyle(.borderless)
-                .help("Watch a folder")
-            Spacer()
+                .padding(.horizontal, 6).padding(.vertical, 4)
+            }
+            .background(Color(nsColor: .controlBackgroundColor))
+            .clipShape(RoundedRectangle(cornerRadius: 6))
+            .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color(nsColor: .separatorColor)))
+            Text("New files in these folders go through the rules. Ask sends a notification with Print and Preview.")
+                .font(.callout).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
-        .font(.callout)
+        .onAppear { if case .preview(let urls) = folders { previewList = urls } }
     }
 
     private func add() {
@@ -187,7 +233,28 @@ struct WatchedFoldersRow: View {
         panel.canChooseFiles = false
         panel.prompt = "Watch"
         panel.directoryURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
-        guard panel.runModal() == .OK, let url = panel.url, !watcher.folders.contains(url) else { return }
-        watcher.folders.append(url)
+        guard panel.runModal() == .OK, let url = panel.url, !list.contains(url) else { return }
+        set(list + [url])
+    }
+
+    private func removeSelected() {
+        guard let selection else { return }
+        set(list.filter { $0 != selection })
+        self.selection = nil
+    }
+}
+
+/// "New files: Ask / Print / Show preview", the default for watched folders.
+private struct NewFilesPicker: View {
+    @ObservedObject var store: Store
+
+    var body: some View {
+        Picker("New files", selection: Binding(get: { store.newFilesAction }, set: { store.newFilesAction = $0 })) {
+            Text(RuleAction.ask.title).tag(RuleAction.ask)
+            Text(RuleAction.print.title).tag(RuleAction.print)
+            Text(RuleAction.review.title).tag(RuleAction.review)
+        }
+        .fixedSize()
+        .font(.callout)
     }
 }

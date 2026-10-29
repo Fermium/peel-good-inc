@@ -7,7 +7,7 @@ import XCTest
 @MainActor
 final class APITests: XCTestCase {
     let port = 47_377
-    let keys = ["apiHTTPEnabled", "apiMCPEnabled", "apiPort", "apiMCPLocalFiles", "apiMCPSettings", "playSounds", "tagColor"]
+    let keys = ["apiHTTPEnabled", "apiMCPEnabled", "apiPort", "apiMCPLocalFiles", "apiMCPSettingsGrant", "apiMCPSettingsUntil", "playSounds", "tagColor"]
 
     override func tearDown() async throws {
         let api = APIController.shared
@@ -160,9 +160,16 @@ final class APITests: XCTestCase {
         XCTAssertEqual(config.rules.rules[0].conditions.first?.values, ["amazon.com"])
         r = await tool("add_rule", ["rule": ["name": "Bad", "conditions": [["field": "kind", "op": "contains", "values": ["pdf"]]]]])
         XCTAssertEqual(r.isError, true)
+        // Everything else is fixed: the default printer and its settings.
         r = await tool("update_rule", ["id": "everything-else", "rule": ["outcome": ["copies": 2]]])
+        XCTAssertEqual(r.isError, true)
+        XCTAssertTrue(text(r).contains("protected_rule"), text(r))
+        XCTAssertEqual(config.rules.fallback.outcome.copies, 1)
+        r = await tool("update_settings", ["newFilesAction": "review"])
         XCTAssertNotEqual(r.isError, true, text(r))
-        XCTAssertEqual(config.rules.fallback.outcome.copies, 2)
+        XCTAssertEqual(config.store.newFilesAction, .review)
+        r = await tool("update_settings", ["newFilesAction": "later"])
+        XCTAssertEqual(r.isError, true)
         r = await tool("delete_rule", ["id": .string(id)])
         XCTAssertNotEqual(r.isError, true)
         XCTAssertTrue(config.rules.rules.isEmpty)
@@ -216,27 +223,63 @@ final class APITests: XCTestCase {
 
     func testSettingsPermissionTurnsOffAfter45Minutes() {
         let api = APIController.shared
-        let saved = (api.mcpCanChangeSettings, api.mcpSettingsAutoOff)
-        defer { api.mcpSettingsAutoOff = saved.1; api.mcpCanChangeSettings = saved.0 }
+        let saved = api.mcpSettingsGrant
+        defer { api.mcpSettingsGrant = saved }
 
-        api.mcpSettingsAutoOff = true
-        api.mcpCanChangeSettings = true
+        api.mcpSettingsGrant = .timed
         XCTAssertTrue(api.mcpCanChangeSettings)
         let left = api.mcpSettingsUntil?.timeIntervalSinceNow ?? 0
         XCTAssertEqual(left, APIController.settingsGrant, accuracy: 5)
 
-        // Turning the timer off makes it permanent.
-        api.mcpSettingsAutoOff = false
+        // Always has no end time.
+        api.mcpSettingsGrant = .always
         XCTAssertNil(api.mcpSettingsUntil)
         XCTAssertTrue(api.mcpCanChangeSettings)
 
         // An expired grant reads as off, even before the timer fires.
-        api.mcpSettingsAutoOff = true
+        api.mcpSettingsGrant = .timed
         UserDefaults.standard.set(Date().addingTimeInterval(-1), forKey: "apiMCPSettingsUntil")
         XCTAssertFalse(api.mcpCanChangeSettings)
+        XCTAssertEqual(api.mcpSettingsGrant, .off)
 
         api.mcpCanChangeSettings = false
         XCTAssertNil(api.mcpSettingsUntil)
+
+        // Turning it on without picking grants 45 minutes.
+        api.mcpCanChangeSettings = true
+        XCTAssertEqual(api.mcpSettingsGrant, .timed)
+    }
+
+    /// The old switch and "Turn off after 45 minutes" become the pop-up, once.
+    func testSettingsPermissionMigratesFromSwitch() {
+        let api = APIController.shared
+        let saved = api.mcpSettingsGrant
+        let d = UserDefaults.standard
+        defer {
+            ["apiMCPSettings", "apiMCPSettingsAutoOff"].forEach(d.removeObject)
+            api.mcpSettingsGrant = saved
+        }
+        func migrate(on: Bool, autoOff: Bool?) -> APIController.SettingsGrant {
+            d.removeObject(forKey: "apiMCPSettingsGrant")
+            d.set(on, forKey: "apiMCPSettings")
+            if let autoOff { d.set(autoOff, forKey: "apiMCPSettingsAutoOff") } else { d.removeObject(forKey: "apiMCPSettingsAutoOff") }
+            d.set(Date().addingTimeInterval(600), forKey: "apiMCPSettingsUntil")
+            api.migrateSettingsGrant()
+            XCTAssertNil(d.object(forKey: "apiMCPSettings"))
+            XCTAssertNil(d.object(forKey: "apiMCPSettingsAutoOff"))
+            return api.mcpSettingsGrant
+        }
+        XCTAssertEqual(migrate(on: false, autoOff: nil), .off)
+        XCTAssertEqual(migrate(on: true, autoOff: nil), .timed)
+        XCTAssertEqual(api.mcpSettingsUntil?.timeIntervalSinceNow ?? 0, 600, accuracy: 5, "keeps the end time")
+        XCTAssertEqual(migrate(on: true, autoOff: true), .timed)
+        XCTAssertEqual(migrate(on: true, autoOff: false), .always)
+        XCTAssertNil(api.mcpSettingsUntil)
+
+        // Already migrated: left alone.
+        d.set(true, forKey: "apiMCPSettings")
+        api.migrateSettingsGrant()
+        XCTAssertEqual(api.mcpSettingsGrant, .always)
     }
 
     private func waitFor(_ condition: @escaping @MainActor () -> Bool, timeout: TimeInterval = 5) async throws {
