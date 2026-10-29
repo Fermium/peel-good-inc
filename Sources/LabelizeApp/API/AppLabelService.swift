@@ -3,9 +3,10 @@ import ImageIO
 import LabelKit
 import UniformTypeIdentifiers
 
-/// The real `LabelService`: composes with LabelKit, keeps a copy in the history folder,
-/// sends it with `lp`, then does what a drop does after printing (last print, sound, tag/move).
-/// API prints go straight to the printer: no popover, no countdown.
+/// The real `LabelService`. Prints go through the same flow as a drop: the rules (trigger "From another app",
+/// with the request's printer, size, fit, ink and copies on top), then the popover with its countdown, or the
+/// preview when "Ask first" is set or the rule says preview or ask. Each call waits for the outcome
+/// (printed, cancelled, failed) up to `waitLimit`, then returns status waiting; `jobs()` shows how it ended.
 @MainActor
 final class AppLabelService: LabelService {
     typealias Sender = @Sendable (_ file: URL, _ printer: String, _ size: LabelSize, _ copies: Int) throws -> String
@@ -13,7 +14,12 @@ final class AppLabelService: LabelService {
     let store: Store
     /// Swappable so tests and `-apiDryRun` never reach a printer.
     var sender: Sender
+    /// Shows jobs (the app's popover). Without one, jobs run headless, which only tests do.
+    weak var presenter: JobPresenter?
+    var rules: RuleEngine = .shared
+    var waitLimit: Duration = .seconds(120)
     private var recent: [APIJob] = []
+    private var waiters: [String: CheckedContinuation<Void, Never>] = [:]
     nonisolated static let maxJobs = 50
     nonisolated static let maxCopies = 100
 
@@ -54,14 +60,13 @@ final class AppLabelService: LabelService {
 
     func print(files: [URL], request: APIPrintRequest, source: String) async throws -> APIJob {
         guard !files.isEmpty else { throw APIError.badRequest("No file to print.", code: "no_file") }
-        let (printer, options) = try resolve(request)
-        let copies = try Self.copies(request.copies)
-        return try await send(files, printer: printer, options: options, copies: copies, source: source)
+        return try await run(files, plan: try await plan(files, request), source: source)
     }
 
     func preview(files: [URL], request: APIPrintRequest) async throws -> APIPreview {
         guard !files.isEmpty else { throw APIError.badRequest("No file to preview.", code: "no_file") }
-        let (printer, options) = try resolve(request)
+        let plan = try await plan(files, request)
+        let printer = plan.printer, options = plan.options
         let labels = try await Self.compose(files, options)
         let images = try await Task.detached(priority: .userInitiated) {
             try labels.enumerated().map { i, label in
@@ -69,11 +74,13 @@ final class AppLabelService: LabelService {
                     throw APIError.failed("Couldn't render label \(i + 1).", code: "render_failed")
                 }
                 return APILabelPreview(index: i, width: image.width, height: image.height, png: png,
+                                       ink: label.ink.rawValue, scalePercent: Self.percent(label), rotated: label.rotated,
                                        codes: Self.codes(label), warnings: label.warnings)
             }
         }.value
         let summary = Self.summary(labels)
-        return APIPreview(printer: printer.name, size: options.size.description, labels: labels.count,
+        return APIPreview(printer: printer.name, size: options.size.description, rule: plan.rule, copies: plan.copies,
+                          action: plan.review ? "review" : "countdown", labels: labels.count,
                           codesFound: summary.found, codesVerified: summary.verified, codesMissing: summary.missing,
                           warnings: summary.warnings, images: images)
     }
@@ -95,7 +102,8 @@ final class AppLabelService: LabelService {
         options.size = printer.resolve(last.size) ?? last.size
         options.crop = .none
         options.nudgeMM = .zero
-        return try await send([last.file], printer: printer, options: options, copies: try Self.copies(copies), source: APIJob.Source.reprint)
+        let plan = Plan(printer: printer, options: options, copies: try Self.copies(copies), review: store.alwaysReview, decision: nil)
+        return try await run([last.file], plan: plan, source: APIJob.Source.reprint)
     }
 
     func jobs() -> [APIJob] { recent }
@@ -108,50 +116,100 @@ final class AppLabelService: LabelService {
 
     // MARK: Printing
 
-    private func send(_ files: [URL], printer: PrinterInfo, options: LabelOptions, copies: Int, source: String) async throws -> APIJob {
-        Log.info(.api, "\(source) job: \(files.map(\.lastPathComponent).joined(separator: ", ")) on \(printer.name) at \(options.size), \(copies) copies")
-        let labels = try await Self.compose(files, options)
-        let summary = Self.summary(labels)
-        var job = APIJob(id: UUID().uuidString, created: Date(), source: source, status: .failed,
-                         files: files.map(\.lastPathComponent), printer: printer.name, size: options.size.description,
-                         copies: copies, labels: labels.count, codesFound: summary.found, codesVerified: summary.verified,
-                         codesMissing: summary.missing, warnings: summary.warnings)
-        guard !labels.isEmpty else {
-            job.error = "Nothing to print."
-            record(job)
-            throw APIError.unprocessable("Nothing to print.", code: "empty")
-        }
+    struct Plan {
+        var printer: PrinterInfo
+        var options: LabelOptions
+        var copies: Int
+        /// Wait for Print in the preview instead of counting down.
+        var review: Bool
+        var decision: RuleDecision?
+        /// The matching rule's name, "Everything else", or nil for reprints.
+        var rule: String? { decision.map { $0.isFallback ? "Everything else" : $0.rule.displayName } }
+    }
 
-        let name = files.first?.deletingPathExtension().lastPathComponent ?? "label"
-        let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
-        let url = Store.historyFolder.appendingPathComponent("\(stamp) \(name).label.pdf")
-        let size = options.size, sender = sender
-        do {
-            let id = try await Task.detached(priority: .userInitiated) {
-                if printer.isLabelPrinter {
-                    try LabelWriter.writePDF(labels, size: size, to: url)
-                } else {
-                    try LabelWriter.writeVectorPDF(labels, size: size, to: url)
-                }
-                return try sender(url, printer.name, size, copies)
-            }.value
-            Log.notice(.print, "API sent \(labels.count) label(s) × \(copies) to \(printer.name) (media \(size.cupsMedia)): \(id)")
-            job.status = .printed
-            job.savedPDF = url.path
-            job.printerJobID = id
-            record(job)
-            store.lastPrint = Store.LastPrint(file: url, printer: printer.name, size: size)
-            Sounds.play(Sounds.sent, if: store.playSounds)
-            // Only files already on this Mac (MCP, with permission) get tagged or moved; uploads are temporary copies.
-            if source == APIJob.Source.localFile { AfterPrint.apply(to: files, store: store) }
-            History.prune(keepingDays: store.historyDays)
-            return job
-        } catch {
-            Log.error(.print, "API print failed on \(printer.name): \(error)")
-            job.error = "\(error)"
-            record(job)
-            throw APIError.failed("\(error)")
+    /// The rule for the first file, with the request's options on top. A rule without an action
+    /// counts down like a drop; "Ask first", or a rule that previews or asks, waits for Print.
+    func plan(_ files: [URL], _ r: APIPrintRequest) async throws -> Plan {
+        store.refresh()
+        let forced = try r.printer.map { try findPrinter($0) }
+        guard let d = await JobFlow.decide(files, trigger: .api, store: store, engine: rules, forcedPrinter: forced) else {
+            throw APIError.notFound("No label printer found.", code: "no_printer")
         }
+        let options = try Self.override(d.options, with: r, on: d.printer)
+        let copies = try r.copies.map { try Self.copies($0) } ?? d.copies
+        let action = d.rule.outcome.action ?? .print
+        return Plan(printer: d.printer, options: options, copies: copies, review: store.alwaysReview || action != .print, decision: d)
+    }
+
+    private func run(_ files: [URL], plan: Plan, source: String) async throws -> APIJob {
+        let job = JobFlow.makeJob(files, printer: plan.printer, options: plan.options, review: plan.review,
+                                  decision: plan.decision, copies: plan.copies, store: store)
+        job.sender = sender
+        let id = UUID().uuidString
+        record(APIJob(id: id, created: Date(), source: source, status: .waiting, files: files.map(\.lastPathComponent),
+                      printer: plan.printer.name, size: plan.options.size.description, copies: plan.copies, labels: 0,
+                      codesFound: 0, codesVerified: 0, codesMissing: [], warnings: [], rule: plan.rule,
+                      action: plan.review ? "review" : "countdown"))
+        Log.info(.api, "\(source) job \(id): \(files.map(\.lastPathComponent).joined(separator: ", ")) on \(plan.printer.name) at \(plan.options.size), \(plan.copies) copies, rule \(plan.rule ?? "none"), \(plan.review ? "waiting for Print" : "countdown \(store.countdown)s")")
+        job.onOutcome = { [weak self, weak job] outcome in
+            guard let self, let job else { return }
+            self.finished(id, job, outcome)
+        }
+        if let presenter { presenter.present(job) } else { job.start() }
+
+        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+            if job.outcome != nil { return done.resume() }
+            waiters[id] = done
+            let limit = waitLimit
+            Task { [weak self] in
+                try? await Task.sleep(for: limit)
+                self?.waiters.removeValue(forKey: id)?.resume()
+            }
+        }
+        if job.outcome == nil && !job.labels.isEmpty { fill(id, from: job) }   // still waiting: report what's composed so far
+        guard let result = recent.first(where: { $0.id == id }) else { throw APIError.failed("Job \(id) went missing.", code: "internal") }
+        if result.status == .failed {
+            if result.labels == 0 && job.labels.isEmpty { throw APIError.unprocessable(result.error ?? "Nothing to print.", code: "unreadable") }
+            throw APIError.failed(result.error ?? "Printing failed.")
+        }
+        if result.status == .waiting { Log.info(.api, "job \(id) still waiting after \(waitLimit); jobs shows how it ends") }
+        return result
+    }
+
+    /// Labels, codes and per-label details from the job, once it has composed.
+    private func fill(_ id: String, from job: PrintJob) {
+        guard let i = recent.firstIndex(where: { $0.id == id }) else { return }
+        var r = recent[i]
+        let summary = Self.summary(job.labels)
+        r.labels = job.labels.count
+        r.codesFound = summary.found
+        r.codesVerified = summary.verified
+        r.codesMissing = summary.missing
+        r.warnings = job.notes + summary.warnings
+        r.labelDetails = job.labels.enumerated().map { Self.detail($1, index: $0) }
+        r.printer = job.printer.name
+        r.size = job.options.size.description
+        recent[i] = r
+    }
+
+    private func finished(_ id: String, _ job: PrintJob, _ outcome: PrintJob.Outcome) {
+        fill(id, from: job)
+        guard let i = recent.firstIndex(where: { $0.id == id }) else { return }
+        var r = recent[i]
+        switch outcome {
+        case .printed(let file, let printerJobID):
+            r.status = .printed
+            r.savedPDF = file.path
+            r.printerJobID = printerJobID
+        case .cancelled:
+            r.status = .cancelled
+        case .failed(let message):
+            r.status = .failed
+            r.error = message
+        }
+        recent[i] = r
+        Log.info(.api, "job \(id) \(r.status.rawValue)")
+        waiters.removeValue(forKey: id)?.resume()
     }
 
     /// Every page of every file becomes a label, in order.
@@ -178,10 +236,9 @@ final class AppLabelService: LabelService {
         throw APIError.notFound("Printer \(name) not found.", code: "printer_not_found")
     }
 
-    func resolve(_ r: APIPrintRequest) throws -> (PrinterInfo, LabelOptions) {
-        store.refresh()
-        let printer = try findPrinter(r.printer)
-        var o = store.options(for: printer)
+    /// The request's size, fit and ink on top of the rule's (or the printer's) options.
+    static func override(_ base: LabelOptions, with r: APIPrintRequest, on printer: PrinterInfo) throws -> LabelOptions {
+        var o = base
         if let text = r.size {
             guard let wanted = LabelSize(parsing: text) else {
                 throw APIError.badRequest("Size \(text) isn't valid. Use a size like 4x6 or 100x150mm.", code: "invalid_size")
@@ -200,7 +257,7 @@ final class AppLabelService: LabelService {
             guard let ink = InkMode(rawValue: text.lowercased()) else { throw APIError.badRequest("Ink must be auto, crisp or photo.", code: "invalid_ink") }
             o.ink = ink
         }
-        return (printer, o)
+        return o
     }
 
     static func copies(_ n: Int?) throws -> Int {
@@ -219,6 +276,14 @@ final class AppLabelService: LabelService {
                            severity: report?.severity.description, message: report?.message)
         }
     }
+
+    /// How one label came out: the ink actually used, its scale, rotation and codes.
+    nonisolated static func detail(_ label: ComposedLabel, index: Int) -> APILabelInfo {
+        APILabelInfo(index: index, ink: label.ink.rawValue, scalePercent: percent(label), rotated: label.rotated,
+                     codes: codes(label), warnings: label.warnings)
+    }
+
+    nonisolated static func percent(_ label: ComposedLabel) -> Double { (Double(label.scale) * 1000).rounded() / 10 }
 
     nonisolated static func summary(_ labels: [ComposedLabel]) -> (found: Int, verified: Int, missing: [String], warnings: [String]) {
         let found = labels.reduce(0) { $0 + $1.expectedCodes.count }

@@ -194,7 +194,8 @@ enum OpenAPI {
             Field("id", .string(format: "uuid"), required: true),
             Field("created", .string(format: "date-time"), required: true),
             Field("source", .string("Files sent with the request.", values: ["upload"]), required: true),
-            Field("status", .string(values: ["printed", "failed"]), required: true),
+            Field("status", .string("waiting: still counting down, or waiting for Print in the preview, when the reply was sent. List jobs to see how it ended.",
+                                    values: ["printed", "cancelled", "failed", "waiting"]), required: true),
             Field("files", .array(.string()), required: true),
             Field("printer", .string(), required: true),
             Field("size", .string(), required: true),
@@ -206,18 +207,36 @@ enum OpenAPI {
             Field("warnings", .array(.string()), required: true),
             Field("printerJobID", .string("Job id from the print system.")),
             Field("error", .string()),
+            Field("rule", .string("The rule that matched, or Everything else.")),
+            Field("action", .string("countdown: prints after the countdown unless cancelled. review: waits for Print in the preview.",
+                                    values: ["countdown", "review"])),
+            Field("labelDetails", .array(.ref("LabelInfo"), "Per label, once composed.")),
+        ])),
+        ("LabelInfo", .object([
+            Field("index", .integer(), required: true),
+            Field("ink", .string("The ink used. Auto picks one per label.", values: ["crisp", "photo"]), required: true),
+            Field("scalePercent", .number("Source to label scale."), required: true),
+            Field("rotated", .boolean(), required: true),
+            Field("codes", .array(.ref("Code")), required: true),
+            Field("warnings", .array(.string()), required: true),
         ])),
         ("LabelPreview", .object([
             Field("index", .integer(), required: true),
             Field("width", .integer("Pixels at printer resolution."), required: true),
             Field("height", .integer(), required: true),
             Field("png", .string("PNG image, base64.", format: "byte"), required: true),
+            Field("ink", .string("The ink used. Auto picks one per label.", values: ["crisp", "photo"]), required: true),
+            Field("scalePercent", .number("Source to label scale."), required: true),
+            Field("rotated", .boolean(), required: true),
             Field("codes", .array(.ref("Code")), required: true),
             Field("warnings", .array(.string()), required: true),
         ])),
         ("Preview", .object([
             Field("printer", .string(), required: true),
             Field("size", .string(), required: true),
+            Field("rule", .string("The rule that matched, or Everything else.")),
+            Field("copies", .integer(), required: true),
+            Field("action", .string("What printing would do.", values: ["countdown", "review"]), required: true),
             Field("labels", .integer(), required: true),
             Field("codesFound", .integer(), required: true),
             Field("codesVerified", .integer(), required: true),
@@ -246,11 +265,16 @@ enum OpenAPI {
                                 source: "upload", status: .printed, files: ["order-1234-label.pdf"], printer: "MUNBYN_ITPP941AP",
                                 size: "4x6", copies: 1, labels: 2, codesFound: 2, codesVerified: 2, codesMissing: [], warnings: [],
                                 savedPDF: nil,
-                                printerJobID: "MUNBYN_ITPP941AP-42", error: nil)
+                                printerJobID: "MUNBYN_ITPP941AP-42", error: nil, rule: "Everything else", action: "countdown",
+                                labelDetails: [info(0), info(1)])
+        static func info(_ i: Int) -> APILabelInfo {
+            APILabelInfo(index: i, ink: "crisp", scalePercent: 100, rotated: false, codes: [code], warnings: [])
+        }
         static let code = APICode(symbology: "QR", payload: "1Z999AA10123456784", scannable: true, severity: "ok", message: nil)
-        static let preview = APIPreview(printer: "MUNBYN_ITPP941AP", size: "4x6", labels: 1, codesFound: 1, codesVerified: 1,
-                                        codesMissing: [], warnings: [],
-                                        images: [APILabelPreview(index: 0, width: 812, height: 1218, png: Data("PNG…".utf8), codes: [code], warnings: [])])
+        static let preview = APIPreview(printer: "MUNBYN_ITPP941AP", size: "4x6", rule: "Everything else", copies: 1, action: "countdown",
+                                        labels: 1, codesFound: 1, codesVerified: 1, codesMissing: [], warnings: [],
+                                        images: [APILabelPreview(index: 0, width: 812, height: 1218, png: Data("PNG…".utf8), ink: "crisp",
+                                                                 scalePercent: 100, rotated: false, codes: [code], warnings: [])])
         static let health = APIHealth(status: "ok", version: "0.1", http: true, mcp: true, port: APISettings.defaultPort)
         static let error = APIErrorBody(error: .init(code: "printer_not_found", message: "Printer Zebra not found."))
     }
@@ -304,10 +328,12 @@ enum OpenAPI {
                                         schema: .string("Queue name or display name."), example: Example.printer.name)],
                  responses: [ok("Sizes.", .array(.ref("Size")), [Example.size]), error(404, "No such printer.")] + common),
         Endpoint(verb: .post, path: "/v1/print", operationID: "print", tag: "Printing", summary: "Print a file",
-                 detail: "Prints files sent with the request, as multipart form data or as the raw body. Every page of every file prints, right away. Files on this Mac, the clipboard and reprinting aren't available over HTTP.",
+                 detail: "Prints files sent with the request, as multipart form data or as the raw body. Every page of every file prints. It goes through the rules (How it arrives: From another app) and the popover like a dropped file: the countdown can be cancelled, and with Ask first, or a rule that previews or asks, it waits for Print. The reply comes when the job ends, or after 120 seconds with status waiting. Files on this Mac, the clipboard and reprinting aren't available over HTTP.",
                  parameters: optionParameters,
                  body: printBody, bodyRequired: true,
-                 responses: [ok("Sent to the printer.", .ref("Job"), Example.job)] + uploadErrors
+                 responses: [ok("The job ended: printed or cancelled.", .ref("Job"), Example.job),
+                             Response(status: 202, description: "Still waiting after 120 seconds. List jobs later to see how it ended.",
+                                      content: [json(.ref("Job"), .encoding(Example.job))])] + uploadErrors
                      + [error(500, "The print system refused the job.")] + common),
         Endpoint(verb: .post, path: "/v1/preview", operationID: "preview", tag: "Printing", summary: "Preview labels",
                  detail: "Same input as print. Returns each label as it would print, with the codes found and whether they still scan. Nothing prints.",

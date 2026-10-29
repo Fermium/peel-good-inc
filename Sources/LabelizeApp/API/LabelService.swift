@@ -82,7 +82,8 @@ struct APICode: Codable, Sendable, Equatable {
 }
 
 struct APIJob: Codable, Sendable, Equatable, Identifiable {
-    enum Status: String, Codable, Sendable { case printed, failed }
+    /// waiting: still counting down or waiting for Print in the preview when the call returned.
+    enum Status: String, Codable, Sendable { case printed, cancelled, failed, waiting }
 
     var id: String
     var created: Date
@@ -115,6 +116,23 @@ struct APIJob: Codable, Sendable, Equatable, Identifiable {
     /// The id `lp` returned.
     var printerJobID: String?
     var error: String?
+    /// The rule that matched: its name, or "Everything else". None for reprints.
+    var rule: String?
+    /// countdown (cancellable in the popover) or review (waits for Print).
+    var action: String?
+    /// Per label, once composed: ink used, scale, rotation and codes.
+    var labelDetails: [APILabelInfo]?
+}
+
+struct APILabelInfo: Codable, Sendable, Equatable {
+    var index: Int
+    /// The ink actually used: crisp or photo (auto picks one per label).
+    var ink: String
+    /// Source points to label points, in percent.
+    var scalePercent: Double
+    var rotated: Bool
+    var codes: [APICode]
+    var warnings: [String]
 }
 
 struct APILabelPreview: Codable, Sendable, Equatable {
@@ -122,8 +140,11 @@ struct APILabelPreview: Codable, Sendable, Equatable {
     /// Pixels at the printer's resolution.
     var width: Int
     var height: Int
-    /// PNG, base64 in JSON.
-    var png: Data
+    /// PNG, base64 in HTTP JSON. MCP leaves it out and sends the images as image content.
+    var png: Data?
+    var ink: String
+    var scalePercent: Double
+    var rotated: Bool
     var codes: [APICode]
     var warnings: [String]
 }
@@ -131,6 +152,10 @@ struct APILabelPreview: Codable, Sendable, Equatable {
 struct APIPreview: Codable, Sendable, Equatable {
     var printer: String
     var size: String
+    var rule: String?
+    var copies: Int
+    /// What printing would do: countdown or review.
+    var action: String
     var labels: Int
     var codesFound: Int
     var codesVerified: Int

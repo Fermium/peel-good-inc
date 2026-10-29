@@ -6,6 +6,15 @@ import LabelKit
 final class PrintJob: ObservableObject {
     enum Phase: Equatable { case composing, review, countdown, printing, done, failed(String) }
 
+    /// How the job ended, for callers that wait on it (the API).
+    enum Outcome: Equatable {
+        case printed(file: URL, printerJobID: String)
+        case cancelled
+        case failed(String)
+    }
+
+    typealias Sender = @Sendable (_ file: URL, _ printer: String, _ size: LabelSize, _ copies: Int) throws -> String
+
     @Published var phase: Phase = .composing
     @Published var labels: [ComposedLabel] = []
     @Published var previews: [NSImage] = []
@@ -24,7 +33,20 @@ final class PrintJob: ObservableObject {
     var onFinish: () -> Void = {}
     /// Called with the saved PDF once the printer has accepted the job.
     var onSent: (URL) -> Void = { _ in }
+    /// Called once, when the job prints, is cancelled or fails.
+    var onOutcome: (Outcome) -> Void = { _ in }
+    /// Hands the saved PDF to the print system. Swapped in tests and dry runs.
+    var sender: Sender = { file, printer, size, copies in
+        try LabelPrint.send(file: file, printer: printer, size: size, copies: copies)
+    }
+    private(set) var outcome: Outcome?
     private var countdown: Task<Void, Never>?
+
+    private func finish(_ o: Outcome) {
+        guard outcome == nil else { return }
+        outcome = o
+        onOutcome(o)
+    }
 
     init(files: [URL], printer: PrinterInfo, options: LabelOptions, reviewFirst: Bool, countdownSeconds: Double) {
         self.files = files
@@ -86,10 +108,12 @@ final class PrintJob: ObservableObject {
             if labels.isEmpty {
                 Log.error(.job, "nothing to print in \(files.map(\.lastPathComponent).joined(separator: ", "))")
                 phase = .failed("Nothing to print")
+                finish(.failed("Nothing to print"))
             }
         } catch {
             Log.error(.job, "couldn't read \(files.map(\.lastPathComponent).joined(separator: ", ")): \(error)")
             phase = .failed("\(error)")
+            finish(.failed("\(error)"))
         }
     }
 
@@ -119,32 +143,51 @@ final class PrintJob: ObservableObject {
     func cancel() {
         Log.info(.job, "cancelled")
         countdown?.cancel()
+        finish(.cancelled)
         onFinish()
     }
 
     func send() async {
         phase = .printing
-        let name = files.first?.deletingPathExtension().lastPathComponent ?? "label"
-        let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
-        let url = Store.historyFolder.appendingPathComponent("\(stamp) \(name).label.pdf")
-        let labels = labels, printer = printer, size = options.size, copies = copies
+        guard outcome == nil else { return }
+        let url = Store.historyFolder.appendingPathComponent(Self.historyName(for: files.first))
+        let labels = labels, printer = printer, size = options.size, copies = copies, sender = sender
         do {
-            try await Task.detached {
+            let id = try await Task.detached {
                 if printer.isLabelPrinter {
                     try LabelWriter.writePDF(labels, size: size, to: url)
                 } else {
                     try LabelWriter.writeVectorPDF(labels, size: size, to: url)
                 }
-                let id = try LabelPrint.send(file: url, printer: printer.name, size: size, copies: copies)
+                let id = try sender(url, printer.name, size, copies)
                 Log.notice(.print, "sent \(labels.count) label(s) to \(printer.name) (media \(size.cupsMedia)): \(id)")
+                return id
             }.value
             phase = .done
             onSent(url)
+            finish(.printed(file: url, printerJobID: id))
             try? await Task.sleep(for: .seconds(1.4))
             onFinish()
         } catch {
             Log.error(.print, "print failed on \(printer.name): \(error)")
             phase = .failed("\(error)")
+            finish(.failed("\(error)"))
         }
+    }
+
+    /// "<now> <name>.label.pdf". A reprint's source is already a history file, so its timestamps
+    /// and ".label" are taken off first: names don't pile up.
+    nonisolated static func historyName(for file: URL?, at date: Date = Date()) -> String {
+        let stamp = ISO8601DateFormatter().string(from: date).replacingOccurrences(of: ":", with: "-")
+        return "\(stamp) \(baseName(file)).label.pdf"
+    }
+
+    nonisolated static func baseName(_ file: URL?) -> String {
+        var name = file?.deletingPathExtension().lastPathComponent ?? "label"
+        let stamp = try! Regex(#"^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}(\.\d+)?Z\s+"#)
+        while let m = name.prefixMatch(of: stamp) { name.removeSubrange(m.range) }
+        while name.hasSuffix(".label") { name.removeLast(".label".count) }
+        name = name.trimmingCharacters(in: .whitespaces)
+        return name.isEmpty ? "label" : name
     }
 }

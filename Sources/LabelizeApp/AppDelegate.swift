@@ -4,7 +4,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuDelegate, NSDraggingDestination {
+final class AppDelegate: NSObject, JobPresenter, NSApplicationDelegate, NSWindowDelegate, NSMenuDelegate, NSDraggingDestination {
     let store = Store()
     private var statusItem: NSStatusItem!
     private let popover = NSPopover()
@@ -53,7 +53,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         FolderWatcher.shared.start()
         NSApp.servicesProvider = self
         NSUpdateDynamicServices()
-        APIController.shared.attach(AppLabelService(store: store))
+        let api = AppLabelService(store: store)
+        api.presenter = self
+        APIController.shared.attach(api)
 
         if CommandLine.arguments.contains("-previewTestLabel") {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { MainActor.assumeIsolated { self.startTestLabel(review: true) } }
@@ -187,19 +189,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
                                 override: RuleAction? = nil) {
         guard let first = files.first else { return }
         store.refresh()
-        let engine = RuleEngine.shared
-        let needsCodes = engine.needsCodes
         Task {
-            let needsText = engine.needsText
-            let context = await Task.detached { RuleContext.inspect(first, trigger: trigger, detectCodes: needsCodes, readText: needsText) }.value
-            guard let decision = engine.decide(context, printers: store.eligiblePrinters, current: store.printer,
-                                               defaults: { [store] in store.options(for: $0) }, forcedPrinter: forcedPrinter) else {
+            guard let decision = await JobFlow.decide(files, trigger: trigger, store: store, engine: .shared, forcedPrinter: forcedPrinter) else {
                 Log.error(.rules, "no printer for \(first.lastPathComponent)")
                 NSAlert(error: NSError(domain: "Labelize", code: 1, userInfo: [NSLocalizedDescriptionKey: "No label printer found."])).runModal()
                 return
             }
-            Log.info(.rules, "\(first.lastPathComponent): rule \"\(decision.rule.name)\" → \(decision.printer.name), \(decision.options.size), \(decision.action.rawValue), \(decision.copies) cop\(decision.copies == 1 ? "y" : "ies")")
-            for note in decision.notes { Log.warning(.rules, note) }
             let action = override ?? decision.action
             // Files that turn up on their own ask first, with a notification.
             if action == .ask {
@@ -212,37 +207,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     }
 
     private func start(_ files: [URL], on printer: PrinterInfo, options: LabelOptions? = nil, review: Bool? = nil, decision: RuleDecision? = nil) {
+        let review = review ?? (store.alwaysReview || NSEvent.modifierFlags.contains(.option))
+        present(JobFlow.makeJob(files, printer: printer, options: options ?? store.options(for: printer), review: review,
+                                decision: decision, store: store))
+    }
+
+    /// Shows a job in the popover and starts it. Drops come here through `start`, API prints directly.
+    func present(_ job: PrintJob) {
         dropZoneWatch?.invalidate()
-        if let job, job.phase != .done {
-            Log.warning(.job, "replacing an unfinished job (\(job.files.map(\.lastPathComponent).joined(separator: ", ")))")
+        if let current = self.job, current.phase != .done {
+            Log.warning(.job, "replacing an unfinished job (\(current.files.map(\.lastPathComponent).joined(separator: ", ")))")
         }
         Sounds.play(Sounds.dropped, if: store.playSounds)
-        let review = review ?? (store.alwaysReview || NSEvent.modifierFlags.contains(.option))
-        let job = PrintJob(files: files, printer: printer, options: options ?? store.options(for: printer),
-                           reviewFirst: review, countdownSeconds: store.countdown)
-        job.copies = decision?.copies ?? 1
-        job.notes = decision?.notes ?? []
         job.onFinish = { [weak self, weak job] in
             guard let self, self.job === job else { return }
             self.popover.performClose(nil)
             self.job = nil
         }
-        job.onSent = { [weak self, weak job] url in
-            guard let self, let job else { return }
-            self.store.lastPrint = Store.LastPrint(file: url, printer: job.printer.name, size: job.options.size)
-            Sounds.play(Sounds.sent, if: self.store.playSounds && (decision?.playSound ?? true))
-            // The rule's tag replaces the general one, so files don't get two.
-            // A rule's own tag replaces the general one; "Everything else" follows the Files setting.
-            let ruleTag = decision?.isFallback == false ? decision?.tag : nil
-            AfterPrint.apply(to: job.files, store: self.store, tag: ruleTag == nil)
-            if let tag = ruleTag {
-                for file in job.files where AfterPrint.isUserFile(file) { tag.apply(to: file) }
-            }
-            History.prune(keepingDays: self.store.historyDays)
-        }
         self.job = job
-        Log.info(.job, "start: \(files.map(\.lastPathComponent).joined(separator: ", ")) on \(printer.name) at \(job.options.size), \(review ? "review first" : "countdown \(store.countdown)s")")
-        let sizes = SizeCatalog.entries(for: printer).filter(\.isSupported).map(\.size)
+        Log.info(.job, "start: \(job.files.map(\.lastPathComponent).joined(separator: ", ")) on \(job.printer.name) at \(job.options.size), \(job.reviewFirst ? "review first" : "countdown \(job.countdownSeconds)s")")
+        let sizes = SizeCatalog.entries(for: job.printer).filter(\.isSupported).map(\.size)
         show(NSHostingController(rootView: JobView(job: job, sizes: sizes)))
         NSApp.activate()
         job.start()
