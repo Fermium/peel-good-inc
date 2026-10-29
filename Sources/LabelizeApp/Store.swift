@@ -215,11 +215,13 @@ enum Sounds {
 
 extension LabelSize {
     /// "4 × 6 in (102 × 152 mm)", or "100 × 150 mm (3.94 × 5.91 in)" for metric rolls.
-    var display: String {
-        let inches = "\(LabelSize.format(width)) × \(LabelSize.format(height)) in"
-        let mm = "\(LabelSize.millimetres(width)) × \(LabelSize.millimetres(height)) mm"
-        return isMetric ? "\(mm) (\(inches))" : "\(inches) (\(mm))"
-    }
+    var display: String { "\(primary) (\(secondary))" }
+    /// "4 × 6 in", or "100 × 150 mm" for metric rolls.
+    var primary: String { isMetric ? mm : inches }
+    /// The other unit: "102 × 152 mm", or "3.94 × 5.91 in".
+    var secondary: String { isMetric ? inches : mm }
+    private var inches: String { "\(LabelSize.format(width)) × \(LabelSize.format(height)) in" }
+    private var mm: String { "\(LabelSize.millimetres(width)) × \(LabelSize.millimetres(height)) mm" }
 }
 
 extension PrinterInfo {

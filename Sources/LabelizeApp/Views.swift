@@ -80,8 +80,8 @@ struct JobView: View {
             ProgressView().controlSize(.small)
         case .review:
             VStack(spacing: 10) {
-                Picker("Size", selection: Binding(get: { job.options.size }, set: { s in job.update { $0.size = s } })) {
-                    ForEach(sizes, id: \.self) { Text($0.display).tag($0) }
+                LabeledContent("Size") {
+                    SizePopUp(selection: Binding(get: { job.options.size }, set: { s in job.update { $0.size = s } }), sizes: sizes)
                 }
                 Picker("Fit", selection: Binding(get: { job.options.fit }, set: { f in job.update { $0.fit = f } })) {
                     Text("Fit").tag(FitMode.fit)
