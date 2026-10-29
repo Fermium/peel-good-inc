@@ -1,4 +1,9 @@
-# Peel Good Inc.
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/brand/logo-dark.png">
+    <img src="docs/brand/logo-light.png" width="420" alt="Peel Good Inc.">
+  </picture>
+</p>
 
 A small, simple, delightful Mac menu bar app that prints your labels instantly. Drop a PDF, PNG or any other image on it and it prints, with advanced features for automation when you need them.
 

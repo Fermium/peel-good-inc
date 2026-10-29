@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="34.63182735443115 33.56818675994873 956.1976261138916 900.5343608856201" width="956.1976261138916" height="900.5343608856201">
+<!-- SVG created with Arrow, by QuiverAI (https://quiver.ai) -->
+  <defs>
+    <linearGradient id="housing-ink" x1="110" y1="190" x2="844" y2="728" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#22333e"/>
+      <stop offset=".55" stop-color="#23333e"/>
+      <stop offset="1" stop-color="#25343f"/>
+    </linearGradient>
+    <linearGradient id="side-coral" x1="778" y1="424" x2="967" y2="543" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ff5a3a"/>
+      <stop offset="1" stop-color="#ff6143"/>
+    </linearGradient>
+    <linearGradient id="warm-paper" x1="194" y1="458" x2="513" y2="865" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#fdfbf3"/>
+      <stop offset="1" stop-color="#fcf9ee"/>
+    </linearGradient>
+    <linearGradient id="top-inset" x1="344" y1="128" x2="620" y2="341" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#fcf9ee"/>
+      <stop offset="1" stop-color="#fdfaf0"/>
+    </linearGradient>
+    <radialGradient id="button-coral">
+      <stop offset="0" stop-color="#ff6546"/>
+      <stop offset="1" stop-color="#ff5e40"/>
+    </radialGradient>
+  </defs>
+  <g id="printer">
+    <path id="printer-housing" fill="url(#housing-ink)" d="M83 320C82 282 94 253 125 230L328 81C355 61 379 54 409 57L889 123C929 128 954 151 964 186C967 198 968 209 968 223L968 531C969 560 958 583 939 603L807 738C787 759 758 768 729 763L538 729L487 903Q485 913 473 911L67 838Q55 836 58 824L118 644C94 633 83 612 83 583Z"/>
+    <path id="coral-side-panel" fill="url(#side-coral)" d="M964 193C967 201 968 212 968 224V531C969 560 958 583 939 603L807 738C798 747 786 753 774 757L773 437C772 408 781 386 799 367Z"/>
+    <path id="upper-recess" fill="url(#top-inset)" stroke="#e6e6dc" stroke-width="1.5" d="M306 138C323 128 338 124 358 127L806 187C829 190 842 198 846 209C850 220 842 231 834 241L763 322C749 336 732 343 713 344C707 344 700 343 692 342L185 271C165 269 158 264 158 253C158 245 161 240 170 233Z"/>
+    <ellipse id="control-button" cx="709" cy="285.5" rx="28" ry="22" fill="url(#button-coral)" stroke="#fffdf2" stroke-width="2"/>
+    <path id="paper-exit-slot" d="M210 415L627 477" fill="none" stroke="#14252e" stroke-opacity=".25" stroke-width="24" stroke-linecap="round"/>
+    <path id="paper-exit-highlight" d="M210 415L627 477" fill="none" stroke="#fcfaf0" stroke-width="18" stroke-linecap="round"/>
+    <path id="receipt-sheet" fill="url(#warm-paper)" stroke="#e2e3da" stroke-width="1" d="M230 451L599 506C564 579 531 681 508 759L469 888L82 819L164 586C188 519 210 466 230 451Z"/>
+    <g id="receipt-print" fill="url(#housing-ink)">
+      <path id="receipt-line-one" d="M258 501L495 535C503 536 508 543 507 551C506 559 499 564 490 563L254 529C246 528 241 522 242 514C243 506 249 500 258 501Z"/>
+      <path id="receipt-line-two" d="M239 554L422 581C430 582 435 588 434 596C433 604 427 609 419 608L235 581C227 580 222 575 222 568C222 560 229 553 239 554Z"/>
+      <path id="receipt-line-three" d="M221 604L351 623C360 624 365 631 363 639C362 647 356 652 348 651L218 632C209 631 204 625 205 617C206 609 212 603 221 604Z"/>
+      <g id="receipt-barcode">
+        <path id="barcode-bar-one" d="M193 661L205 663Q213 664 210 672L176 773Q174 781 167 779L150 777Q142 776 144 768L178 672Q181 661 193 661Z"/>
+        <path id="barcode-bar-two" d="M241 668L259 671Q266 672 263 680L230 782Q228 790 220 788L198 784Q191 783 194 775L226 679Q229 668 241 668Z"/>
+        <path id="barcode-bar-three" d="M293 676L337 682Q344 683 342 690L308 797Q306 805 299 802L253 795Q245 794 248 786L280 687Q283 675 293 676Z"/>
+        <path id="barcode-bar-four" d="M368 687L381 689Q387 690 385 697L352 805Q350 811 344 810L331 808Q324 807 327 800L358 695Q360 685 368 687Z"/>
+        <path id="barcode-bar-five" d="M412 693L425 695Q432 696 429 704L398 812Q396 819 389 818L375 816Q368 815 370 808L402 701Q404 692 412 693Z"/>
+        <path id="barcode-bar-six" d="M457 699L470 701Q477 702 475 709L443 820Q441 827 435 826L419 823Q412 822 415 814L446 707Q448 698 457 699Z"/>
+      </g>
+    </g>
+  </g>
+</svg>

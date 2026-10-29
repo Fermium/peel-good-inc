@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="352.66875" height="320.59169311523436" viewBox="334.665625 36.14894332885742 352.66875 320.59169311523436">
+<!-- SVG created with Arrow, by QuiverAI (https://quiver.ai) -->
+  <defs>
+    
+    
+    <linearGradient id="dark-printer" x1="407" y1="67" x2="590" y2="242" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#28343e"/>
+      <stop offset="1" stop-color="#242e36"/>
+    </linearGradient>
+    <linearGradient id="coral-side" x1="582" y1="99" x2="634" y2="231" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ff6047"/>
+      <stop offset="1" stop-color="#ff634e"/>
+    </linearGradient>
+    <linearGradient id="paper" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#fffdf5"/>
+      <stop offset="1" stop-color="#faf7ed"/>
+    </linearGradient>
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    <g id="barcode-wide">
+      <path d="M0 0h4v32H0z M8 0h2v32H8z M12 0h7v32h-7z M22 0h3v32h-3z M28 0h5v32h-5z M36 0h2v32h-2z M41 0h6v32h-6z M50 0h3v32h-3z M56 0h5v32h-5z M64 0h2v32h-2z M69 0h6v32h-6z M78 0h3v32h-3z M84 0h5v32h-5z M92 0h3v32h-3z"/>
+    </g>
+    <g id="barcode-small">
+      <path d="M0 0h4v31H0z M7 0h2v31H7z M12 0h6v31h-6z M21 0h2v31h-2z M26 0h4v31h-4z M33 0h6v31h-6z M42 0h2v31h-2z M47 0h5v31h-5z M55 0h3v31h-3z M61 0h5v31h-5z M70 0h3v31h-3z"/>
+    </g>
+  </defs>
+  <g id="charcoal-coral-thermal-printer">
+    <path d="M381 119C381 109 383 103 393 95L449 52C460 44 470 44 478 45L611 64C627 66 633 72 637 85L638 167C639 181 634 188 626 196L582 240C578 246 571 248 562 246L398 213C386 211 381 204 381 191Z" fill="url(#dark-printer)" stroke="#202b34" stroke-width="2"/>
+    <path d="M637 86L592 131C582 141 580 146 580 157L580 241C581 244 584 240 588 237L627 196C636 187 638 181 638 169Z" fill="url(#coral-side)"/>
+    <path d="M401 96L436 69C441 65 446 63 453 64L590 83C601 85 605 90 600 97L576 125C570 132 565 133 556 131L408 108C399 107 397 102 401 96Z" fill="url(#paper)" stroke="#1e2a33" stroke-width="1.5"/>
+    <ellipse cx="558.5" cy="114.7" rx="8" ry="6.2" fill="#ff654e" stroke="#fffdf7" stroke-width="2"/>
+    <path d="M415 151L535 172" fill="none" stroke="#eeeadd" stroke-width="4" stroke-linecap="round"/>
+    <path d="M426 160L531 178C516 208 506 247 493 281L378 258C390 225 403 185 416 168C419 164 422 161 426 160Z" fill="url(#paper)" stroke="#25313b" stroke-width="3.5" stroke-linejoin="round"/>
+    <g stroke="#26323b" stroke-linecap="round" fill="none">
+      <path d="M429 179L461 185" stroke-width="3.7"/>
+      <path d="M424 188L466 196" stroke-width="3.4"/>
+      <path d="M420 197L453 203" stroke-width="3.5"/>
+    </g>
+    <text x="474" y="201" transform="rotate(11 474 201)" fill="#26313a" font-family="Arial, sans-serif" font-size="20" font-style="italic" font-weight="700">4×6</text>
+    <use href="#barcode-wide" transform="matrix(.88 .173 -.32 .89 410 215)" fill="#26313a"/>
+    <text x="511" y="338" text-anchor="middle" fill="#202c35" stroke="#101923" stroke-width="1" paint-order="stroke" font-family="'Arial Rounded MT Bold', 'Trebuchet MS', Arial, sans-serif" font-size="49" font-weight="700" letter-spacing="-2.3">Peel Good Inc.</text>
+  </g>
+  
+  
+  
+  
+  
+</svg>
