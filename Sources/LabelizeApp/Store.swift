@@ -214,8 +214,12 @@ enum Sounds {
 }
 
 extension LabelSize {
-    /// "4 × 6 in"
-    var display: String { description.replacingOccurrences(of: "x", with: " × ") + " in" }
+    /// "4 × 6 in (102 × 152 mm)", or "100 × 150 mm (3.94 × 5.91 in)" for metric rolls.
+    var display: String {
+        let inches = "\(LabelSize.format(width)) × \(LabelSize.format(height)) in"
+        let mm = "\(LabelSize.millimetres(width)) × \(LabelSize.millimetres(height)) mm"
+        return isMetric ? "\(mm) (\(inches))" : "\(inches) (\(mm))"
+    }
 }
 
 extension PrinterInfo {

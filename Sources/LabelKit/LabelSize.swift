@@ -33,16 +33,32 @@ public struct LabelSize: Hashable, Sendable, CustomStringConvertible {
 
     public var points: CGSize { CGSize(width: width * 72, height: height * 72) }
 
-    public var description: String { "\(Self.format(width))x\(Self.format(height))" }
+    /// "4x6", or "100x150mm" for metric rolls.
+    public var description: String {
+        isMetric ? "\(Self.millimetres(width))x\(Self.millimetres(height))mm" : "\(Self.format(width))x\(Self.format(height))"
+    }
 
     /// The media keyword to hand CUPS: the printer's preset name, or a PWG custom size.
-    public var cupsMedia: String { mediaName ?? "custom_\(description)in_\(description)in" }
+    public var cupsMedia: String {
+        if let mediaName { return mediaName }
+        if isMetric { return "custom_\(description)_\(description)" }
+        return "custom_\(description)in_\(description)in"
+    }
+
+    /// Whole millimetres that aren't tidy inch fractions (100 × 150 mm rather than 4 × 6 in).
+    public var isMetric: Bool {
+        func tidyInches(_ v: Double) -> Bool { abs(v * 20 - (v * 20).rounded()) < 0.02 }
+        func wholeMM(_ v: Double) -> Bool { abs(v * 25.4 - (v * 25.4).rounded()) < 0.05 }
+        return !(tidyInches(width) && tidyInches(height)) && wholeMM(width) && wholeMM(height)
+    }
+
+    public static func millimetres(_ inches: Double) -> Int { Int((inches * 25.4).rounded()) }
 
     public func matches(_ other: LabelSize, tolerance: Double = 0.03) -> Bool {
         abs(width - other.width) <= tolerance && abs(height - other.height) <= tolerance
     }
 
-    static func format(_ value: Double) -> String {
+    public static func format(_ value: Double) -> String {
         let rounded = (value * 100).rounded() / 100
         return rounded == rounded.rounded() ? String(Int(rounded)) : String(format: "%g", rounded)
     }

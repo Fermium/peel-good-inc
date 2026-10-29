@@ -45,6 +45,7 @@ final class SettingsWindowController {
 
     private func tab<V: View>(_ title: String, _ symbol: String, _ view: V) -> NSTabViewItem {
         let host = NSHostingController(rootView: view)
+        host.title = title   // the window shows the selected tab's title
         host.sizingOptions = .preferredContentSize   // each tab sizes the window to fit
         let item = NSTabViewItem(viewController: host)
         item.label = title
