@@ -82,7 +82,7 @@ struct APIPane: View {
                 }
             }
         } footer: {
-            Text("Only apps on this Mac can connect. The token is in ~/Library/Application Support/Labelize/token.")
+            Text("Only apps on this Mac can connect. The token is in ~/Library/Application Support/Peel Good/token.")
                 .font(.callout).foregroundStyle(.secondary)
         }
     }
@@ -159,8 +159,8 @@ enum Snippets {
     /// The bundled stdio relay, next to the app's executable.
     static var shimPath: String {
         let bundle = Bundle.main.bundleURL
-        if bundle.pathExtension == "app" { return bundle.appendingPathComponent("Contents/MacOS/labelize-mcp").path }
-        return (Bundle.main.executableURL ?? bundle).deletingLastPathComponent().appendingPathComponent("labelize-mcp").path
+        if bundle.pathExtension == "app" { return bundle.appendingPathComponent("Contents/MacOS/peel-good-mcp").path }
+        return (Bundle.main.executableURL ?? bundle).deletingLastPathComponent().appendingPathComponent("peel-good-mcp").path
     }
 
     static func claudeCodeHTTP(port: Int) -> String {

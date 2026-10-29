@@ -349,14 +349,14 @@ enum OpenAPI {
             "info": [
                 "title": "Peel Good Inc.",
                 "version": .string(appVersion),
-                "description": "Print shipping labels from other apps on this Mac. The server only listens on 127.0.0.1. Send the token from ~/Library/Application Support/Labelize/token as a bearer token. Requests with an Origin header are refused. Only files sent with a request can print.",
+                "description": "Print shipping labels from other apps on this Mac. The server only listens on 127.0.0.1. Send the token from ~/Library/Application Support/Peel Good/token as a bearer token. Requests with an Origin header are refused. Only files sent with a request can print.",
             ],
             "servers": [["url": .string("http://127.0.0.1:\(port)")]],
             "security": [["bearer": []]],
             "tags": .array(tags.map { ["name": .string($0)] }),
             "paths": .object(paths),
             "components": [
-                "securitySchemes": ["bearer": ["type": "http", "scheme": "bearer", "description": "Contents of ~/Library/Application Support/Labelize/token."]],
+                "securitySchemes": ["bearer": ["type": "http", "scheme": "bearer", "description": "Contents of ~/Library/Application Support/Peel Good/token."]],
                 "schemas": .object(components.map { ($0.0, $0.1.json) }),
             ],
         ]
@@ -405,7 +405,7 @@ enum OpenAPI {
     // MARK: Snippets
 
     /// Shell-safe path to the token, for pasting into Terminal.
-    static let tokenShellPath = "~/Library/Application\\ Support/Labelize/token"
+    static let tokenShellPath = "~/Library/Application\\ Support/Peel\\ Good/token"
     static let authHeader = "-H \"Authorization: Bearer $(cat \(tokenShellPath))\""
 
     static func baseURL(port: Int) -> String { "http://127.0.0.1:\(port)" }

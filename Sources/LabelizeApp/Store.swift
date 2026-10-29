@@ -182,8 +182,7 @@ final class Store: ObservableObject {
 
     /// Where printed labels are kept, for reprinting later.
     nonisolated static var historyFolder: URL {
-        let url = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("Labelize/History", isDirectory: true)
+        let url = AppPaths.support.appendingPathComponent("History", isDirectory: true)
         try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
     }

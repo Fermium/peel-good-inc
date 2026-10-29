@@ -38,9 +38,11 @@ end
 
   zap trash: [
     "~/Library/Application Support/Labelize",
+    "~/Library/Application Support/Peel Good",
     "~/Library/Caches/com.fermiumlabs.labelize",
     "~/Library/HTTPStorages/com.fermiumlabs.labelize",
     "~/Library/Logs/Labelize",
+    "~/Library/Logs/Peel Good",
     "~/Library/Preferences/com.fermiumlabs.labelize.plist",
     "~/Library/Saved Application State/com.fermiumlabs.labelize.savedState",
   ]

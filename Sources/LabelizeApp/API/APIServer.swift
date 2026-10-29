@@ -137,7 +137,7 @@ struct APIResponder: HTTPResponder {
             reason = "wrong token"
         }
         Log.warning(.api, "auth failed for \(method) \(path): \(reason)")
-        return .error(APIError(status: 401, code: "unauthorized", message: "Send the token from ~/Library/Application Support/Labelize/token as a bearer token."),
+        return .error(APIError(status: 401, code: "unauthorized", message: "Send the token from ~/Library/Application Support/Peel Good/token as a bearer token."),
                       headers: [("WWW-Authenticate", "Bearer realm=\"Peel Good Inc.\"")])
     }
 

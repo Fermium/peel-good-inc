@@ -7,8 +7,7 @@ enum APISettings {
     static let defaultPort = 47311
 
     static var folder: URL {
-        let url = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("Labelize", isDirectory: true)
+        let url = AppPaths.support
         try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
     }

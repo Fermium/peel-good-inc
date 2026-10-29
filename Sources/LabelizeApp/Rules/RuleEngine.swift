@@ -120,8 +120,7 @@ final class RuleEngine: ObservableObject {
     static let defaultFallback = Rule(name: "Everything else", conditions: [])
 
     nonisolated static var defaultFileURL: URL {
-        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("Labelize/rules.json")
+        AppPaths.support.appendingPathComponent("rules.json")
     }
 
     /// True if any enabled rule looks at codes, so `RuleContext.inspect` should run detection.

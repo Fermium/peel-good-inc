@@ -41,7 +41,7 @@ for a in $ARCHS; do arch_flags+=(--arch "$a"); done
 
 products="LabelizeApp labelize"
 # Optional products, included when Package.swift declares them.
-grep -q '"labelize-mcp"' Package.swift && products="$products labelize-mcp"
+grep -q '"peel-good-mcp"' Package.swift && products="$products peel-good-mcp"
 
 for p in $products; do
   swift build -c release "${arch_flags[@]}" --product "$p"
@@ -57,8 +57,8 @@ cp "$BIN/LabelizeApp" "$APP/Contents/MacOS/Labelize"
 # The CLI goes to Contents/Helpers, NOT Contents/MacOS: "labelize" and "Labelize" collide on
 # case-insensitive APFS. The cask symlinks it onto PATH.
 cp "$BIN/labelize" "$APP/Contents/Helpers/labelize"
-if [[ -f "$BIN/labelize-mcp" ]]; then
-  cp "$BIN/labelize-mcp" "$APP/Contents/MacOS/labelize-mcp"
+if [[ -f "$BIN/peel-good-mcp" ]]; then
+  cp "$BIN/peel-good-mcp" "$APP/Contents/MacOS/peel-good-mcp"
 fi
 cp Resources/*.wav Resources/Labelize.icns "$APP/Contents/Resources/"
 
@@ -170,8 +170,8 @@ sign() {  # sign <path> <entitlements> [identifier]
 
 # 3a. bare executables that are not the bundle's main executable
 sign "$APP/Contents/Helpers/labelize" "$ENT/Helper.entitlements" "$BUNDLE_ID.cli"
-if [[ -f "$APP/Contents/MacOS/labelize-mcp" ]]; then
-  sign "$APP/Contents/MacOS/labelize-mcp" "$ENT/Helper.entitlements" "$BUNDLE_ID.mcp"
+if [[ -f "$APP/Contents/MacOS/peel-good-mcp" ]]; then
+  sign "$APP/Contents/MacOS/peel-good-mcp" "$ENT/Helper.entitlements" "$BUNDLE_ID.mcp"
 fi
 # 3b. nested bundles
 sign "$APPEX" "$ENT/Share.entitlements"

@@ -26,7 +26,7 @@ Owner: the `fermium` GitHub org (Fermium Ltd). It is set in
 ```
 Peel Good Inc.app/Contents/
   MacOS/Labelize            main executable (hardened runtime, not sandboxed)
-  MacOS/labelize-mcp        MCP stdio shim, copied when Package.swift has that product
+  MacOS/peel-good-mcp        MCP stdio shim, copied when Package.swift has that product
   Helpers/labelize          CLI. It can't go in MacOS/: "labelize" and "Labelize" are the same name on case-insensitive APFS
   PlugIns/LabelizeShare.appex   Share extension (sandboxed, as all app extensions must be)
 ```

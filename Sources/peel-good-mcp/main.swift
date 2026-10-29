@@ -1,13 +1,13 @@
-// labelize-mcp: a stdio MCP server for clients like Claude Desktop that relays every
+// peel-good-mcp: a stdio MCP server for clients like Claude Desktop that relays every
 // JSON-RPC message to the app's local MCP endpoint (http://127.0.0.1:<port>/mcp).
 // Peel Good Inc. (Labelize.app internally) must be running with Settings > API > MCP server on.
 import Foundation
 
 let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-    .appendingPathComponent("Labelize", isDirectory: true)
+    .appendingPathComponent("Peel Good", isDirectory: true)
 
 func log(_ message: String) {
-    FileHandle.standardError.write(Data("labelize-mcp: \(message)\n".utf8))
+    FileHandle.standardError.write(Data("peel-good-mcp: \(message)\n".utf8))
 }
 
 /// Serializes writes to stdout, one JSON-RPC message per line.

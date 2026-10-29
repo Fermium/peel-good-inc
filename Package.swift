@@ -26,7 +26,7 @@ let package = Package(
             .product(name: "HTTPTypes", package: "swift-http-types"),
             .product(name: "Logging", package: "swift-log"),
         ]),
-        .executableTarget(name: "labelize-mcp"),
+        .executableTarget(name: "peel-good-mcp"),
         .testTarget(name: "LabelKitTests", dependencies: ["LabelKit"]),
         .testTarget(name: "LabelizeAppTests", dependencies: ["LabelizeApp", .product(name: "MCP", package: "swift-sdk")]),
     ],

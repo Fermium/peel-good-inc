@@ -3,7 +3,7 @@ import os
 
 /// App logging: every message goes to the unified log (Console.app, `log stream
 /// --predicate 'subsystem == "com.fermiumlabs.labelize"'`) and to a readable file in
-/// ~/Library/Logs/Labelize, which the Logs window shows.
+/// ~/Library/Logs/Peel Good, which the Logs window shows.
 enum Log {
     enum Level: String, CaseIterable, Comparable, Sendable {
         case debug, info, notice, warning, error
@@ -31,9 +31,9 @@ enum Log {
     private static let maxFileBytes = 2_000_000
 
     static var fileURL: URL {
-        let dir = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask)[0].appendingPathComponent("Logs/Labelize", isDirectory: true)
+        let dir = AppPaths.logs
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir.appendingPathComponent("Labelize.log")
+        return dir.appendingPathComponent("Peel Good.log")
     }
 
     static func debug(_ c: Category, _ message: @autoclosure () -> String) { write(.debug, c, message()) }
