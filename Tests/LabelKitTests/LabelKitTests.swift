@@ -209,3 +209,13 @@ func codePage(size: CGSize = CGSize(width: 288, height: 432), turned: Bool = fal
     #expect(bars?.severity == .error)
     #expect(label.warnings.contains { $0.contains("Code128") && $0.contains("too small to scan") })
 }
+
+@Test func picksHalftoneForFlatGrays() {
+    let flat = SourcePage(size: CGSize(width: 288, height: 432)) { ctx in
+        ctx.setFillColor(gray: 0.55, alpha: 1)
+        ctx.fill(CGRect(x: 20, y: 60, width: 248, height: 300))
+        ctx.setFillColor(gray: 0.3, alpha: 1)
+        ctx.fill(CGRect(x: 20, y: 370, width: 248, height: 40))
+    }
+    #expect(LabelComposer.compose(flat, LabelOptions()).ink == .halftone)
+}

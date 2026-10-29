@@ -99,6 +99,8 @@ public struct ComposedLabel {
 public enum LabelComposer {
     /// Above this share of smooth gray, auto ink switches to photo.
     static let photoThreshold = 0.04
+    /// Above this share of perfectly flat gray (among smooth gray), auto picks halftone over photo.
+    static let flatThreshold = 0.7
 
     public static func compose(_ page: SourcePage, _ o: LabelOptions) -> ComposedLabel {
         let label = compose(page, o, redraw: true)
@@ -184,6 +186,8 @@ public enum LabelComposer {
 
         // Codes need hard edges, so auto picks crisp whenever the page has any.
         var ink: InkMode = o.ink != .auto ? o.ink : (expected.isEmpty && smoothGray > photoThreshold ? .photo : .crisp)
+        // Mostly flat grays (banners, backgrounds) print more evenly as a clustered halftone.
+        if o.ink == .auto, ink == .photo, flatGrayShare(bitmap) > flatThreshold { ink = .halftone }
         var (finished, scannable) = convert(ink)
         // In auto, if a code breaks, try the other conversion and keep whichever scans more.
         if o.ink == .auto, scanCount(scannable) < expected.count {
@@ -232,6 +236,23 @@ public enum LabelComposer {
             }
         }
         return ink == 0 ? 0 : Double(smooth) / Double(ink)
+    }
+
+    /// Of the smooth mid-gray pixels, the share that equals its neighbours 8 dots away (within one level).
+    /// Flat fills score near 1; photos (texture) and gradients (steady change) score low.
+    static func flatGrayShare(_ b: GrayBitmap) -> Double {
+        func mid(_ v: UInt8) -> Bool { v > 40 && v < 215 }
+        let d = 8
+        var smooth = 0, flat = 0
+        for y in stride(from: 0, to: b.height - d, by: 2) {
+            for x in stride(from: 0, to: b.width - d, by: 2) {
+                let v = b[x, y]
+                guard mid(v), mid(b[x + d, y]), mid(b[x, y + d]) else { continue }
+                smooth += 1
+                if abs(Int(v) - Int(b[x + d, y])) <= 1 && abs(Int(v) - Int(b[x, y + d])) <= 1 { flat += 1 }
+            }
+        }
+        return smooth == 0 ? 0 : Double(flat) / Double(smooth)
     }
 
     static func threshold(_ b: inout GrayBitmap, level: UInt8) {
