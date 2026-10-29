@@ -5,7 +5,7 @@ class LabelizeCli < Formula
   homepage "https://github.com/fermium/peel-good-inc"
   url "https://github.com/fermium/peel-good-inc/archive/refs/tags/v0.1.0.tar.gz"
   sha256 "0000000000000000000000000000000000000000000000000000000000000000"
-  license "MIT" # TODO: set the real license
+  license "MIT"
 
   depends_on xcode: ["26.0", :build]
   depends_on macos: :sequoia

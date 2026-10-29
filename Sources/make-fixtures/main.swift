@@ -75,7 +75,7 @@ func shippingLabel(_ ctx: CGContext, at origin: CGPoint, carrier: String, tracki
     centered(ctx, tracking, 144, 102, 11)
     ctx.fill(CGRect(x: 1, y: 88, width: 286, height: 2))
     drawCode(ctx, code("CIQRCodeGenerator", "https://track.example/\(tracking)"), in: CGRect(x: 14, y: 12, width: 66, height: 66))
-    text(ctx, "Weight 1.2 lb   Ref #1459", 96, 50, 9)
+    text(ctx, "Weight 1.2 lb   Ref #1234", 96, 50, 9)
     ctx.restoreGState()
 }
 

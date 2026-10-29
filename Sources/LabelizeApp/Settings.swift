@@ -344,7 +344,7 @@ struct FilesPane: View {
                         TextField("", text: Binding(get: { store.renameSuffix }, set: { store.renameSuffix = $0 })).frame(width: 140)
                     }
                     LabeledContent("Example") {
-                        Text("order-1459-label\(store.renameSuffix).pdf").foregroundStyle(.secondary)
+                        Text("order-1234-label\(store.renameSuffix).pdf").foregroundStyle(.secondary)
                     }
                 case .move:
                     LabeledContent("Folder") {

@@ -255,16 +255,16 @@ enum OpenAPI {
         static let size = APISize(size: "4x6", display: "4 × 6 in", widthInches: 4, heightInches: 6, source: "printer",
                                   supported: true, reason: nil, current: true)
         static let job = APIJob(id: "6F1C2A8E-3B7D-4E51-9C0A-2D4E5F6A7B8C", created: Date(timeIntervalSince1970: 1_793_300_000),
-                                source: "file", status: .printed, files: ["order-1459-label.pdf"], printer: "MUNBYN_ITPP941AP",
+                                source: "file", status: .printed, files: ["order-1234-label.pdf"], printer: "MUNBYN_ITPP941AP",
                                 size: "4x6", copies: 1, labels: 2, codesFound: 2, codesVerified: 2, codesMissing: [], warnings: [],
-                                savedPDF: "~/Library/Application Support/Labelize/History/2026-10-29T18-00-00Z order-1459-label.label.pdf",
+                                savedPDF: "~/Library/Application Support/Labelize/History/2026-10-29T18-00-00Z order-1234-label.label.pdf",
                                 printerJobID: "MUNBYN_ITPP941AP-42", error: nil)
         static let code = APICode(symbology: "QR", payload: "1Z999AA10123456784", scannable: true, severity: "ok", message: nil)
         static let preview = APIPreview(printer: "MUNBYN_ITPP941AP", size: "4x6", labels: 1, codesFound: 1, codesVerified: 1,
                                         codesMissing: [], warnings: [],
                                         images: [APILabelPreview(index: 0, width: 812, height: 1218, png: Data("PNG…".utf8), codes: [code], warnings: [])])
         static let health = APIHealth(status: "ok", version: "0.1", http: true, mcp: true, port: APISettings.defaultPort)
-        static let printRequest = APIPrintRequest(path: "/Users/me/Downloads/order-1459-label.pdf", size: "4x6", copies: 1)
+        static let printRequest = APIPrintRequest(path: "/Users/me/Downloads/order-1234-label.pdf", size: "4x6", copies: 1)
         static let clipboardRequest = APIPrintRequest(printer: "MUNBYN_ITPP941AP")
         static let reprint = APIReprintRequest(copies: 2)
         static let error = APIErrorBody(error: .init(code: "printer_not_found", message: "Printer Zebra not found."))
