@@ -2,7 +2,7 @@ import AppKit
 import LabelizeCLI
 import SwiftUI
 
-/// Puts the bundled command (Contents/Helpers/labelize) on PATH as `labelize` and `peel`, with
+/// Puts the bundled command (Contents/Helpers/peelgood) on PATH as `peelgood`, with
 /// symlinks only: no copies, no sudo. The man page and completions are linked next to it when
 /// the folders for them already exist.
 @MainActor
@@ -43,7 +43,7 @@ final class CommandInstaller: ObservableObject {
     }
 
     static func preview() -> CommandInstaller {
-        CommandInstaller(previewHelper: URL(fileURLWithPath: "/Applications/Peel Good Inc.app/Contents/Helpers/labelize"))
+        CommandInstaller(previewHelper: URL(fileURLWithPath: "/Applications/Peel Good Inc.app/Contents/Helpers/peelgood"))
     }
 
     var installed: Bool { links[Manual.tool] != nil }
@@ -58,7 +58,7 @@ final class CommandInstaller: ObservableObject {
 
     /// For when no system folder is writable: what to paste into Terminal.
     var adminCommand: String {
-        let src = helper?.path ?? "/Applications/Peel Good Inc.app/Contents/Helpers/labelize"
+        let src = helper?.path ?? "/Applications/Peel Good Inc.app/Contents/Helpers/peelgood"
         return Manual.names.map { "sudo ln -sf '\(src)' /usr/local/bin/\($0)" }.joined(separator: "\n")
     }
 
@@ -123,10 +123,10 @@ final class CommandInstaller: ObservableObject {
 
     /// (folder under the prefix, file in Contents/Resources)
     nonisolated static let extras = [
-        ("share/man/man1", "labelize.1"),
-        ("share/zsh/site-functions", "completions/_labelize"),
-        ("share/fish/vendor_completions.d", "completions/labelize.fish"),
-        ("etc/bash_completion.d", "completions/labelize.bash"),
+        ("share/man/man1", "peelgood.1"),
+        ("share/zsh/site-functions", "completions/_peelgood"),
+        ("share/fish/vendor_completions.d", "completions/peelgood.fish"),
+        ("etc/bash_completion.d", "completions/peelgood.bash"),
     ]
 
     private func link(_ source: String, at path: String) throws {
@@ -175,8 +175,8 @@ struct CLIPane: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text(installer.needsAdmin
-                 ? "Links labelize and peel in ~/.local/bin. To install for all users instead, use the Terminal command shown below."
-                 : "Links labelize and peel in \(installer.targetDir).")
+                 ? "Links peelgood in ~/.local/bin. To install for all users instead, use the Terminal command shown below."
+                 : "Links peelgood in \(installer.targetDir).")
         }
     }
 
@@ -226,7 +226,7 @@ struct CLIPane: View {
     private var footer: String {
         if installer.helper == nil { return "This build doesn't include the command. Build the app with scripts/make-app.sh." }
         if installer.homebrew { return "Installed with Homebrew, with the man page and completions. Updates with the cask." }
-        return "Use labelize, or peel for short, in Terminal. It uses the printer and settings chosen here."
+        return "Use peelgood in Terminal. It uses the printer and settings chosen here."
     }
 
     // MARK: Manual
@@ -247,7 +247,7 @@ struct CLIPane: View {
         } header: {
             Text("Manual")
         } footer: {
-            Text("Run labelize help, or man labelize, for the same text in Terminal.")
+            Text("Run peelgood help, or man peelgood, for the same text in Terminal.")
                 .font(.callout).foregroundStyle(.secondary)
         }
     }

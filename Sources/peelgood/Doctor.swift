@@ -3,7 +3,7 @@ import Foundation
 import LabelizeCLI
 import LabelKit
 
-/// `labelize doctor`: read-only checks, each with what to do about it.
+/// `peelgood doctor`: read-only checks, each with what to do about it.
 struct Doctor {
     struct Check: Encodable {
         enum Status: String, Encodable { case ok, warning, failed, info }
@@ -68,7 +68,7 @@ struct Doctor {
         add("App", running ? .ok : .info, running ? "App is running" : "App isn't running",
             fix: running ? nil : "The command works on its own. Open the app for rules, watched folders and the API.")
         if ctx.defaults.source == "none" {
-            add("App", .info, "Not reading the app's settings (LABELIZE_DEFAULTS_DOMAIN=none)")
+            add("App", .info, "Not reading the app's settings (PEELGOOD_DEFAULTS_DOMAIN=none)")
         } else if ctx.defaults.printerName != nil || ctx.defaults.string("size.\(ctx.defaults.printerName ?? "")") != nil {
             add("App", .ok, "Using the app's settings for defaults")
         }
@@ -108,7 +108,7 @@ struct Doctor {
                 add("Command", .warning, "\(name) isn't on your PATH" + (me.map { " (running \(tilde($0)))" } ?? ""),
                     fix: "Peel Good Inc. > Settings > CLI > Install Command.")
             } else {
-                add("Command", .info, "Short name \(name) isn't installed", fix: "Settings > CLI installs it with labelize.")
+                add("Command", .info, "Short name \(name) isn't installed", fix: "Settings > CLI installs it with peelgood.")
             }
         }
         let man = run("/usr/bin/man", ["-w", Manual.tool]).trimmingCharacters(in: .whitespacesAndNewlines)

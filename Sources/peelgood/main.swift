@@ -1,4 +1,4 @@
-// labelize (also installed as peel): the command line for Peel Good Inc.
+// peelgood (also installed as peel): the command line for Peel Good Inc.
 // Commands, options, help, completions and the man page are all described once in
 // Sources/LabelizeCLI/Manual.swift; this file only runs them.
 import Foundation

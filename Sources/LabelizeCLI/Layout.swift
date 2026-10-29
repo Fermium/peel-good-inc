@@ -14,9 +14,9 @@ public struct AppDefaults: Sendable {
         self.lookup = lookup
     }
 
-    /// LABELIZE_DEFAULTS_DOMAIN picks another domain; "none" reads nothing.
+    /// PEELGOOD_DEFAULTS_DOMAIN picks another domain; "none" reads nothing.
     public static func system(environment: [String: String] = ProcessInfo.processInfo.environment) -> AppDefaults {
-        let domain = environment["LABELIZE_DEFAULTS_DOMAIN"] ?? Self.domain
+        let domain = environment["PEELGOOD_DEFAULTS_DOMAIN"] ?? Self.domain
         if domain == "none" || domain.isEmpty { return .empty }
         return AppDefaults(source: domain) { key in
             CFPreferencesCopyAppValue(key as CFString, domain as CFString)

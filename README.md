@@ -91,17 +91,17 @@ swift test
 open "build/Peel Good Inc.app"
 ```
 
-The same pipeline is a command-line tool, `labelize` (or `peel` for short). Homebrew installs it with its man page and completions; otherwise use Settings > CLI > Install Command.
+The same pipeline is a command-line tool, `peelgood`. Homebrew installs it with its man page and completions; otherwise use Settings > CLI > Install Command.
 
 ```sh
-labelize print ~/Downloads/order-1234-label.pdf    # your label printer, the app's settings
-labelize preview return-code.png --size 4x4        # label PDF and PNGs, nothing printed
-labelize print label.pdf --dry-run --json          # what would be sent, for scripts
-labelize doctor                                    # printers, CUPS, the app and its API
-labelize help print                                # every option, with examples
+peelgood print ~/Downloads/order-1234-label.pdf    # your label printer, the app's settings
+peelgood preview return-code.png --size 4x4        # label PDF and PNGs, nothing printed
+peelgood print label.pdf --dry-run --json          # what would be sent, for scripts
+peelgood doctor                                    # printers, CUPS, the app and its API
+peelgood help print                                # every option, with examples
 ```
 
-The old flag-only form (`labelize label.pdf --size 4x6 --print`) still works. In a checkout, use `swift run labelize …`.
+The old flag-only form (`peelgood label.pdf --size 4x6 --print`) still works. In a checkout, use `swift run peelgood …`.
 
 `LabelKit` holds the label pipeline and `LabelizeCLI` describes the command line once for help, completions, the man page and Settings > CLI. The app is in `Sources/LabelizeApp`, the release process is in [RELEASING.md](RELEASING.md), and `./scripts/screenshots.sh` renders the screenshots above.
 

@@ -97,7 +97,7 @@ public struct CLICommand: Sendable, Hashable {
         self.hidden = hidden
     }
 
-    /// "labelize print [options] <file>…"
+    /// "peelgood print [options] <file>…"
     public func usage(tool: String = Manual.tool) -> String {
         ([tool, name] + (options.contains { !$0.hidden } ? ["[options]"] : []) + arguments.map(\.signature)).joined(separator: " ")
     }
@@ -126,10 +126,8 @@ public enum ExitCode: Int32, Sendable, CaseIterable {
 }
 
 public enum Manual {
-    public static let tool = "labelize"
-    /// A second name for the same binary, linked by the cask and by Settings > CLI.
-    public static let alias = "peel"
-    public static let names = [tool, alias]
+    public static let tool = "peelgood"
+    public static let names = [tool]
 
     // MARK: Shared options
 
@@ -188,10 +186,10 @@ public enum Manual {
                    arguments: [files],
                    options: layout + [copies, dryRun, CLIOption("out", short: "o", value: "DIR", help: "Also keep the label PDF here.", completion: .directory)],
                    examples: [
-                       CLIExample("labelize print order-1460-label.pdf", "Print on your label printer with the app's settings"),
-                       CLIExample("labelize print return.png --size 4x6 --copies 2", "Two copies at 4x6"),
-                       CLIExample("labelize print label.pdf --dry-run", "See what would be sent"),
-                       CLIExample("labelize print ~/Downloads/*.pdf --printer Label_Printer", "Print a batch on a named printer"),
+                       CLIExample("peelgood print order-1460-label.pdf", "Print on your label printer with the app's settings"),
+                       CLIExample("peelgood print return.png --size 4x6 --copies 2", "Two copies at 4x6"),
+                       CLIExample("peelgood print label.pdf --dry-run", "See what would be sent"),
+                       CLIExample("peelgood print ~/Downloads/*.pdf --printer Label_Printer", "Print a batch on a named printer"),
                    ]),
         CLICommand("preview", group: .labels, summary: "Make the label without printing",
                    discussion: "Writes the label PDF and one PNG per page, then lists them. Nothing is sent to a printer.",
@@ -199,44 +197,44 @@ public enum Manual {
                    options: layout + [CLIOption("out", short: "o", value: "DIR", help: "Folder for the files. Default: a temporary folder.", completion: .directory),
                                       CLIOption("open", help: "Open the label PDF in Preview when done.")],
                    examples: [
-                       CLIExample("labelize preview label.pdf", "Write the label PDF and PNGs to a temporary folder"),
-                       CLIExample("labelize preview photo.jpg --ink photo -o out", "Dithered, into ./out"),
-                       CLIExample("labelize preview label.pdf --json | jq '.files[0].pdf'", "The PDF's path, for scripts"),
+                       CLIExample("peelgood preview label.pdf", "Write the label PDF and PNGs to a temporary folder"),
+                       CLIExample("peelgood preview photo.jpg --ink photo -o out", "Dithered, into ./out"),
+                       CLIExample("peelgood preview label.pdf --json | jq '.files[0].pdf'", "The PDF's path, for scripts"),
                    ]),
         CLICommand("test-label", group: .labels, summary: "Print a calibration label",
                    discussion: "A border 2 mm in, rulers and a QR code. Use it to check offset and scale, then set a nudge in the app.",
                    options: [printer, size, nudge, copies, dryRun, out],
                    examples: [
-                       CLIExample("labelize test-label", "On your label printer at its size"),
-                       CLIExample("labelize test-label --size 2x1 --dry-run", "Check a small roll without printing"),
+                       CLIExample("peelgood test-label", "On your label printer at its size"),
+                       CLIExample("peelgood test-label --size 2x1 --dry-run", "Check a small roll without printing"),
                    ]),
         CLICommand("step-wedge", aliases: ["wedge"], group: .labels, summary: "Print a gray ramp to compare ink modes",
                    discussion: "Steps from white to black in 10% stops, plus a smooth gradient. Print it once per ink mode to pick one for photos.",
                    options: [printer, size, ink, cutoff, toneGamma, nudge, copies, dryRun, out],
                    examples: [
-                       CLIExample("labelize step-wedge --ink photo", "See how dithering renders grays"),
-                       CLIExample("labelize step-wedge --ink crisp --cutoff 40 --dry-run", "Try a lower cutoff without printing"),
+                       CLIExample("peelgood step-wedge --ink photo", "See how dithering renders grays"),
+                       CLIExample("peelgood step-wedge --ink crisp --cutoff 40 --dry-run", "Try a lower cutoff without printing"),
                    ]),
         CLICommand("printers", aliases: ["ls"], group: .printers, summary: "List printers",
                    options: [CLIOption("names", help: "Queue names only, one per line.")],
-                   examples: [CLIExample("labelize printers", "Every printer, label printers marked"),
-                              CLIExample("labelize printers --json", "For scripts")]),
+                   examples: [CLIExample("peelgood printers", "Every printer, label printers marked"),
+                              CLIExample("peelgood printers --json", "For scripts")]),
         CLICommand("sizes", group: .printers, summary: "List label sizes a printer takes",
                    arguments: [CLIArgument("printer", help: "Printer queue. Default: your label printer.", optional: true, completion: .printers)],
                    options: [CLIOption("names", help: "Supported sizes only, one per line.")],
-                   examples: [CLIExample("labelize sizes", "Sizes for your label printer"),
-                              CLIExample("labelize sizes Label_Printer --json", "For a named printer, as JSON")]),
+                   examples: [CLIExample("peelgood sizes", "Sizes for your label printer"),
+                              CLIExample("peelgood sizes Label_Printer --json", "For a named printer, as JSON")]),
         CLICommand("doctor", group: .app, summary: "Check printers, CUPS, the app and its API",
                    discussion: "Runs read-only checks and says what to fix. Exits 5 when a check fails.",
-                   examples: [CLIExample("labelize doctor", "Check everything")]),
+                   examples: [CLIExample("peelgood doctor", "Check everything")]),
         CLICommand("history", group: .app, summary: "List recent prints from the app",
                    discussion: "Labels the app printed, newest first. They're kept in ~/Library/Application Support/Peel Good/History.",
                    options: [CLIOption("limit", short: "n", value: "N", help: "How many. Default 10."),
                              CLIOption("paths", help: "Full paths only, one per line.")],
-                   examples: [CLIExample("labelize history", "The last 10 prints"),
-                              CLIExample("labelize preview \"$(labelize history -n 1 --paths)\"", "Preview the last label again")]),
+                   examples: [CLIExample("peelgood history", "The last 10 prints"),
+                              CLIExample("peelgood preview \"$(peelgood history -n 1 --paths)\"", "Preview the last label again")]),
         CLICommand("version", group: .app, summary: "Show the version",
-                   examples: [CLIExample("labelize version --json", "Version and paths as JSON")]),
+                   examples: [CLIExample("peelgood version --json", "Version and paths as JSON")]),
         CLICommand("completions", group: .shell, summary: "Print a shell completion script",
                    discussion: "Homebrew installs completions for you. Otherwise add the line for your shell.",
                    arguments: [CLIArgument("shell", help: "zsh, bash or fish.", choices: Completions.Shell.allCases.map(\.rawValue))],
@@ -248,7 +246,7 @@ public enum Manual {
         CLICommand("help", group: .shell, summary: "Help for a command",
                    arguments: [CLIArgument("command", help: "A command name.", optional: true,
                                            choices: ["print", "preview", "test-label", "step-wedge", "printers", "sizes", "doctor", "history", "version", "completions"])],
-                   examples: [CLIExample("labelize help print", "Options and examples for print")]),
+                   examples: [CLIExample("peelgood help print", "Options and examples for print")]),
         CLICommand("man-page", group: .shell, summary: "Print the man page in roff",
                    options: [CLIOption("release", value: "VERSION", help: "Version to print in the footer.", hidden: true)], hidden: true),
     ]
@@ -263,18 +261,18 @@ public enum Manual {
         ("LABELIZE_PRINTER", "Printer to use when --printer isn't given."),
         ("NO_COLOR", "Turns off color, like --no-color."),
         ("CLICOLOR_FORCE", "Color even when output isn't a terminal."),
-        ("LABELIZE_DEFAULTS_DOMAIN", "Settings domain to read defaults from (read only). Default com.fermiumlabs.labelize; none turns it off."),
+        ("PEELGOOD_DEFAULTS_DOMAIN", "Settings domain to read defaults from (read only). Default com.fermiumlabs.labelize; none turns it off."),
         ("LABELIZE_SUPPORT_DIR", "The app's data folder. Default ~/Library/Application Support/Peel Good."),
     ]
 
     /// The old flag-only form, still accepted.
     public static let legacy: [(old: String, new: String)] = [
-        ("labelize file.pdf --print", "labelize print file.pdf"),
-        ("labelize file.pdf --dry-run", "labelize print file.pdf --dry-run"),
-        ("labelize file.pdf", "labelize preview file.pdf -o out"),
-        ("labelize --list-printers", "labelize printers"),
-        ("labelize --list-sizes --printer P", "labelize sizes P"),
-        ("labelize --test-label --print", "labelize test-label"),
-        ("labelize --step-wedge --print", "labelize step-wedge"),
+        ("peelgood file.pdf --print", "peelgood print file.pdf"),
+        ("peelgood file.pdf --dry-run", "peelgood print file.pdf --dry-run"),
+        ("peelgood file.pdf", "peelgood preview file.pdf -o out"),
+        ("peelgood --list-printers", "peelgood printers"),
+        ("peelgood --list-sizes --printer P", "peelgood sizes P"),
+        ("peelgood --test-label --print", "peelgood test-label"),
+        ("peelgood --step-wedge --print", "peelgood step-wedge"),
     ]
 }

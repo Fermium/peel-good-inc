@@ -51,7 +51,7 @@ public struct Invocation: Equatable {
 
 public enum Parser {
     /// Parses arguments without the program name. `fileExists` decides whether an unknown first
-    /// word is a file (the old form, `labelize label.pdf`) or a mistyped command.
+    /// word is a file (the old form, `peelgood label.pdf`) or a mistyped command.
     public static func parse(_ args: [String], fileExists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }) throws -> Invocation {
         // No arguments, or only global flags: the overview.
         let globalNames = Set(Manual.globalOptions.flatMap { ["--\($0.name)"] + ($0.short.map { ["-\($0)"] } ?? []) })
@@ -80,14 +80,14 @@ public enum Parser {
         }
         if first.hasPrefix("-") {
             throw CLIError.usage("unknown option \(first)", hint: suggestion(first, among: Manual.globalOptions.map { "--\($0.name)" })
-                ?? "Run `labelize help` for commands.")
+                ?? "Run `peelgood help` for commands.")
         }
         let names = Manual.visibleCommands.flatMap { [$0.name] + $0.aliases }
         if let near = closest(first, among: names) {
-            throw CLIError.usage("unknown command \(first)", hint: "Did you mean `labelize \(near)`?")
+            throw CLIError.usage("unknown command \(first)", hint: "Did you mean `peelgood \(near)`?")
         }
         throw CLIError.usage("no command or file named \(first)",
-                             hint: "Commands: " + Manual.visibleCommands.map(\.name).joined(separator: ", ") + ". Run `labelize help` for more.")
+                             hint: "Commands: " + Manual.visibleCommands.map(\.name).joined(separator: ", ") + ". Run `peelgood help` for more.")
     }
 
     /// Parses the words after the command name.
@@ -119,16 +119,16 @@ public enum Parser {
                 if option != nil, name.count > 2 {
                     if option!.takesValue { attached = String(name.dropFirst(2)) } else { option = nil }
                 }
-                // A negative number is an argument: `--nudge -1,0` is handled below, this is `labelize sizes -1`.
+                // A negative number is an argument: `--nudge -1,0` is handled below, this is `peelgood sizes -1`.
                 if option == nil, Double(name) != nil { inv.arguments.append(word); continue }
             }
             guard let option else {
                 let all = options.filter { !$0.hidden }.map { "--\($0.name)" }
-                var hint = suggestion(name, among: all).map { $0 + " Or run `labelize help \(command.name)`." }
+                var hint = suggestion(name, among: all).map { $0 + " Or run `peelgood help \(command.name)`." }
                 if hint == nil, let owner = Manual.commands.first(where: { c in c.options.contains { "--\($0.name)" == name } }) {
-                    hint = "\(name) belongs to `labelize \(owner.name)`."
+                    hint = "\(name) belongs to `peelgood \(owner.name)`."
                 }
-                throw CLIError.usage("\(command.name) has no option \(name)", hint: hint ?? "Run `labelize help \(command.name)` for its options.")
+                throw CLIError.usage("\(command.name) has no option \(name)", hint: hint ?? "Run `peelgood help \(command.name)` for its options.")
             }
             switch option.name {
             case "json": inv.global.json = true; continue
@@ -220,7 +220,7 @@ public enum Parser {
     }
 }
 
-/// The old flag-only command line (`labelize label.pdf --size 4x6 --print`), rewritten into the new one.
+/// The old flag-only command line (`peelgood label.pdf --size 4x6 --print`), rewritten into the new one.
 public enum Legacy {
     static let onlyLegacy: Set<String> = ["--print", "--list-printers", "--list-sizes", "--test-label", "--step-wedge"]
 
@@ -283,7 +283,7 @@ public enum Legacy {
             }
         }
         let shown = translated.map { $0.contains(" ") ? "'\($0)'" : $0 }.joined(separator: " ")
-        return (translated, "The flag-only form still works. Next time: labelize \(shown)")
+        return (translated, "The flag-only form still works. Next time: peelgood \(shown)")
     }
 
     private static func isGlobal(_ word: String) -> Bool {

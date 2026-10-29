@@ -2,10 +2,10 @@
 import PackageDescription
 
 let package = Package(
-    name: "labelize",
+    name: "peelgood",
     platforms: [.macOS(.v15)],
     products: [
-        .executable(name: "labelize", targets: ["labelize"]),
+        .executable(name: "peelgood", targets: ["peelgood"]),
         .library(name: "LabelKit", targets: ["LabelKit"]),
     ],
     dependencies: [
@@ -19,7 +19,7 @@ let package = Package(
         .target(name: "LabelKit", dependencies: ["CCups"], swiftSettings: [.swiftLanguageMode(.v6)]),
         // The command line's one description (commands, help, completions, man page), shared with Settings > CLI.
         .target(name: "LabelizeCLI", dependencies: ["LabelKit"]),
-        .executableTarget(name: "labelize", dependencies: ["LabelKit", "LabelizeCLI"]),
+        .executableTarget(name: "peelgood", dependencies: ["LabelKit", "LabelizeCLI"]),
         .executableTarget(name: "make-fixtures"),
         .executableTarget(name: "LabelizeApp", dependencies: [
             "LabelKit",

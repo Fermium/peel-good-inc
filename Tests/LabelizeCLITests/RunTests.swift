@@ -1,13 +1,13 @@
 import Foundation
 import XCTest
 
-/// Runs the built `labelize` binary. Only `preview` and `--dry-run`: nothing is ever printed.
-/// The app's settings are never read (LABELIZE_DEFAULTS_DOMAIN=none) and output goes to a temp folder.
+/// Runs the built `peelgood` binary. Only `preview` and `--dry-run`: nothing is ever printed.
+/// The app's settings are never read (PEELGOOD_DEFAULTS_DOMAIN=none) and output goes to a temp folder.
 final class RunTests: XCTestCase {
     private var tmp: URL!
 
     override func setUpWithError() throws {
-        tmp = FileManager.default.temporaryDirectory.appendingPathComponent("labelize-cli-tests-\(UUID().uuidString)", isDirectory: true)
+        tmp = FileManager.default.temporaryDirectory.appendingPathComponent("peelgood-tests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
     }
 
@@ -18,8 +18,8 @@ final class RunTests: XCTestCase {
     private var binary: URL {
         get throws {
             let dir = Bundle(for: Self.self).bundleURL.deletingLastPathComponent()
-            let url = dir.appendingPathComponent("labelize")
-            guard FileManager.default.isExecutableFile(atPath: url.path) else { throw XCTSkip("labelize isn't built at \(url.path)") }
+            let url = dir.appendingPathComponent("peelgood")
+            guard FileManager.default.isExecutableFile(atPath: url.path) else { throw XCTSkip("peelgood isn't built at \(url.path)") }
             return url
         }
     }
@@ -31,7 +31,7 @@ final class RunTests: XCTestCase {
         p.arguments = args
         p.currentDirectoryURL = tmp
         var env = ProcessInfo.processInfo.environment
-        env["LABELIZE_DEFAULTS_DOMAIN"] = "none"
+        env["PEELGOOD_DEFAULTS_DOMAIN"] = "none"
         env["LABELIZE_SUPPORT_DIR"] = tmp.appendingPathComponent("support").path
         env["NO_COLOR"] = "1"
         env.removeValue(forKey: "LABELIZE_PRINTER")
@@ -84,7 +84,7 @@ final class RunTests: XCTestCase {
         // Fixtures/ isn't checked in (make-fixtures writes it); use whichever are around.
         var dir = URL(fileURLWithPath: #filePath)
         for _ in 0..<3 { dir.deleteLastPathComponent() }
-        let candidates = [dir.appendingPathComponent("Fixtures"), dir.deletingLastPathComponent().appendingPathComponent("labelize/Fixtures")]
+        let candidates = [dir.appendingPathComponent("Fixtures"), dir.deletingLastPathComponent().appendingPathComponent("peelgood/Fixtures")]
         guard let fixtures = candidates.first(where: { FileManager.default.fileExists(atPath: $0.path) }) else { throw XCTSkip("no Fixtures folder") }
         var files = try FileManager.default.contentsOfDirectory(atPath: fixtures.path).sorted().map { fixtures.appendingPathComponent($0).path }
         let order = NSHomeDirectory() + "/Downloads/order-1460-label.pdf"
@@ -122,7 +122,7 @@ final class RunTests: XCTestCase {
 
         let typo = try run(["prnt", "x.pdf"])
         XCTAssertEqual(typo.code, 2)
-        XCTAssertTrue(typo.err.contains("Did you mean `labelize print`?"))
+        XCTAssertTrue(typo.err.contains("Did you mean `peelgood print`?"))
 
         let printer = try run(["print", try sampleSVG().path, "--printer", "No_Such_Printer_42", "--dry-run"])
         XCTAssertEqual(printer.code, 3)

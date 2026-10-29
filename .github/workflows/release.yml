@@ -1,4 +1,4 @@
-# Peel Good Inc. (repo: labelize). Tag push (v1.2.3) -> universal build -> Developer ID sign -> notarize + staple app
+# Peel Good Inc. (repo: peelgood). Tag push (v1.2.3) -> universal build -> Developer ID sign -> notarize + staple app
 # -> DMG (signed, notarized, stapled) + zip -> GitHub Release -> bump Homebrew tap.
 # Manual runs (workflow_dispatch) build and upload artifacts only; no release, no tap bump.
 name: release
@@ -199,11 +199,11 @@ jobs:
           cask=Casks/peel-good-inc.rb
           sed -E -i "s/^  version \".*\"/  version \"${VERSION}\"/" "$cask"
           sed -E -i "s/^  sha256 \".*\"/  sha256 \"${DMG_SHA}\"/" "$cask"
-          if [[ -f Formula/labelize-cli.rb ]]; then
+          if [[ -f Formula/peelgood.rb ]]; then
             url="https://github.com/${GITHUB_REPOSITORY}/archive/refs/tags/v${VERSION}.tar.gz"
             src_sha="$(curl -fsSL "$url" | sha256sum | cut -d' ' -f1)"
-            sed -E -i "s|^  url \".*\"|  url \"${url}\"|" Formula/labelize-cli.rb
-            sed -E -i "s/^  sha256 \".*\"/  sha256 \"${src_sha}\"/" Formula/labelize-cli.rb
+            sed -E -i "s|^  url \".*\"|  url \"${url}\"|" Formula/peelgood.rb
+            sed -E -i "s/^  sha256 \".*\"/  sha256 \"${src_sha}\"/" Formula/peelgood.rb
           fi
           git diff
           git config user.name "github-actions[bot]"

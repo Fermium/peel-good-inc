@@ -8,8 +8,8 @@ the dither bench. Measure your printer to replace it.
 ## 1. Print the wedge
 
 ```sh
-swift run -c release labelize --step-wedge --size 4x6 --out /tmp/wedge            # writes, doesn't print
-swift run -c release labelize --step-wedge --size 4x6 --print --printer NAME      # prints it
+swift run -c release peelgood --step-wedge --size 4x6 --out /tmp/wedge            # writes, doesn't print
+swift run -c release peelgood --step-wedge --size 4x6 --print --printer NAME      # prints it
 ```
 
 The wedge has 11 patches labelled 0% to 100% requested coverage. It is dithered in Photo with
@@ -46,7 +46,7 @@ Values below 1 mean dot gain; 1 means none.
 ## 4. Use it
 
 ```sh
-swift run -c release labelize --ink photo --tone-gamma 0.55 file.pdf
+swift run -c release peelgood --ink photo --tone-gamma 0.55 file.pdf
 ```
 
 In code, set `LabelOptions.toneGamma`. Reprint the wedge with `--tone-gamma` set to the fitted

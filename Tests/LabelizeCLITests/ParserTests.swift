@@ -67,15 +67,15 @@ final class ParserTests: XCTestCase {
     func testMistypedCommandSuggests() {
         let e = usageError("prnt a.pdf")
         XCTAssertEqual(e?.code, .usage)
-        XCTAssertEqual(e?.hint, "Did you mean `labelize print`?")
-        XCTAssertEqual(usageError("doctr")?.hint, "Did you mean `labelize doctor`?")
+        XCTAssertEqual(e?.hint, "Did you mean `peelgood print`?")
+        XCTAssertEqual(usageError("doctr")?.hint, "Did you mean `peelgood doctor`?")
     }
 
     func testUnknownOptionSuggests() {
         let e = usageError("print a.pdf --szie 4x6")
         XCTAssertEqual(e?.message, "print has no option --szie")
         XCTAssertTrue(e?.hint?.hasPrefix("Did you mean --size?") == true)
-        XCTAssertEqual(usageError("printers --limit 3")?.hint, "--limit belongs to `labelize history`.")
+        XCTAssertEqual(usageError("printers --limit 3")?.hint, "--limit belongs to `peelgood history`.")
     }
 
     func testBadChoiceListsChoices() {
@@ -102,7 +102,7 @@ final class ParserTests: XCTestCase {
         XCTAssertEqual(inv["size"], "4x6")
         XCTAssertEqual(inv["out"], "out")
         XCTAssertFalse(inv.has("dry-run"))
-        XCTAssertEqual(inv.legacyHint, "The flag-only form still works. Next time: labelize print file.pdf --size 4x6 --out out")
+        XCTAssertEqual(inv.legacyHint, "The flag-only form still works. Next time: peelgood print file.pdf --size 4x6 --out out")
     }
 
     func testLegacyDryRunAndPreview() throws {
@@ -179,7 +179,7 @@ final class ParserTests: XCTestCase {
         XCTAssertEqual(o.cutoff, 0.3)
         XCTAssertEqual(o.nudgeMM, CGPoint(x: 1.5, y: 0))
         XCTAssertEqual(from, ["size", "ink", "cutoff", "nudge"])
-        XCTAssertEqual(AppDefaults.system(environment: ["LABELIZE_DEFAULTS_DOMAIN": "none"]).source, "none")
+        XCTAssertEqual(AppDefaults.system(environment: ["PEELGOOD_DEFAULTS_DOMAIN": "none"]).source, "none")
     }
 
     // MARK: Generated text
@@ -197,8 +197,8 @@ final class ParserTests: XCTestCase {
                 XCTAssertTrue(Help.command(c, .plain).contains("--\(o.name)"), "\(c.name) --\(o.name)")
             }
         }
-        XCTAssertTrue(zsh.hasPrefix("#compdef labelize peel"))
-        XCTAssertTrue(bash.contains("complete -o filenames -F _labelize labelize peel"))
+        XCTAssertTrue(zsh.hasPrefix("#compdef peelgood"))
+        XCTAssertTrue(bash.contains("complete -o filenames -F _peelgood peelgood"))
         XCTAssertTrue(man.hasPrefix(".\\\""))
         XCTAssertFalse(Help.overview(.plain).contains("\u{1B}["), "no escapes without a terminal")
         XCTAssertTrue(Help.overview(Style(enabled: true)).contains("\u{1B}["))

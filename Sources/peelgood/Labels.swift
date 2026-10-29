@@ -77,7 +77,7 @@ struct LabelRun {
         if let out = inv["out"] {
             outDir = URL(fileURLWithPath: (out as NSString).expandingTildeInPath, isDirectory: true)
         } else {
-            outDir = FileManager.default.temporaryDirectory.appendingPathComponent("labelize", isDirectory: true)
+            outDir = FileManager.default.temporaryDirectory.appendingPathComponent("peelgood", isDirectory: true)
                 .appendingPathComponent(kind == .preview ? "preview" : "print", isDirectory: true)
         }
         do { try FileManager.default.createDirectory(at: outDir, withIntermediateDirectories: true) } catch {

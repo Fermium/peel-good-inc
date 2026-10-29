@@ -1,10 +1,10 @@
 # Releasing Peel Good Inc. (draft)
 
 The app was formerly Labelize. The bundle is now `Peel Good Inc.app`. These stay the same: the executable
-`Contents/MacOS/Labelize`, the bundle id `com.fermiumlabs.labelize`, the repo name `labelize`, the `labelize` CLI,
+`Contents/MacOS/Labelize`, the bundle id `com.fermiumlabs.labelize`, the repo name `peel-good-inc`, the `peelgood` CLI,
 and the support/log folders `~/Library/{Application Support,Logs}/Labelize`.
 
-Drafts for copying into the `labelize` repo (`.github/`, `scripts/`) and a separate
+Drafts for copying into the `peelgood` repo (`.github/`, `scripts/`) and a separate
 `homebrew-tap` repo. Nothing here has run against real credentials yet.
 
 ```
@@ -14,7 +14,7 @@ scripts/make-dmg.sh             hdiutil DMG with an /Applications symlink, then 
 scripts/notarize.sh             notarytool submit --wait (API key), prints the log, staples
 scripts/entitlements/*.entitlements   Labelize (none), Share (sandbox), Helper (none)
 homebrew-tap/Casks/peel-good-inc.rb  the cask (the workflow rewrites version + sha256)
-homebrew-tap/Formula/labelize-cli.rb optional: the CLI built from source
+homebrew-tap/Formula/peelgood.rb optional: the CLI built from source
 ```
 
 Owner: the `fermium` GitHub org (Fermium Ltd). It is set in
@@ -27,7 +27,7 @@ Owner: the `fermium` GitHub org (Fermium Ltd). It is set in
 Peel Good Inc.app/Contents/
   MacOS/Labelize            main executable (hardened runtime, not sandboxed)
   MacOS/peel-good-mcp        MCP stdio shim, copied when Package.swift has that product
-  Helpers/labelize          CLI. It can't go in MacOS/: "labelize" and "Labelize" are the same name on case-insensitive APFS
+  Helpers/peelgood          CLI. It can't go in MacOS/: "peelgood" and "Labelize" are the same name on case-insensitive APFS
   PlugIns/LabelizeShare.appex   Share extension (sandboxed, as all app extensions must be)
 ```
 
@@ -49,11 +49,11 @@ entitlements. `com.apple.security.print` and `network.server` only apply to sand
    Download `AuthKey_XXXX.p8` (you can only download it once). Note the Key ID and the Issuer ID.
    `base64 -i AuthKey_XXXX.p8 | pbcopy`
 4. **Create the tap repo**: a public repo `<owner>/homebrew-tap` containing the files in `homebrew-tap/`
-   (`Casks/peel-good-inc.rb`, plus `Formula/labelize-cli.rb` if wanted) from `homebrew-tap/`. Homebrew maps
+   (`Casks/peel-good-inc.rb`, plus `Formula/peelgood.rb` if wanted) from `homebrew-tap/`. Homebrew maps
    `<owner>/tap` to `github.com/<owner>/homebrew-tap`.
 5. **Tap token**: a fine-grained PAT, limited to the repository `<owner>/homebrew-tap`, with
    Permissions > Contents: Read and write. Set it to expire and put a renewal reminder in the calendar.
-6. **GitHub secrets** in the `labelize` repo (Settings > Secrets and variables > Actions):
+6. **GitHub secrets** in the `peelgood` repo (Settings > Secrets and variables > Actions):
 
 | Secret | Value |
 |---|---|
@@ -89,13 +89,13 @@ scripts/make-dmg.sh "build/release/Peel Good Inc.app" build/release/PeelGoodInc-
 ## How users install
 
 ```sh
-brew install --cask fermium/tap/peel-good-inc   # app + `labelize` CLI on PATH
+brew install --cask fermium/tap/peel-good-inc   # app + `peelgood` CLI on PATH
 brew upgrade --cask peel-good-inc
 brew uninstall --zap --cask peel-good-inc            # also removes prefs, logs, app support
 ```
 
 Without Homebrew, download `PeelGoodInc-x.y.z.dmg` from Releases and drag the app to Applications.
-Users who only want the CLI, built from source: `brew install fermium/tap/labelize-cli`.
+Users who only want the CLI, built from source: `brew install fermium/tap/peelgood`.
 
 ## Without an Apple Developer account (fallback)
 

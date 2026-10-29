@@ -69,7 +69,7 @@ struct Context {
 
     // MARK: Version
 
-    /// The app bundle around this helper (Contents/Helpers/labelize), if there is one.
+    /// The app bundle around this helper (Contents/Helpers/peelgood), if there is one.
     static var enclosingApp: URL? {
         guard let exe = Bundle.main.executableURL?.resolvingSymlinksInPath() else { return nil }
         let contents = exe.deletingLastPathComponent().deletingLastPathComponent()

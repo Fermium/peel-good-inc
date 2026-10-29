@@ -37,7 +37,7 @@ public struct Style: Sendable {
     public var dot: String { dim(unicode ? "·" : "-") }
 }
 
-/// Text for `labelize help` and `labelize <command> --help`.
+/// Text for `peelgood help` and `peelgood <command> --help`.
 public enum Help {
     public static func overview(_ s: Style, tool: String = Manual.tool) -> String {
         var out = "\(s.bold(s.accent("Peel Good Inc."))) \(s.dim("prints any PDF, SVG or image as a thermal label."))\n\n"
@@ -54,10 +54,10 @@ public enum Help {
         }
         out += "\(s.bold("FLAGS"))\n" + optionLines(Manual.globalOptions + [CLIOption("version", short: "V", help: "Show the version.")], s) + "\n"
         out += "\(s.bold("EXAMPLES"))\n"
-        for e in [Manual.commands[0].examples[0], Manual.commands[1].examples[0], CLIExample("labelize doctor", "Check printers, the app and its API")] {
+        for e in [Manual.commands[0].examples[0], Manual.commands[1].examples[0], CLIExample("peelgood doctor", "Check printers, the app and its API")] {
             out += "  \(s.dim("# " + e.comment))\n  $ \(e.command)\n"
         }
-        out += "\n\(s.dim("Run `\(tool) help <command>` for its options, or `man labelize`."))\n"
+        out += "\n\(s.dim("Run `\(tool) help <command>` for its options, or `man peelgood`."))\n"
         return out
     }
 

@@ -5,19 +5,19 @@ cd "${0:A:h}/.."
 
 swift build -c release --product LabelizeApp
 swift build -c release --product peel-good-mcp
-swift build -c release --product labelize
+swift build -c release --product peelgood
 app="build/Peel Good Inc.app"
 rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources/completions" "$app/Contents/Helpers"
 cp .build/release/LabelizeApp "$app/Contents/MacOS/Labelize"
 cp .build/release/peel-good-mcp "$app/Contents/MacOS/peel-good-mcp"
-# The CLI goes to Contents/Helpers: "labelize" and "Labelize" collide on case-insensitive APFS.
-cp .build/release/labelize "$app/Contents/Helpers/labelize"
+# The CLI goes to Contents/Helpers: "peelgood" and "Labelize" collide on case-insensitive APFS.
+cp .build/release/peelgood "$app/Contents/Helpers/peelgood"
 # Man page and shell completions, generated from the CLI's own description of itself.
-.build/release/labelize man-page --release 0.1 > "$app/Contents/Resources/labelize.1"
-.build/release/labelize completions zsh > "$app/Contents/Resources/completions/_labelize"
-.build/release/labelize completions bash > "$app/Contents/Resources/completions/labelize.bash"
-.build/release/labelize completions fish > "$app/Contents/Resources/completions/labelize.fish"
+.build/release/peelgood man-page --release 0.1 > "$app/Contents/Resources/peelgood.1"
+.build/release/peelgood completions zsh > "$app/Contents/Resources/completions/_peelgood"
+.build/release/peelgood completions bash > "$app/Contents/Resources/completions/peelgood.bash"
+.build/release/peelgood completions fish > "$app/Contents/Resources/completions/peelgood.fish"
 cp Resources/*.wav Resources/Labelize.icns docs/brand/logo-light.png docs/brand/logo-dark.png LICENSE "$app/Contents/Resources/"
 python3 scripts/make-sbom.py "$(git describe --tags --always 2>/dev/null || echo dev)" "$app/Contents/Resources/sbom.cdx.json"
 
@@ -102,7 +102,7 @@ PLIST
 
 codesign --force --sign - --entitlements Extensions/Share/Share.entitlements "$appex"
 codesign --force --sign - "$app/Contents/MacOS/peel-good-mcp"
-codesign --force --sign - --identifier com.fermiumlabs.labelize.cli "$app/Contents/Helpers/labelize"
+codesign --force --sign - --identifier com.fermiumlabs.labelize.cli "$app/Contents/Helpers/peelgood"
 codesign --force --sign - "$app"
 pluginkit -a "$appex" || true
 # Register Open With, the "Print as Label" service and the document types.

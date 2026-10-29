@@ -50,14 +50,44 @@ struct ZoomablePreview: View {
             }
             .onHover { h in withAnimation(.easeOut(duration: 0.12)) { hovering = h } }
             .onTapGesture(count: 2) { zoomed = true }
-            .sheet(isPresented: $zoomed) { Lightbox(image: image, title: title) }
+            .onChange(of: zoomed) { _, open in
+                if open { LightboxWindow.show(image: image, title: title); zoomed = false }
+            }
+    }
+}
+
+/// A large window for one preview: about 80% of the screen, label at its true proportions.
+@MainActor
+enum LightboxWindow {
+    private static var window: NSPanel?
+
+    static func show(image: NSImage, title: String) {
+        let screen = (NSApp.keyWindow?.screen ?? NSScreen.main)?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1400, height: 900)
+        let maxW = screen.width * 0.8, maxH = screen.height * 0.85 - 60
+        let scale = min(maxW / image.size.width, maxH / image.size.height)
+        let size = NSSize(width: max(420, image.size.width * scale + 40), height: image.size.height * scale + 100)
+        let view = Lightbox(image: image, title: title) { window?.close() }
+        let panel = window ?? {
+            let p = NSPanel(contentRect: .zero, styleMask: [.titled, .closable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
+            p.titlebarAppearsTransparent = true
+            p.isReleasedWhenClosed = false
+            p.isFloatingPanel = true
+            p.hidesOnDeactivate = false
+            return p
+        }()
+        panel.title = title
+        panel.contentViewController = NSHostingController(rootView: view)
+        panel.setContentSize(size)
+        panel.setFrameOrigin(NSPoint(x: screen.midX - size.width / 2, y: screen.midY - size.height / 2))
+        window = panel
+        panel.makeKeyAndOrderFront(nil)
     }
 }
 
 struct Lightbox: View {
     let image: NSImage
     let title: String
-    @Environment(\.dismiss) private var dismiss
+    let close: () -> Void
 
     var body: some View {
         VStack(spacing: 12) {
@@ -65,16 +95,16 @@ struct Lightbox: View {
                 .resizable().interpolation(.none).aspectRatio(contentMode: .fit)
                 .background(.white)
                 .shadow(color: .black.opacity(0.2), radius: 10, y: 4)
-                .frame(maxWidth: 720, maxHeight: 640)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .onTapGesture(perform: close)
             HStack {
                 Text(title).foregroundStyle(.secondary)
                 Spacer()
-                Button("Done") { dismiss() }.keyboardShortcut(.defaultAction)
+                Button("Done", action: close).keyboardShortcut(.defaultAction)
+                Button("", action: close).keyboardShortcut(.cancelAction).hidden().frame(width: 0)
             }
         }
-        .padding(20)
-        .frame(minWidth: 420)
-        .onTapGesture { dismiss() }
+        .padding(EdgeInsets(top: 30, leading: 20, bottom: 16, trailing: 20))
     }
 }
 
@@ -134,6 +164,8 @@ struct InkCompareView: View {
     }
 
     @State private var name = "Sample"
+    @State private var pages: [SourcePage] = []
+    @State private var pageIndex = 0
     @State private var original: NSImage?
     @State private var results: [Result] = []
     @State private var working = false
@@ -166,7 +198,19 @@ struct InkCompareView: View {
             }
             .frame(height: 300)
             HStack {
-                Text("Drop a file to compare.").foregroundStyle(.secondary)
+                if pages.count > 1 {
+                    Button { show(pageIndex - 1) } label: { Image(systemName: "chevron.left") }
+                        .disabled(pageIndex == 0)
+                        .keyboardShortcut(.leftArrow, modifiers: [])
+                        .help("Previous page")
+                    Text("Page \(pageIndex + 1) of \(pages.count)").monospacedDigit()
+                    Button { show(pageIndex + 1) } label: { Image(systemName: "chevron.right") }
+                        .disabled(pageIndex == pages.count - 1)
+                        .keyboardShortcut(.rightArrow, modifiers: [])
+                        .help("Next page")
+                } else {
+                    Text("Drop a file to compare.").foregroundStyle(.secondary)
+                }
                 Spacer()
                 if working { ProgressView().controlSize(.small) }
                 Button("Choose File…", action: choose)
@@ -207,12 +251,22 @@ struct InkCompareView: View {
 
     private func loadSample() {
         let size = store.size(for: printer)
-        render(InkSample.page(size: size, title: printer.displayName), name: "Sample")
+        pages = [InkSample.page(size: size, title: printer.displayName)]
+        pageIndex = 0
+        render(pages[0], name: "Sample")
     }
 
     private func load(_ url: URL) {
-        guard let page = try? DocumentLoader.load(url).first else { return }
-        render(page, name: url.lastPathComponent)
+        guard let loaded = try? DocumentLoader.load(url), !loaded.isEmpty else { return }
+        pages = loaded
+        pageIndex = 0
+        render(loaded[0], name: url.lastPathComponent)
+    }
+
+    private func show(_ index: Int) {
+        guard pages.indices.contains(index) else { return }
+        pageIndex = index
+        render(pages[index], name: name)
     }
 
     private func render(_ page: SourcePage, name: String) {
@@ -239,9 +293,9 @@ struct InkCompareView: View {
         }
     }
 
-    /// The source page in color, about 600 px on the long side.
+    /// The source page in color, about 1600 px on the long side (sharp in the lightbox too).
     static func colorImage(_ page: SourcePage) -> NSImage {
-        let scale = 600 / max(page.size.width, page.size.height)
+        let scale = 1600 / max(page.size.width, page.size.height)
         let size = NSSize(width: page.size.width * scale, height: page.size.height * scale)
         return NSImage(size: size, flipped: false) { rect in
             guard let ctx = NSGraphicsContext.current?.cgContext else { return false }
