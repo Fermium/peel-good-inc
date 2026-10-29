@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="660" height="400" viewBox="0 0 660 400" fill="none">
+  <!-- Peel Good Inc. DMG window background (660x400 pt).
+       Based on the original draft background (coral corner waves + coral arrow).
+       The printer and folder drawings were removed: Finder draws the real app icon
+       at (165, 190) and the Applications alias at (495, 190), icon size 128.
+       Export: Resources/dmg-background.png (1x), @2x.png, combined .tiff. -->
+  <defs>
+    <linearGradient id="paper-bg" x1="0" y1="0" x2="0" y2="400" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFDF7"/>
+      <stop offset="1" stop-color="#F8F3E6"/>
+    </linearGradient>
+    <linearGradient id="coral-corner-gradient" x1="25" y1="5" x2="245" y2="191" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FF7858"/>
+      <stop offset="1" stop-color="#FF6B50"/>
+    </linearGradient>
+    <linearGradient id="lower-coral-gradient" x1="806" y1="871" x2="1024" y2="1024" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FF6B50"/>
+      <stop offset="1" stop-color="#FF795A"/>
+    </linearGradient>
+    <linearGradient id="arrow-gradient" x1="470" y1="436" x2="581" y2="505" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FF7052"/>
+      <stop offset="1" stop-color="#FF5A3C"/>
+    </linearGradient>
+    <radialGradient id="icon-pad" cx="0.5" cy="0.5" r="0.5">
+      <stop stop-color="#EFE7D3" stop-opacity=".55"/>
+      <stop offset=".7" stop-color="#EFE7D3" stop-opacity=".18"/>
+      <stop offset="1" stop-color="#EFE7D3" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <rect id="paper" width="660" height="400" fill="url(#paper-bg)"/>
+
+  <!-- Coral corner waves from the draft, scaled to the window corners. -->
+  <g id="coral-corner-decorations">
+    <path id="upper-left-coral-wave" transform="scale(.40)" d="M0 0H247C229 42 197 74 156 92C131 103 103 107 79 121C47 138 29 165 0 184Z" fill="url(#coral-corner-gradient)"/>
+    <path id="lower-right-coral-wave" transform="translate(660 400) scale(.40) translate(-1024 -1024)" d="M726 1024C738 984 763 960 797 944C823 932 850 930 875 916C908 899 927 871 950 849C971 830 995 817 1024 809V1024Z" fill="url(#lower-coral-gradient)"/>
+  </g>
+
+  <!-- Wordmark. -->
+  <text id="wordmark" x="330" y="62" text-anchor="middle" fill="#26313A" font-family="'Arial Rounded MT Bold', 'Trebuchet MS', Arial, sans-serif" font-size="26" font-weight="700" letter-spacing="-0.8">Peel Good Inc.</text>
+
+  <!-- Very soft pads where Finder places the two icons (kept flat and quiet). -->
+  <ellipse id="app-icon-pad" cx="165" cy="192" rx="96" ry="96" fill="url(#icon-pad)"/>
+  <ellipse id="applications-pad" cx="495" cy="192" rx="96" ry="96" fill="url(#icon-pad)"/>
+
+  <!-- Coral transfer arrow from the draft, centered between the icons. -->
+  <g id="rightward-transfer-arrow" transform="translate(330 190) scale(.46) translate(-526 -465)">
+    <path d="M471 449H527L525 426C524 416 533 410 541 416L586 458C592 463 592 469 587 474L542 515C535 521 524 516 525 507L527 482H471C464 482 461 478 461 472V459C461 453 464 449 471 449Z" fill="url(#arrow-gradient)"/>
+  </g>
+  <g id="arrow-trail" fill="#FF6B50">
+    <circle cx="281" cy="190" r="3" opacity=".25"/>
+    <circle cx="292" cy="190" r="3" opacity=".45"/>
+  </g>
+
+  <!-- Install cue. -->
+  <text id="install-cue" x="330" y="338" text-anchor="middle" fill="#5B6670" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="14" font-weight="500">Drag Peel Good Inc. into Applications to install</text>
+</svg>
