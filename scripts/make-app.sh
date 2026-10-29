@@ -18,7 +18,7 @@ cp .build/release/peelgood "$app/Contents/Helpers/peelgood"
 .build/release/peelgood completions zsh > "$app/Contents/Resources/completions/_peelgood"
 .build/release/peelgood completions bash > "$app/Contents/Resources/completions/peelgood.bash"
 .build/release/peelgood completions fish > "$app/Contents/Resources/completions/peelgood.fish"
-cp Resources/*.wav Resources/Labelize.icns docs/brand/logo-light.png docs/brand/logo-dark.png LICENSE "$app/Contents/Resources/"
+cp Resources/*.wav Resources/Labelize.icns Resources/menubar.pdf Resources/menubar-filled.pdf docs/brand/logo-light.png docs/brand/logo-dark.png LICENSE "$app/Contents/Resources/"
 python3 scripts/make-sbom.py "$(git describe --tags --always 2>/dev/null || echo dev)" "$app/Contents/Resources/sbom.cdx.json"
 
 # Share extension ("Peel Good Inc." in Share menus), built directly: SwiftPM can't make .appex bundles.
