@@ -92,8 +92,6 @@ public struct AppSettings: @unchecked Sendable {
     public func strings(_ key: String) -> [String]? { read(key) as? [String] }
     public func set(_ value: Any?, _ key: String) { write?(key, value) }
 
-    private func get<T>(_ key: SettingsKey, _ f: (String) -> T?) -> T? { f(key.rawValue) }
-
     // MARK: Defaults
 
     public enum Default {
@@ -166,11 +164,8 @@ public struct AppSettings: @unchecked Sendable {
         nonmutating set { set(newValue.rawValue, SettingsKey.tagColor.rawValue) }
     }
 
-    /// General > After Printing's tag, or nil when tagging is off or the name is blank.
-    public var generalTag: FinderTag? {
-        guard tagAfterPrint, !tagName.trimmingCharacters(in: .whitespaces).isEmpty else { return nil }
-        return FinderTag(name: tagName, color: tagColor)
-    }
+    /// General > After Printing's tag, whether or not tagging is on (`RuleTag.resolve` checks that).
+    public var generalTag: FinderTag { FinderTag(name: tagName, color: tagColor) }
 
     public var afterPrintAction: AfterPrintAction {
         get { AfterPrintAction(rawValue: string(SettingsKey.afterPrintAction.rawValue) ?? "") ?? .leave }

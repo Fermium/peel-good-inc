@@ -26,8 +26,6 @@ final class RuleEngine: ObservableObject {
         fallback = loaded?.fallback ?? RuleBook.defaultFallback
     }
 
-    static var defaultFallback: Rule { RuleBook.defaultFallback }
-
     nonisolated static var defaultFileURL: URL { AppPaths.rulesFile }
 
     var book: RuleBook { RuleBook(rules: rules, fallback: fallback) }

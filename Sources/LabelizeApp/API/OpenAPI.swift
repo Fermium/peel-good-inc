@@ -149,6 +149,16 @@ enum OpenAPI {
 
     // MARK: Components
 
+    /// One label's details. LabelPreview is these plus its image.
+    static let labelInfoFields: [Field] = [
+        Field("index", .integer(), required: true),
+        Field("ink", .string("The ink used. Auto picks one per label.", values: Limits.inks.filter { $0 != InkMode.auto.rawValue }), required: true),
+        Field("scalePercent", .number("Source to label scale."), required: true),
+        Field("rotated", .boolean(), required: true),
+        Field("codes", .array(.ref("Code")), required: true),
+        Field("warnings", .array(.string()), required: true),
+    ]
+
     static let components: [(String, Schema)] = [
         ("Health", .object([
             Field("status", .string("Always ok.", values: ["ok"]), required: true),
@@ -215,24 +225,11 @@ enum OpenAPI {
                                     values: ["countdown", "review"])),
             Field("labelDetails", .array(.ref("LabelInfo"), "Per label, once composed.")),
         ])),
-        ("LabelInfo", .object([
-            Field("index", .integer(), required: true),
-            Field("ink", .string("The ink used. Auto picks one per label.", values: Limits.inks.filter { $0 != InkMode.auto.rawValue }), required: true),
-            Field("scalePercent", .number("Source to label scale."), required: true),
-            Field("rotated", .boolean(), required: true),
-            Field("codes", .array(.ref("Code")), required: true),
-            Field("warnings", .array(.string()), required: true),
-        ])),
-        ("LabelPreview", .object([
-            Field("index", .integer(), required: true),
+        ("LabelInfo", .object(labelInfoFields)),
+        ("LabelPreview", .object(labelInfoFields + [
             Field("width", .integer("Pixels at printer resolution."), required: true),
             Field("height", .integer(), required: true),
             Field("png", .string("PNG image, base64.", format: "byte"), required: true),
-            Field("ink", .string("The ink used. Auto picks one per label.", values: Limits.inks.filter { $0 != InkMode.auto.rawValue }), required: true),
-            Field("scalePercent", .number("Source to label scale."), required: true),
-            Field("rotated", .boolean(), required: true),
-            Field("codes", .array(.ref("Code")), required: true),
-            Field("warnings", .array(.string()), required: true),
         ])),
         ("Preview", .object([
             Field("printer", .string(), required: true),
@@ -276,8 +273,7 @@ enum OpenAPI {
         static let code = APICode(symbology: "QR", payload: "1Z999AA10123456784", scannable: true, severity: "ok", message: nil)
         static let preview = APIPreview(printer: "MUNBYN_ITPP941AP", size: "4x6", rule: "Everything else", copies: 1, action: "countdown",
                                         labels: 1, codesFound: 1, codesVerified: 1, codesMissing: [], warnings: [],
-                                        images: [APILabelPreview(index: 0, width: 812, height: 1218, png: Data("PNG…".utf8), ink: "crisp",
-                                                                 scalePercent: 100, rotated: false, codes: [code], warnings: [])])
+                                        images: [APILabelPreview(info(0), width: 812, height: 1218, png: Data("PNG…".utf8))])
         static let health = APIHealth(status: "ok", version: "0.1", http: true, mcp: true, port: APISettings.defaultPort)
         static let error = APIErrorBody(error: .init(code: "printer_not_found", message: "Printer Zebra not found."))
     }

@@ -10,16 +10,23 @@ struct RuleEditorView: View {
     let current: PrinterInfo?
     /// A printer's own settings, shown as "Default (…)".
     let defaults: (PrinterInfo) -> LabelOptions
+    /// The Store's settings, for General's Finder tag. Nil in previews: tagging off.
+    let settings: AppSettings?
     let onCommit: (Rule) -> Void
     @State private var draft: Rule
     @Environment(\.dismiss) private var dismiss
 
     init(rule: Rule, printers: [PrinterInfo], current: PrinterInfo?,
-         defaults: @escaping (PrinterInfo) -> LabelOptions = { _ in LabelOptions() }, onCommit: @escaping (Rule) -> Void) {
+         defaults: @escaping (PrinterInfo) -> LabelOptions = { _ in LabelOptions() }, settings: AppSettings? = nil,
+         onCommit: @escaping (Rule) -> Void) {
+        // A rule may name its printer by display name; the picker's tags are queue names.
+        var rule = rule
+        if let name = rule.outcome.printer, let p = PrinterResolver.match(name, in: printers) { rule.outcome.printer = p.name }
         _draft = State(initialValue: rule)
         self.printers = printers
         self.current = current
         self.defaults = defaults
+        self.settings = settings
         self.onCommit = onCommit
     }
 
@@ -30,7 +37,7 @@ struct RuleEditorView: View {
                     TextField("Name", text: $draft.name, prompt: Text(suggestedName))
                 }
                 conditionsSection
-                OutcomeSections(outcome: $draft.outcome, printers: printers, current: current, defaults: defaults)
+                OutcomeSections(outcome: $draft.outcome, printers: printers, current: current, defaults: defaults, settings: settings)
             }
             .formStyle(.grouped)
 
@@ -184,9 +191,10 @@ struct OutcomeSections: View {
     let printers: [PrinterInfo]
     let current: PrinterInfo?
     let defaults: (PrinterInfo) -> LabelOptions
+    var settings: AppSettings? = nil
 
     private var targetPrinter: PrinterInfo? {
-        outcome.printer.flatMap { name in printers.first { $0.name == name } } ?? (outcome.printer == nil ? current : nil)
+        outcome.printer.flatMap { PrinterResolver.match($0, in: printers) } ?? (outcome.printer == nil ? current : nil)
     }
 
     private var sizes: [LabelSize] {
@@ -290,8 +298,8 @@ struct OutcomeSections: View {
 
     /// General > After Printing: whether tagging is on, and its tag.
     private var general: (on: Bool, tag: FinderTag) {
-        let s = AppSettings.userDefaults(.standard)
-        return (s.tagAfterPrint, FinderTag(name: s.tagName, color: s.tagColor))
+        guard let settings else { return (false, FinderTag(name: AppSettings.Default.tagName, color: AppSettings.Default.tagColor)) }
+        return (settings.tagAfterPrint, settings.generalTag)
     }
 
     private var actionNote: String {

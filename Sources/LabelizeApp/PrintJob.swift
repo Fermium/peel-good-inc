@@ -63,17 +63,13 @@ final class PrintJob: ObservableObject {
     }
 
     var codeSummary: String? {
-        let expected = labels.reduce(0) { $0 + $1.expectedCodes.count }
+        let counts = labels.codeCounts, expected = counts.expected, missing = counts.missing.count
         guard expected > 0 else { return nil }
-        let missing = labels.reduce(0) { $0 + $1.missingCodes.count }
         return missing == 0 ? "\(expected)/\(expected) codes scan" : "\(missing) of \(expected) codes won't scan"
     }
 
     /// Problems worth showing: everything except cautions about codes that should still scan.
-    var warnings: [String] {
-        let cautions = Set(labels.flatMap(\.codeReports).filter { $0.severity == .caution }.compactMap(\.message))
-        return notes + Array(Set(labels.flatMap(\.warnings)).subtracting(cautions)).sorted()
-    }
+    var warnings: [String] { notes + labels.reportableWarnings }
 
     func start() {
         Task {
@@ -103,9 +99,9 @@ final class PrintJob: ObservableObject {
             self.previews = labels.compactMap { l in
                 l.bitmap.cgImage().map { NSImage(cgImage: $0, size: l.placement.target) }
             }
-            let codes = labels.reduce(0) { $0 + $1.expectedCodes.count }, missing = labels.reduce(0) { $0 + $1.missingCodes.count }
-            Log.info(.job, "composed \(labels.count) label(s) at \(options.size), \(codes) code(s), \(missing) unreadable")
-            for w in Set(labels.flatMap(\.warnings)) { Log.warning(.job, w) }
+            let counts = labels.codeCounts
+            Log.info(.job, "composed \(labels.count) label(s) at \(options.size), \(counts.expected) code(s), \(counts.missing.count) unreadable")
+            for w in labels.reportableWarnings { Log.warning(.job, w) }
             if labels.isEmpty {
                 Log.error(.job, "nothing to print in \(files.map(\.lastPathComponent).joined(separator: ", "))")
                 phase = .failed("Nothing to print")

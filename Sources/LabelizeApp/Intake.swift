@@ -7,10 +7,46 @@ import UniformTypeIdentifiers
 enum Intake {
     static let fileTypes: [UTType] = [.pdf, .svg, .image]
 
-    static let dataTypes: [(NSPasteboard.PasteboardType, String)] = [
-        (.pdf, "pdf"), (.png, "png"), (NSPasteboard.PasteboardType(UTType.jpeg.identifier), "jpg"),
-        (NSPasteboard.PasteboardType(UTType.svg.identifier), "svg"), (.tiff, "tiff"),
+    /// A format Labelize reads from raw data: the clipboard, uploads without a usable name, MCP's content_base64.
+    struct Format: Sendable {
+        var type: UTType
+        /// Extension for the file it's saved as.
+        var ext: String
+        /// Recognises the data from its first bytes.
+        var matches: @Sendable (Data) -> Bool
+        var mimeType: String { type.preferredMIMEType ?? "application/octet-stream" }
+    }
+
+    /// The one list of data formats, in the order the clipboard is read. `dataTypes`, `APIRoutes.uploadName` and
+    /// `MCPTools.sniff` all read it.
+    static let formats: [Format] = [
+        Format(type: .pdf, ext: "pdf") { starts($0, "%PDF") },
+        Format(type: .png, ext: "png") { starts($0, [0x89, 0x50, 0x4E, 0x47]) },
+        Format(type: .jpeg, ext: "jpg") { starts($0, [0xFF, 0xD8, 0xFF]) },
+        Format(type: .svg, ext: "svg") { String(decoding: $0.prefix(256), as: UTF8.self).contains("<svg") },
+        Format(type: .tiff, ext: "tiff") { starts($0, [0x49, 0x49, 0x2A, 0x00]) || starts($0, [0x4D, 0x4D, 0x00, 0x2A]) },
+        Format(type: .gif, ext: "gif") { starts($0, "GIF8") },
+        Format(type: .heic, ext: "heic") { data in
+            let head = [UInt8](data.prefix(12))
+            guard head.count == 12, String(decoding: head[4..<8], as: UTF8.self) == "ftyp" else { return false }
+            return ["heic", "heix", "hevc", "hevx", "mif1", "msf1"].contains(String(decoding: head[8..<12], as: UTF8.self))
+        },
     ]
+
+    /// The format of some data, from its first bytes.
+    static func format(of data: Data) -> Format? { formats.first { $0.matches(data) } }
+
+    /// The format for a content type such as "image/png; charset=binary".
+    static func format(mimeType: String?) -> Format? {
+        guard let mime = mimeType?.split(separator: ";").first?.trimmingCharacters(in: .whitespaces).lowercased(),
+              let type = UTType(mimeType: mime) else { return nil }
+        return formats.first { type.conforms(to: $0.type) }
+    }
+
+    private static func starts(_ data: Data, _ bytes: [UInt8]) -> Bool { data.prefix(bytes.count).elementsEqual(bytes) }
+    private static func starts(_ data: Data, _ text: String) -> Bool { starts(data, Array(text.utf8)) }
+
+    static let dataTypes: [(NSPasteboard.PasteboardType, String)] = formats.map { (NSPasteboard.PasteboardType($0.type.identifier), $0.ext) }
 
     static var pasteboardTypes: [NSPasteboard.PasteboardType] {
         [.fileURL] + dataTypes.map(\.0) + NSFilePromiseReceiver.readableDraggedTypes.map { NSPasteboard.PasteboardType($0) }

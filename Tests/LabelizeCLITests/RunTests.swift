@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 import XCTest
 
@@ -98,12 +99,42 @@ final class RunTests: XCTestCase {
         XCTAssertEqual(json["sent"] as? Bool, false)
         let reports = try XCTUnwrap(json["files"] as? [[String: Any]])
         XCTAssertEqual(reports.count, files.count)
-        for report in reports {
-            let lp = try XCTUnwrap(report["lp"] as? [String])
-            XCTAssertEqual(lp.first, "lp")
-            XCTAssertNil(report["job"], "dry run sent nothing")
-            XCTAssertFalse((report["pages"] as? [Any] ?? []).isEmpty)
-        }
+        for report in reports { XCTAssertFalse((report["pages"] as? [Any] ?? []).isEmpty) }
+        let lp = try XCTUnwrap(json["lp"] as? [String], "one print command for every file")
+        XCTAssertEqual(lp.first, "lp")
+        XCTAssertNil(json["job"], "dry run sent nothing")
+    }
+
+    /// Several files print as one job, as a drop does in the app: one PDF with every label, one lp, copies on the set.
+    func testSeveralFilesAreOneJob() throws {
+        let a = try sampleSVG()
+        let b = tmp.appendingPathComponent("second.svg")
+        try FileManager.default.copyItem(at: a, to: b)
+        let r = try run(["print", a.path, b.path, "--dry-run", "--json", "--no-rules", "--copies", "2", "-o", tmp.appendingPathComponent("out").path])
+        if r.code == 3 { throw XCTSkip("no label printer: \(r.err)") }
+        XCTAssertEqual(r.code, 0, r.err)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(r.out.utf8)) as? [String: Any])
+        XCTAssertEqual((json["files"] as? [Any])?.count, 2)
+        let pdf = try XCTUnwrap(json["pdf"] as? String)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: pdf))
+        XCTAssertEqual(CGPDFDocument(URL(fileURLWithPath: pdf) as CFURL)?.numberOfPages, 2, "both files' labels in one PDF")
+        let lp = try XCTUnwrap(json["lp"] as? [String])
+        XCTAssertTrue(lp.contains(pdf))
+        XCTAssertTrue(lp.joined(separator: " ").contains("-n 2"), "copies of the whole set")
+        XCTAssertNil(json["history"], "dry runs aren't saved")
+    }
+
+    /// `peelgood sizes` marks the size the app really prints at: 4x6 when nothing is saved.
+    func testSizesMarksWhatTheAppPrints() throws {
+        let r = try run(["sizes", "--json"])
+        if r.code == 3 { throw XCTSkip("no label printer: \(r.err)") }
+        XCTAssertEqual(r.code, 0, r.err)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(r.out.utf8)) as? [String: Any])
+        let rows = try XCTUnwrap(json["sizes"] as? [[String: Any]])
+        let marked = rows.filter { $0["appDefault"] as? Bool == true }.compactMap { $0["size"] as? String }
+        guard rows.contains(where: { $0["size"] as? String == "4x6" && $0["supported"] as? Bool == true }) else { throw XCTSkip("printer can't take 4x6") }
+        XCTAssertFalse(marked.isEmpty, "with nothing saved the app prints 4x6")
+        XCTAssertTrue(marked.allSatisfy { $0 == "4x6" }, "\(marked)")
     }
 
     func testTestLabelAndStepWedgeDryRun() throws {
@@ -195,6 +226,20 @@ final class RunTests: XCTestCase {
         json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(off.out.utf8)) as? [String: Any])
         XCTAssertNil(json["rule"])
         XCTAssertEqual(json["copies"] as? Int, 1)
+
+        // preview applies the same rules, so it shows what print will do.
+        let preview = try run(["preview", svg.path, "--json", "-o", tmp.appendingPathComponent("p").path])
+        XCTAssertEqual(preview.code, 0, preview.err)
+        json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(preview.out.utf8)) as? [String: Any])
+        XCTAssertEqual(json["rule"] as? String, "Terminal labels")
+        XCTAssertEqual(json["ink"] as? String, "photo")
+        XCTAssertEqual(json["copies"] as? Int, 2)
+        let text = try run(["preview", svg.path, "-o", tmp.appendingPathComponent("p").path])
+        XCTAssertTrue(text.out.contains("rule “Terminal labels”"), text.out)
+
+        let previewOff = try run(["preview", svg.path, "--json", "--no-rules", "-o", tmp.appendingPathComponent("p").path])
+        json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(previewOff.out.utf8)) as? [String: Any])
+        XCTAssertNil(json["rule"])
     }
 
     /// Metric sizes read "100 × 150 mm", not "100×150mm in".

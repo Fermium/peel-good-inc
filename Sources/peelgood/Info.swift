@@ -75,7 +75,9 @@ func listSizes(_ ctx: Context) throws -> ExitCode {
     if let name = inv.arguments.first { inv.values["printer"] = name }
     let scoped = Context(inv: inv, out: ctx.out, err: ctx.err, defaults: ctx.defaults, tool: ctx.tool, environment: ctx.environment)
     guard let (p, _) = try scoped.choosePrinter(printers, required: true) else { return .printer }
-    let appSize = ctx.defaults.savedSize(p.name)
+    // The size the app really prints at: the saved one, else 4x6, or 4x6 when the printer can't take the saved one.
+    let app = ctx.defaults.options(for: p)
+    let appSize = app.options.size
     let entries = SizeCatalog.entries(for: p)
     if inv.has("names") {
         entries.filter(\.isSupported).forEach { print($0.size.description) }
@@ -83,12 +85,13 @@ func listSizes(_ ctx: Context) throws -> ExitCode {
     }
     let rows = entries.map { e in
         SizeRow(size: e.size.description, media: e.size.cupsMedia, source: e.source.rawValue, supported: e.isSupported,
-                reason: e.unsupportedReason, appDefault: appSize.map { $0.matches(e.size) } ?? false)
+                reason: e.unsupportedReason, appDefault: appSize.matches(e.size))
     }
     if ctx.json { ctx.emit(["printer": AnyEncodable(p.name), "sizes": AnyEncodable(rows)]); return .ok }
     let s = ctx.out
     ctx.say("\(s.bold(p.displayName)) \(s.dim("(\(p.name))"))")
     if let lo = p.customMin, let hi = p.customMax { ctx.say(s.dim("  takes custom sizes from \(lo.primary) to \(hi.primary)")) }
+    if let note = app.note { ctx.say("  \(s.warn) \(s.yellow(note))") }
     for (e, row) in zip(entries, rows) {
         let mark = e.isSupported ? s.ok : s.fail
         let size = e.size.description.padding(toLength: 11, withPad: " ", startingAt: 0)

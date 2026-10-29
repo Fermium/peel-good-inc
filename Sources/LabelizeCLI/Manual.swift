@@ -182,7 +182,7 @@ public enum Manual {
 
     public static let commands: [CLICommand] = [
         CLICommand("print", aliases: ["p"], group: .labels, summary: "Print files as labels",
-                   discussion: "Finds the label on each page, fits it to the label size and sends it to the printer. Every page becomes a label. When the app has rules, the first file's matching rule picks the printer, size, fit, ink and copies, as if it were dropped; options you pass win. Each print is saved to History and becomes Reprint Last Label in the app.",
+                   discussion: "Finds the label on each page, fits it to the label size and sends it to the printer. Every page becomes a label. When the app has rules, the first file's matching rule picks the printer, size, fit, ink and copies, as if it were dropped; options you pass win. All the files print as one job, as a drop of several files does in the app: one PDF, sent once with the copies, saved to History once and made Reprint Last Label.",
                    arguments: [files],
                    options: layout + [copies, dryRun, rules, noRules, noHistory,
                                       CLIOption("out", short: "o", value: "DIR", help: "Also keep the label PDF here.", completion: .directory)],
@@ -194,9 +194,9 @@ public enum Manual {
                        CLIExample("peelgood print label.pdf --no-rules --no-history", "Only the printer's settings, and leave no trace"),
                    ]),
         CLICommand("preview", group: .labels, summary: "Make the label without printing",
-                   discussion: "Writes the label PDF and one PNG per page, then lists them. Nothing is sent to a printer.",
+                   discussion: "Writes the label PDF and one PNG per page, then lists them. Nothing is sent to a printer. The app's rules apply as they do for print, so the preview shows what print will do.",
                    arguments: [files],
-                   options: layout + [CLIOption("out", short: "o", value: "DIR", help: "Folder for the files. Default: a temporary folder.", completion: .directory),
+                   options: layout + [rules, noRules, CLIOption("out", short: "o", value: "DIR", help: "Folder for the files. Default: a temporary folder.", completion: .directory),
                                       CLIOption("open", help: "Open the label PDF in Preview when done.")],
                    examples: [
                        CLIExample("peelgood preview label.pdf", "Write the label PDF and PNGs to a temporary folder"),

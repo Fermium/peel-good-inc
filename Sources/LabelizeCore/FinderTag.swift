@@ -89,7 +89,7 @@ public enum RuleTag: Codable, Hashable, Sendable {
     }
 
     public func resolve(_ settings: AppSettings) -> FinderTag? {
-        resolve(generalOn: settings.tagAfterPrint, general: FinderTag(name: settings.tagName, color: settings.tagColor))
+        resolve(generalOn: settings.tagAfterPrint, general: settings.generalTag)
     }
 
     public init(from decoder: Decoder) throws {

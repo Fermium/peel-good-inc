@@ -78,6 +78,30 @@ enum AppWindows {
 // MARK: General
 
 /// Default printer, what happens before and after printing, and the saved labels.
+/// A text field that saves only what `tidy` allows (`Limits.tidyTagName`, `Limits.tidyRenameSuffix`), the same
+/// rules MCP checks. While you type it shows your text; when you leave it, it shows what was saved.
+struct TidyTextField: View {
+    @Binding var value: String
+    let tidy: (String) -> String
+    @State private var text = ""
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        TextField("", text: $text)
+            .focused($focused)
+            .onAppear { text = value }
+            .onChange(of: text) { _, new in
+                let saved = tidy(new)
+                if saved != value { value = saved }
+                // Show at once what was dropped (a / or :, or past the length limit); a cleared field stays empty until you leave it.
+                if !new.trimmingCharacters(in: .whitespaces).isEmpty, saved != new { text = saved }
+            }
+            .onChange(of: focused) { _, isFocused in if !isFocused { text = value } }
+            .onChange(of: value) { _, new in if !focused { text = new } }
+            .onSubmit { text = value }
+    }
+}
+
 struct GeneralPane: View {
     @ObservedObject var store: Store
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
@@ -135,7 +159,9 @@ struct GeneralPane: View {
                 if store.tagAfterPrint {
                     LabeledContent("Tag") {
                         HStack(spacing: 10) {
-                            TextField("", text: Binding(get: { store.tagName }, set: { store.tagName = $0 })).frame(width: 120)
+                            TidyTextField(value: Binding(get: { store.tagName }, set: { store.tagName = $0 }),
+                                          tidy: { Limits.tidyTagName($0, previous: store.tagName) })
+                                .frame(width: 120)
                             TagColorDots(color: Binding(get: { store.tagColor }, set: { store.tagColor = $0 }))
                         }
                     }
@@ -146,7 +172,8 @@ struct GeneralPane: View {
                 switch store.afterPrintAction {
                 case .rename:
                     LabeledContent("Suffix") {
-                        TextField("", text: Binding(get: { store.renameSuffix }, set: { store.renameSuffix = $0 })).frame(width: 140)
+                        TidyTextField(value: Binding(get: { store.renameSuffix }, set: { store.renameSuffix = $0 }), tidy: Limits.tidyRenameSuffix)
+                            .frame(width: 140)
                     }
                     LabeledContent("Example") {
                         Text("order-1234-label\(store.renameSuffix).pdf").foregroundStyle(.secondary)
@@ -371,7 +398,7 @@ struct PrinterDetail: View {
     private func mmField(_ axis: WritableKeyPath<CGPoint, CGFloat>) -> some View {
         let binding = Binding<Double>(
             get: { Double(store.nudge(for: printer)[keyPath: axis]) },
-            set: { v in var n = store.nudge(for: printer); n[keyPath: axis] = CGFloat(v); store.setNudge(n, for: printer) }
+            set: { v in var n = store.nudge(for: printer); n[keyPath: axis] = CGFloat(v); store.setNudge(Limits.clampNudge(n), for: printer) }
         )
         return HStack(spacing: 4) {
             TextField("", value: binding, format: .number.precision(.fractionLength(1))).frame(width: 56).multilineTextAlignment(.trailing)

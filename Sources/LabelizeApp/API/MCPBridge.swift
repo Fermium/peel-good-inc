@@ -25,8 +25,6 @@ actor MCPSessions {
 
     init(port: Int) { self.port = port }
 
-    var count: Int { sessions.count }
-
     func handle(_ r: APIRequest) async -> APIReply {
         if reaper == nil { reaper = Task { [weak self] in await self?.reapLoop() } }
         let request = HTTPRequest(method: r.method, headers: r.headers, body: r.body.isEmpty ? nil : r.body, path: r.path)
@@ -427,7 +425,7 @@ enum MCPTools {
         guard let value, !value.isNull else { return nil }
         if let n = value.intValue { return n }
         if let d = value.doubleValue, d == d.rounded() { return Int(d) }
-        if let s = value.stringValue { return try APIRoutes.int(s, name) }
+        if let s = value.stringValue { return try APIPrintRequest.given(s).map { try APIRoutes.int($0, name) } }
         throw APIError.badRequest("\(name) must be a whole number.", code: "invalid_\(name)")
     }
 
@@ -458,12 +456,5 @@ enum MCPTools {
     }
 
     /// Content type from the first bytes, for uploads without a usable file name.
-    static func sniff(_ data: Data) -> String? {
-        let head = [UInt8](data.prefix(8))
-        if head.starts(with: [0x25, 0x50, 0x44, 0x46]) { return "application/pdf" }
-        if head.starts(with: [0x89, 0x50, 0x4E, 0x47]) { return "image/png" }
-        if head.starts(with: [0xFF, 0xD8, 0xFF]) { return "image/jpeg" }
-        if String(decoding: data.prefix(256), as: UTF8.self).contains("<svg") { return "image/svg+xml" }
-        return nil
-    }
+    static func sniff(_ data: Data) -> String? { Intake.format(of: data)?.mimeType }
 }

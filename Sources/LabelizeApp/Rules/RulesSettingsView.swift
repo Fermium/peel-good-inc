@@ -67,7 +67,8 @@ struct RulesSettingsView: View {
         .onAppear(perform: loadPrinters)
         .sheet(item: $editing) { request in
             RuleEditorView(rule: request.rule, printers: printers, current: current,
-                           defaults: { [store] p in store?.options(for: p) ?? LabelOptions() }) { rule in
+                           defaults: { [store] p in store?.options(for: p) ?? LabelOptions() },
+                           settings: (providedStore ?? store)?.settings) { rule in
                 if request.isNew { engine.add(rule); selection = [rule.id] } else { engine.update(rule) }
             }
         }

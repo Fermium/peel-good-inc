@@ -219,3 +219,31 @@ func codePage(size: CGSize = CGSize(width: 288, height: 432), turned: Bool = fal
     }
     #expect(LabelComposer.compose(flat, LabelOptions()).ink == .halftone)
 }
+
+/// The popover, the API/MCP and the CLI all report from `codeCounts` and `reportableWarnings`:
+/// cautions about codes that should still scan are left out, everything else stays.
+@Test func reportableWarningsDropCautionsOnly() throws {
+    var found: ComposedLabel?
+    for w in stride(from: 2.0, through: 4.0, by: 0.25) {
+        var o = LabelOptions()
+        o.size = LabelSize(width: w, height: w * 1.5)
+        let label = LabelComposer.compose(codePage(), o)
+        if label.codeReports.contains(where: { $0.severity == .caution && $0.message != nil }) { found = label; break }
+    }
+    let label = try #require(found, "some size gives a caution")
+    let caution = try #require(label.codeReports.first { $0.severity == .caution }?.message)
+    #expect(label.warnings.contains(caution))
+    #expect(!label.reportableWarnings.contains(caution))
+    #expect(![label, label].reportableWarnings.contains(caution))
+    #expect(label.reportableWarnings.allSatisfy(label.warnings.contains))
+
+    var small = LabelOptions()
+    small.size = LabelSize(width: 2, height: 1.25)
+    let tooSmall = LabelComposer.compose(codePage(), small)
+    #expect(tooSmall.reportableWarnings.contains { $0.contains("too small to scan") }, "errors are still reported")
+
+    let counts = [label, tooSmall].codeCounts
+    #expect(counts.expected == label.expectedCodes.count + tooSmall.expectedCodes.count)
+    #expect(counts.missing == (label.missingCodes + tooSmall.missingCodes).map(\.payload))
+    #expect(counts.verified == counts.expected - counts.missing.count)
+}

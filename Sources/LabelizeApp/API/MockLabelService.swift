@@ -1,5 +1,6 @@
 import CoreGraphics
 import Foundation
+import LabelizeCore
 
 /// A `LabelService` with two made-up printers that never prints. For tests and `-apiMock`.
 @MainActor
@@ -28,7 +29,7 @@ final class MockLabelService: LabelService {
     func print(files: [URL], request: APIPrintRequest, source: String) async throws -> APIJob {
         guard !files.isEmpty else { throw APIError.badRequest("No file to print.", code: "no_file") }
         let p = try printer(for: request)
-        let copies = try AppLabelService.copies(request.copies)
+        let copies = try AppConfigurator.option { try OptionOverrides.copies(request.copies) }
         printed.append((files, request))
         let job = APIJob(id: UUID().uuidString, created: Date(), source: source, status: .printed,
                          files: files.map(\.lastPathComponent), printer: p.name, size: request.size ?? p.size, copies: copies,
@@ -43,22 +44,22 @@ final class MockLabelService: LabelService {
         guard !files.isEmpty else { throw APIError.badRequest("No file to preview.", code: "no_file") }
         let p = try printer(for: request)
         let images = files.indices.map { i in
-            APILabelPreview(index: i, width: 200, height: 300, png: Self.placeholderPNG(), ink: "crisp", scalePercent: 100, rotated: false, codes: [
+            APILabelPreview(APILabelInfo(index: i, ink: "crisp", scalePercent: 100, rotated: false, codes: [
                 APICode(symbology: "QR", payload: "MOCK-\(i + 1)", scannable: true, severity: "ok", message: nil),
-            ], warnings: [])
+            ], warnings: []), width: 200, height: 300, png: Self.placeholderPNG())
         }
         return APIPreview(printer: p.name, size: request.size ?? p.size, rule: "Everything else", copies: 1, action: "countdown", labels: images.count, codesFound: images.count,
                           codesVerified: images.count, codesMissing: [], warnings: [], images: images)
     }
 
     func printClipboard(request: APIPrintRequest) async throws -> APIJob {
-        try await print(files: [URL(fileURLWithPath: "/tmp/Clipboard.png")], request: request, source: "clipboard")
+        try await print(files: [URL(fileURLWithPath: "/tmp/Clipboard.png")], request: request, source: APIJob.Source.clipboard)
     }
 
     func reprintLast(copies: Int?) async throws -> APIJob {
         guard let last = recent.first else { throw APIError.notFound("Nothing printed yet.", code: "no_last_print") }
         return try await print(files: [URL(fileURLWithPath: "/tmp/\(last.files.first ?? "label").label.pdf")],
-                               request: APIPrintRequest(printer: last.printer, size: last.size, copies: copies), source: "reprint")
+                               request: APIPrintRequest(printer: last.printer, size: last.size, copies: copies), source: APIJob.Source.reprint)
     }
 
     func jobs() -> [APIJob] { recent }

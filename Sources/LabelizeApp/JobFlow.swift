@@ -84,7 +84,7 @@ enum JobFlow {
             return nil
         }
         kind.adjust(&options)
-        return JobPlan(files: [url], printer: printer, options: options, copies: 1, action: .print, review: review, decision: nil)
+        return JobPlan(files: [url], printer: printer, options: options, copies: 1, action: .print, review: review || store.alwaysReview, decision: nil)
     }
 
     /// A job with the app's after-print steps: remember it for reprinting, play the sound,

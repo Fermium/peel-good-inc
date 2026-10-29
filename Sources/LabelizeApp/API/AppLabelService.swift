@@ -23,7 +23,6 @@ final class AppLabelService: LabelService {
     private var recent: [APIJob] = []
     private var waiters: [String: CheckedContinuation<Void, Never>] = [:]
     nonisolated static let maxJobs = 50
-    nonisolated static var maxCopies: Int { Limits.copies.upperBound }
 
     init(store: Store, sender: Sender? = nil) {
         self.store = store
@@ -79,16 +78,14 @@ final class AppLabelService: LabelService {
                 guard let image = label.bitmap.cgImage(), let png = Self.pngData(image) else {
                     throw APIError.failed("Couldn't render label \(i + 1).", code: "render_failed")
                 }
-                return APILabelPreview(index: i, width: image.width, height: image.height, png: png,
-                                       ink: label.ink.rawValue, scalePercent: Self.percent(label), rotated: label.rotated,
-                                       codes: Self.codes(label), warnings: label.warnings)
+                return APILabelPreview(Self.detail(label, index: i), width: image.width, height: image.height, png: png)
             }
         }.value
-        let summary = Self.summary(labels)
+        let counts = labels.codeCounts
         return APIPreview(printer: printer.name, size: options.size.description, rule: plan.rule, copies: plan.copies,
                           action: plan.review ? "review" : "countdown", labels: labels.count,
-                          codesFound: summary.found, codesVerified: summary.verified, codesMissing: summary.missing,
-                          warnings: summary.warnings, images: images)
+                          codesFound: counts.expected, codesVerified: counts.verified, codesMissing: counts.missing,
+                          warnings: (plan.decision?.notes ?? []) + labels.reportableWarnings, images: images)
     }
 
     func printClipboard(request: APIPrintRequest) async throws -> APIJob {
@@ -121,6 +118,7 @@ final class AppLabelService: LabelService {
     /// none counts down like a drop; Show preview or Ask (Ask is the preview for files handed over) waits for Print.
     func plan(_ files: [URL], _ r: APIPrintRequest, trigger: RuleTrigger = .api) async throws -> JobPlan {
         store.refresh()
+        let r = r.normalized   // an empty printer means "not given": the rule's printer, else the default
         let forced = try r.printer.map { try findPrinter($0) }
         do {
             guard let plan = try await JobFlow.plan(files, trigger: trigger, store: store, engine: rules, forcedPrinter: forced,
@@ -171,12 +169,12 @@ final class AppLabelService: LabelService {
     private func fill(_ id: String, from job: PrintJob) {
         guard let i = recent.firstIndex(where: { $0.id == id }) else { return }
         var r = recent[i]
-        let summary = Self.summary(job.labels)
+        let counts = job.labels.codeCounts
         r.labels = job.labels.count
-        r.codesFound = summary.found
-        r.codesVerified = summary.verified
-        r.codesMissing = summary.missing
-        r.warnings = job.notes + summary.warnings
+        r.codesFound = counts.expected
+        r.codesVerified = counts.verified
+        r.codesMissing = counts.missing
+        r.warnings = job.warnings
         r.labelDetails = job.labels.enumerated().map { Self.detail($1, index: $0) }
         r.printer = job.printer.name
         r.size = job.options.size.description
@@ -224,10 +222,6 @@ final class AppLabelService: LabelService {
         return p
     }
 
-    static func copies(_ n: Int?) throws -> Int {
-        do { return try OptionOverrides.copies(n) } catch let e as OptionError { throw APIError(e) }
-    }
-
     // MARK: Reports
 
     nonisolated static func codes(_ label: ComposedLabel) -> [APICode] {
@@ -242,17 +236,10 @@ final class AppLabelService: LabelService {
     /// How one label came out: the ink actually used, its scale, rotation and codes.
     nonisolated static func detail(_ label: ComposedLabel, index: Int) -> APILabelInfo {
         APILabelInfo(index: index, ink: label.ink.rawValue, scalePercent: percent(label), rotated: label.rotated,
-                     codes: codes(label), warnings: label.warnings)
+                     codes: codes(label), warnings: label.reportableWarnings)
     }
 
     nonisolated static func percent(_ label: ComposedLabel) -> Double { (Double(label.scale) * 1000).rounded() / 10 }
-
-    nonisolated static func summary(_ labels: [ComposedLabel]) -> (found: Int, verified: Int, missing: [String], warnings: [String]) {
-        let found = labels.reduce(0) { $0 + $1.expectedCodes.count }
-        let missing = labels.flatMap(\.missingCodes).map(\.payload)
-        let warnings = Array(Set(labels.flatMap(\.warnings))).sorted()
-        return (found, found - missing.count, missing, warnings)
-    }
 
     nonisolated static func pngData(_ image: CGImage) -> Data? {
         let data = NSMutableData()

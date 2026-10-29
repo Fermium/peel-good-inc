@@ -30,7 +30,7 @@ enum RuleSummary {
 
     static func printerName(_ name: String?, printers: [PrinterInfo]) -> String {
         guard let name else { return "Default printer" }
-        return printers.first { $0.name == name }?.displayName ?? "\(name.replacingOccurrences(of: "_", with: " ")) (not connected)"
+        return PrinterResolver.match(name, in: printers)?.displayName ?? "\(PrinterInfo.displayName(queue: name)) (not connected)"
     }
 
     static func phrase(_ c: RuleCondition) -> String {

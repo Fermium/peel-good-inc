@@ -17,8 +17,11 @@ extension PrinterInfo {
     /// "MUNBYN ITPP941AP" rather than the queue name.
     public var displayName: String {
         let model = makeAndModel.replacingOccurrences(of: "-AirPrint", with: "")
-        return model.isEmpty ? name.replacingOccurrences(of: "_", with: " ") : model
+        return model.isEmpty ? Self.displayName(queue: name) : model
     }
+
+    /// A queue name made readable ("MUNBYN_ITPP941AP" reads "MUNBYN ITPP941AP"), for printers that aren't connected.
+    public static func displayName(queue: String) -> String { queue.replacingOccurrences(of: "_", with: " ") }
 }
 
 extension InkMode {

@@ -66,7 +66,7 @@ enum Screenshots {
 
             // Sheets from the Rules and API tabs, as their own windows.
             let editor = RuleEditorView(rule: RuleTemplate.amazonReturns.make(printers: printers), printers: printers, current: printers[0],
-                                        defaults: { [store] in store.options(for: $0) }) { _ in }
+                                        defaults: { [store] in store.options(for: $0) }, settings: store.settings) { _ in }
             for (name, title, view) in [("rule-editor", "Rule", AnyView(editor)),
                                         ("api-setup", "Set Up MCP", AnyView(MCPSetupSheet(port: APISettings.defaultPort))),
                                         ("api-reference", "API Reference", AnyView(APIReferenceSheet(api: .shared)))] {

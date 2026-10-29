@@ -121,8 +121,8 @@ final class AppConfigurator {
                 let v = try Self.bool(value, key)
                 steps.append { self.change(key, self.store.tagAfterPrint, v) { self.store.tagAfterPrint = v } }
             case "tagName":
-                let v = try Self.string(value, key, maxLength: Limits.tagNameLength)
-                guard !v.trimmingCharacters(in: .whitespaces).isEmpty else { throw APIError.badRequest("tagName can't be empty.", code: "invalid_tagName") }
+                let text = try Self.string(value, key)
+                let v = try Self.option { try Limits.tagName(text) }
                 steps.append { self.change(key, self.store.tagName, v) { self.store.tagName = v } }
             case "tagColor":
                 let v = try Self.color(value, key)
@@ -134,8 +134,8 @@ final class AppConfigurator {
                 }
                 steps.append { self.change(key, self.store.afterPrintAction.rawValue, v.rawValue) { self.store.afterPrintAction = v } }
             case "renameSuffix":
-                let v = try Self.string(value, key, maxLength: 64)
-                guard !v.contains("/") && !v.contains(":") else { throw APIError.badRequest("renameSuffix can't contain / or :.", code: "invalid_renameSuffix") }
+                let text = try Self.string(value, key)
+                let v = try Self.option { try Limits.renameSuffix(text) }
                 steps.append { self.change(key, self.store.renameSuffix, v) { self.store.renameSuffix = v } }
             case "moveFolder":
                 let v = value is NSNull ? nil : try Self.folder(value, key)
@@ -223,7 +223,7 @@ final class AppConfigurator {
     func addRule(_ input: [String: Any]) throws -> [String: Any] {
         var base = try Self.object(Rule(name: "", conditions: []))
         base["id"] = UUID().uuidString
-        let rule = try decodeRule(Self.mergeRule(base, input, existing: []))
+        let rule = try decodeRule(Self.mergeRule(base, input, existing: []), keeping: nil)
         rules.add(rule)
         Log.notice(.api, "MCP added rule \(rule.displayName) (\(rule.id)) at position \(rules.rules.count)")
         return try Self.object(rule)
@@ -234,7 +234,7 @@ final class AppConfigurator {
         guard old.id != rules.fallback.id else { return try updateEverythingElse(input) }
         var merged = Self.mergeRule(try Self.object(old), input, existing: old.conditions)
         merged["id"] = old.id.uuidString
-        let rule = try decodeRule(merged)
+        let rule = try decodeRule(merged, keeping: old.outcome.printer)
         rules.update(rule)
         Log.notice(.api, "MCP changed rule \(rule.displayName) (\(rule.id)): \(Self.dump(old)) → \(Self.dump(rule))")
         return try Self.object(rule)
@@ -278,7 +278,10 @@ final class AppConfigurator {
         return r
     }
 
-    private func decodeRule(_ object: [String: Any]) throws -> Rule {
+    /// Checks fit, ink and printer as the print tools and set_printer_settings do, then decodes.
+    /// `keeping`: the rule's current printer, which may stay even if it isn't connected now.
+    private func decodeRule(_ object: [String: Any], keeping: String?) throws -> Rule {
+        let object = try normalizeOutcome(object, keeping: keeping)
         let rule: Rule
         do {
             rule = try JSONDecoder().decode(Rule.self, from: JSONSerialization.data(withJSONObject: object))
@@ -301,6 +304,33 @@ final class AppConfigurator {
             throw APIError.badRequest("copies must be \(Limits.describe(Limits.copies)).", code: "invalid_rule")
         }
         return rule
+    }
+
+    /// Fit and ink in any letter case, checked by `OptionOverrides`. The printer by queue or display name
+    /// (`PrinterResolver.match`), stored as its queue name; an empty one means the default printer.
+    private func normalizeOutcome(_ object: [String: Any], keeping: String?) throws -> [String: Any] {
+        guard var o = object["outcome"] as? [String: Any] else { return object }
+        if let v = o["fit"], !(v is NSNull) {
+            let text = try Self.string(v, "fit")
+            o["fit"] = try Self.option { try OptionOverrides.fit(text) }.rawValue
+        }
+        if let v = o["ink"], !(v is NSNull) {
+            let text = try Self.string(v, "ink")
+            o["ink"] = try Self.option { try OptionOverrides.ink(text) }.rawValue
+        }
+        if let v = o["printer"], !(v is NSNull) {
+            let name = try Self.string(v, "printer").trimmingCharacters(in: .whitespaces)
+            if name.isEmpty {
+                o["printer"] = NSNull()
+            } else if let p = store.resolver.find(name, in: .eligible) {
+                o["printer"] = p.name
+            } else if name != keeping {
+                throw APIError.notFound("Printer \(name) not found. list_printers shows the printers.", code: "printer_not_found")
+            }
+        }
+        var out = object
+        out["outcome"] = o
+        return out
     }
 
     /// Fields given replace the base's; each condition starts from its field's defaults (or the matching existing condition).
