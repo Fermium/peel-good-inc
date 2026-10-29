@@ -291,7 +291,7 @@ final class AppDelegate: NSObject, JobPresenter, NSApplicationDelegate, NSWindow
         let clipboard = item("Print Clipboard", #selector(printClipboard), "", symbol: "doc.on.clipboard")
         clipboard.isEnabled = Intake.canRead(.general)
         menu.addItem(clipboard)
-        menu.addItem(item("Open…", #selector(openFile), "o", symbol: "folder"))
+        menu.addItem(item("Print File…", #selector(openFile), "o", symbol: "folder"))
         let reprint = item("Reprint Last Label", #selector(reprintLast), "r", symbol: "arrow.clockwise")
         reprint.isEnabled = store.lastPrint != nil
         menu.addItem(reprint)

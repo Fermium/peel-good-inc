@@ -43,8 +43,8 @@ enum Screenshots {
             tabs.addTabViewItem(tab("General", "gearshape", GeneralPane(store: store)))
             tabs.addTabViewItem(tab("Printers", "printer", PrintersPane(store: store, testLabel: {})))
             tabs.addTabViewItem(tab("Rules", "list.bullet.rectangle",
-                                    RulesSettingsView(engine: RulesPreviewData.engine(), store: store, previewPrinters: printers)))
-            tabs.addTabViewItem(tab("Files", "doc", FilesPane(store: store)))
+                                    RulesSettingsView(engine: RulesPreviewData.engine(), store: store, previewPrinters: printers,
+                                                      folders: .preview(sampleFolders()))))
             tabs.addTabViewItem(tab("API", "point.3.connected.trianglepath.dotted", APIPane(api: .shared)))
             tabs.addTabViewItem(tab("About", "info.circle", AboutView()))
             let settings = window(tabs, style: [.titled, .closable], appearance: appearance)
@@ -61,6 +61,19 @@ enum Screenshots {
                 save(windowImage(settings), file("settings-\(item.label.lowercased())"))
             }
             settings.close()
+
+            // Sheets from the Rules and API tabs, as their own windows.
+            let editor = RuleEditorView(rule: RuleTemplate.amazonReturns.make(printers: printers), printers: printers, current: printers[0],
+                                        defaults: { [store] in store.options(for: $0) }) { _ in }
+            for (name, title, view) in [("rule-editor", "Rule", AnyView(editor)),
+                                        ("api-setup", "Set Up MCP", AnyView(MCPSetupSheet(port: APISettings.defaultPort))),
+                                        ("api-reference", "API Reference", AnyView(APIReferenceSheet(api: .shared)))] {
+                let sheet = window(NSHostingController(rootView: active(view)), style: [.titled], appearance: appearance)
+                sheet.title = title
+                await settle(sheet, 0.8)
+                save(windowImage(sheet), file("settings-\(name)"))
+                sheet.close()
+            }
 
             // The popover after a drop, in review (never sent), and the printer tiles.
             let job = PrintJob(files: [sampleLabel()], printer: printers[0], options: LabelOptions(), reviewFirst: true, countdownSeconds: 0)
@@ -324,6 +337,15 @@ enum Screenshots {
             ctx.closePDF()
         }
         return url
+    }
+
+    /// Folders to show as watched. In the throwaway home they're created so they get folder icons.
+    private static func sampleFolders() -> [URL] {
+        let home = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+        let folders = [home.appendingPathComponent("Downloads/Labels", isDirectory: true),
+                       home.appendingPathComponent("Documents/Returns", isDirectory: true)]
+        if isolated { for f in folders { try? FileManager.default.createDirectory(at: f, withIntermediateDirectories: true) } }
+        return folders
     }
 
     /// A believable day of activity in the (isolated) log file.

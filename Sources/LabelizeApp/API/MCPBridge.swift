@@ -141,8 +141,9 @@ enum MCPPermission: String, Sendable {
     }
 
     var refusal: APIError {
-        APIError(status: 403, code: "permission_required",
-                 message: "Turn on \u{201C}\(settingTitle)\u{201D} in Peel Good Inc. Settings > API, then try again.")
+        let how = self == .settings ? "Set \u{201C}\(settingTitle)\u{201D} to For 45 Minutes or Always"
+                                    : "Turn on \u{201C}\(settingTitle)\u{201D}"
+        return APIError(status: 403, code: "permission_required", message: "\(how) in Peel Good Inc. Settings > API, then try again.")
     }
 
     @MainActor var isGranted: Bool {
@@ -200,10 +201,12 @@ enum MCPTools {
     private static let settingsProps: [String: Value] = [
         "defaultPrinter": ["type": "string", "description": "Queue name or display name."],
         "countdownSeconds": ["type": "number", "minimum": 0, "maximum": 10, "description": "Wait before printing a dropped file. 0 prints right away."],
-        "alwaysPreview": ["type": "boolean", "description": "Ask first instead of counting down."],
+        "alwaysPreview": ["type": "boolean", "description": "Before printing: Show preview instead of counting down."],
+        "newFilesAction": ["type": "string", "enum": .array(RuleAction.allCases.map { .string($0.rawValue) }),
+                           "description": "Rules > New files: what files in watched folders do when no rule says. ask sends a notification, review shows the preview."],
         "playSounds": ["type": "boolean"],
         "hiddenPrinters": ["type": "array", "items": ["type": "string"], "description": "Queue names hidden from the app's lists."],
-        "tagAfterPrint": ["type": "boolean", "description": "Add a Finder tag to printed files."],
+        "tagAfterPrint": ["type": "boolean", "description": "Add Finder tag to printed files."],
         "tagName": ["type": "string"],
         "tagColor": ["type": "string", "enum": .array(FinderTag.Color.allCases.map { .string(AppConfigurator.colorName($0)) })],
         "afterPrint": ["type": "string", "enum": .array(AfterPrintAction.allCases.map { .string($0.rawValue) }), "description": "What happens to the original file after printing."],
@@ -216,7 +219,7 @@ enum MCPTools {
 
     private static let printerProps: [String: Value] = [
         "printer": ["type": "string", "description": "Queue name or display name."],
-        "size": ["type": "string", "description": "Loaded roll, like 4x6."],
+        "size": ["type": "string", "description": "Label size, like 4x6."],
         "fit": ["type": "string", "enum": ["fit", "fill"]],
         "ink": ["type": "string", "enum": ["auto", "crisp", "photo"]],
         "cutoff": ["type": "number", "minimum": 0.2, "maximum": 0.8, "description": "Gray level below which a dot prints black."],
@@ -232,8 +235,9 @@ enum MCPTools {
         }.joined(separator: "; ")
         return """
         A rule is {name, isEnabled, matchAll, conditions: [{field, op, values: [text], number}], \
-        outcome: {printer, size, fit, ink, action: print|review|ask, copies, tag: {name, color}, playSound}}. \
-        Outcome fields left out use the printer's settings. Rules run top to bottom; the first match wins, else Everything else. \
+        outcome: {printer, size, fit, ink, action: print|review|ask, copies, tag: {name, color}}}. \
+        Outcome fields left out use the default printer and its settings; action review shows the preview. \
+        Rules run top to bottom; the first match wins, else Everything else, which always uses the default printer and its settings. \
         Fields: \(fields).
         """
     }
@@ -254,14 +258,14 @@ enum MCPTools {
         (Tool(name: "list_sizes", title: "List label sizes", description: "Label sizes for a printer, each marked supported or not.",
               inputSchema: schema(["printer": options["printer"]!]), annotations: readOnly()), .none),
         (Tool(name: "print_label", title: "Print label",
-              description: "Prints a PDF, SVG or image. Every page becomes a label. Goes through the rules and the on-screen countdown, or waits for Print when the user set Ask first or the rule previews or asks. Returns when the job ends, or after 120 seconds with status waiting (see list_jobs). The reply names the matching rule and, per label, the ink used, scale, rotation and codes. A path" + localNote,
+              description: "Prints a PDF, SVG or image. Every page becomes a label. Goes through the rules and the on-screen countdown, or waits for Print when Before printing is Show preview or the rule shows the preview or asks. Returns when the job ends, or after 120 seconds with status waiting (see list_jobs). The reply names the matching rule and, per label, the ink used, scale, rotation and codes. A path" + localNote,
               inputSchema: schema(fileInput, options, copies), annotations: prints()), .none),
         (Tool(name: "preview_label", title: "Preview label",
               description: "Shows each label as it would print, with the matching rule, the ink used, scale, rotation, and whether its barcodes and QR codes still scan. Nothing prints. A path" + localNote,
               inputSchema: schema(fileInput, options), annotations: readOnly()), .none),
-        (Tool(name: "print_clipboard", title: "Print clipboard", description: "Prints the PDF, image or files on the clipboard. Goes through the rules and the on-screen countdown, or waits for Print when the user set Ask first or the rule previews or asks. Returns when the job ends, or after 120 seconds with status waiting (see list_jobs). The reply names the matching rule and, per label, the ink used, scale, rotation and codes." + localNote,
+        (Tool(name: "print_clipboard", title: "Print clipboard", description: "Prints the PDF, image or files on the clipboard. Goes through the rules and the on-screen countdown, or waits for Print when Before printing is Show preview or the rule shows the preview or asks. Returns when the job ends, or after 120 seconds with status waiting (see list_jobs). The reply names the matching rule and, per label, the ink used, scale, rotation and codes." + localNote,
               inputSchema: schema(options, copies), annotations: prints()), .localFiles),
-        (Tool(name: "reprint_last", title: "Reprint last label", description: "Sends the last printed labels again to the same printer, 1:1, with the on-screen countdown (or Print, with Ask first). Returns when the job ends, or after 120 seconds with status waiting." + localNote,
+        (Tool(name: "reprint_last", title: "Reprint last label", description: "Sends the last printed labels again to the same printer, 1:1, with the on-screen countdown (or Print, when Before printing is Show preview). Returns when the job ends, or after 120 seconds with status waiting." + localNote,
               inputSchema: schema(copies), annotations: prints()), .localFiles),
         (Tool(name: "list_jobs", title: "List recent jobs", description: "Jobs sent through the API or MCP since Peel Good Inc. opened, newest first, with how each ended: printed, cancelled, failed or still waiting.",
               inputSchema: schema(), annotations: readOnly()), .none),
@@ -283,7 +287,7 @@ enum MCPTools {
         (Tool(name: "add_rule", title: "Add rule", description: "Adds a rule at the end of the list." + settingsNote + " " + ruleFormat,
               inputSchema: schema(["rule": ruleInput], required: ["rule"]), annotations: edits()), .settings),
         (Tool(name: "update_rule", title: "Change rule",
-              description: "Changes a rule by id. Passing conditions replaces them all. Use id everything-else for Everything else (outcome only)." + settingsNote,
+              description: "Changes a rule by id. Passing conditions replaces them all. Everything else can't be changed; it uses the default printer and its settings." + settingsNote,
               inputSchema: schema(["id": ["type": "string"], "rule": ruleInput], required: ["id", "rule"]), annotations: edits()), .settings),
         (Tool(name: "delete_rule", title: "Delete rule", description: "Deletes a rule by id." + settingsNote,
               inputSchema: schema(["id": ["type": "string"]], required: ["id"]), annotations: edits(destructive: true)), .settings),

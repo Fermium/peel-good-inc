@@ -5,7 +5,7 @@ import UniformTypeIdentifiers
 
 /// The real `LabelService`. Prints go through the same flow as a drop: the rules (trigger "From another app",
 /// with the request's printer, size, fit, ink and copies on top), then the popover with its countdown, or the
-/// preview when "Ask first" is set or the rule says preview or ask. Each call waits for the outcome
+/// preview when Before printing is "Show preview" or the rule says preview or ask. Each call waits for the outcome
 /// (printed, cancelled, failed) up to `waitLimit`, then returns status waiting; `jobs()` shows how it ended.
 @MainActor
 final class AppLabelService: LabelService {
@@ -128,7 +128,7 @@ final class AppLabelService: LabelService {
     }
 
     /// The rule for the first file, with the request's options on top. A rule without an action
-    /// counts down like a drop; "Ask first", or a rule that previews or asks, waits for Print.
+    /// counts down like a drop; "Show preview", or a rule that shows the preview or asks, waits for Print.
     func plan(_ files: [URL], _ r: APIPrintRequest) async throws -> Plan {
         store.refresh()
         let forced = try r.printer.map { try findPrinter($0) }

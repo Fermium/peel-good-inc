@@ -1,6 +1,16 @@
 # Settings
 
-Status: proposal, 2026-10-29. Replaces the five-tab layout (General, Printers, Rules, Files, API).
+Status: implemented 2026-10-29, with these decisions over the proposal below:
+
+- Tabs are **General, Printers, Rules, API, About**. Files is folded into General (After Printing, History).
+- Watched folders stay in **Rules**, at the top, with **New files: Ask / Print / Show preview** (`newFilesAction`, default Ask).
+- MCP and HTTP stay in **API**. MCP comes first; *Let MCP change settings* is a pop-up **Off / For 45 Minutes / Always**
+  (`apiMCPSettingsGrant`, migrated once from `apiMCPSettings` + `apiMCPSettingsAutoOff`). Snippets open from **Set Up…**,
+  the endpoint browser from **API Reference…**. Port, token and status sit under **Advanced**.
+- Printers: offsets under **Advanced**.
+- Everything else is fixed ("Default printer and its settings"); its saved outcome is ignored and MCP can't change it.
+- Per-rule *Play a sound* is gone; old files still load. Rule tags are unchanged (no Default / None / Custom yet).
+- Menu *Open…* is now *Print File…*.
 
 ## 1. Principles
 

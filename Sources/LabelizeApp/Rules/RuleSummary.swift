@@ -10,10 +10,10 @@ enum RuleSummary {
         return EnglishList.join(parts, conjunction: rule.matchAll ? "and" : "or")
     }
 
-    /// "Label Printer ITPP941AP · 4 × 4 in · Crisp · previews"
+    /// "Label Printer ITPP941AP · 4 × 4 in · Crisp · shows preview". Fields left at Default aren't listed.
     static func outcome(_ o: RuleOutcome, printers: [PrinterInfo]) -> String {
         var parts = [printerName(o.printer, printers: printers)]
-        parts.append(o.labelSize?.display ?? "loaded roll")
+        if let size = o.labelSize { parts.append(size.display) }
         if let fit = o.fit { parts.append(fit == .fit ? "Fit" : "Fill") }
         if let ink = o.ink { parts.append(ink.rawValue.capitalized) }
         if let action = o.action { parts.append(action.shortTitle) }
@@ -23,7 +23,7 @@ enum RuleSummary {
     }
 
     static func printerName(_ name: String?, printers: [PrinterInfo]) -> String {
-        guard let name else { return "Current printer" }
+        guard let name else { return "Default printer" }
         return printers.first { $0.name == name }?.displayName ?? "\(name.replacingOccurrences(of: "_", with: " ")) (not connected)"
     }
 

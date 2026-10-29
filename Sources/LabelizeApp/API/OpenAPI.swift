@@ -328,7 +328,7 @@ enum OpenAPI {
                                         schema: .string("Queue name or display name."), example: Example.printer.name)],
                  responses: [ok("Sizes.", .array(.ref("Size")), [Example.size]), error(404, "No such printer.")] + common),
         Endpoint(verb: .post, path: "/v1/print", operationID: "print", tag: "Printing", summary: "Print a file",
-                 detail: "Prints files sent with the request, as multipart form data or as the raw body. Every page of every file prints. It goes through the rules (How it arrives: From another app) and the popover like a dropped file: the countdown can be cancelled, and with Ask first, or a rule that previews or asks, it waits for Print. The reply comes when the job ends, or after 120 seconds with status waiting. Files on this Mac, the clipboard and reprinting aren't available over HTTP.",
+                 detail: "Prints files sent with the request, as multipart form data or as the raw body. Every page of every file prints. It goes through the rules (How it arrives: From another app) and the popover like a dropped file: the countdown can be cancelled, and when Before printing is Show preview, or a rule shows the preview or asks, it waits for Print. The reply comes when the job ends, or after 120 seconds with status waiting. Files on this Mac, the clipboard and reprinting aren't available over HTTP.",
                  parameters: optionParameters,
                  body: printBody, bodyRequired: true,
                  responses: [ok("The job ended: printed or cancelled.", .ref("Job"), Example.job),

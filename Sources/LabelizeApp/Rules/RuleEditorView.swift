@@ -4,37 +4,32 @@ import SwiftUI
 
 /// The sheet for one rule: "If [all] of these are true … Then print it on …". Edits a copy; OK commits.
 struct RuleEditorView: View {
-    let isFallback: Bool
     let printers: [PrinterInfo]
-    /// The printer selected in the menu, whose sizes apply when the rule doesn't pick a printer.
+    /// The default printer, whose sizes apply when the rule doesn't pick a printer.
     let current: PrinterInfo?
+    /// A printer's own settings, shown as "Default (…)".
+    let defaults: (PrinterInfo) -> LabelOptions
     let onCommit: (Rule) -> Void
     @State private var draft: Rule
     @Environment(\.dismiss) private var dismiss
 
-    init(rule: Rule, isFallback: Bool, printers: [PrinterInfo], current: PrinterInfo?, onCommit: @escaping (Rule) -> Void) {
+    init(rule: Rule, printers: [PrinterInfo], current: PrinterInfo?,
+         defaults: @escaping (PrinterInfo) -> LabelOptions = { _ in LabelOptions() }, onCommit: @escaping (Rule) -> Void) {
         _draft = State(initialValue: rule)
-        self.isFallback = isFallback
         self.printers = printers
         self.current = current
+        self.defaults = defaults
         self.onCommit = onCommit
     }
 
     var body: some View {
         VStack(spacing: 0) {
             Form {
-                if !isFallback {
-                    Section {
-                        TextField("Name", text: $draft.name, prompt: Text(suggestedName))
-                    }
-                    conditionsSection
-                } else {
-                    Section {
-                        Text("Used when no other rule matches.")
-                            .foregroundStyle(.secondary)
-                    }
+                Section {
+                    TextField("Name", text: $draft.name, prompt: Text(suggestedName))
                 }
-                OutcomeSections(outcome: $draft.outcome, printers: printers, current: current)
+                conditionsSection
+                OutcomeSections(outcome: $draft.outcome, printers: printers, current: current, defaults: defaults)
             }
             .formStyle(.grouped)
 
@@ -48,16 +43,16 @@ struct RuleEditorView: View {
                 Button("Cancel", role: .cancel) { dismiss() }.keyboardShortcut(.cancelAction)
                 Button("OK") {
                     var rule = draft
-                    if !isFallback, rule.name.trimmingCharacters(in: .whitespaces).isEmpty { rule.name = suggestedName }
+                    if rule.name.trimmingCharacters(in: .whitespaces).isEmpty { rule.name = suggestedName }
                     onCommit(rule)
                     dismiss()
                 }
                 .keyboardShortcut(.defaultAction)
-                .disabled(!draft.incompleteConditions.isEmpty || (!isFallback && draft.conditions.isEmpty))
+                .disabled(!draft.incompleteConditions.isEmpty || draft.conditions.isEmpty)
             }
             .padding(16)
         }
-        .frame(width: 600, height: isFallback ? 520 : 720)
+        .frame(width: 600, height: 700)
     }
 
     /// "Comes from amazon.com", from the first condition.
@@ -181,11 +176,13 @@ struct ConditionRow: View {
     }
 }
 
-/// "Then print it": printer, size, scaling, ink, what happens, copies; then after-printing extras.
+/// "Then print it": printer, size, scaling, ink, what happens, copies; then the Finder tag.
+/// Every field starts at Default and says what it inherits.
 struct OutcomeSections: View {
     @Binding var outcome: RuleOutcome
     let printers: [PrinterInfo]
     let current: PrinterInfo?
+    let defaults: (PrinterInfo) -> LabelOptions
 
     private var targetPrinter: PrinterInfo? {
         outcome.printer.flatMap { name in printers.first { $0.name == name } } ?? (outcome.printer == nil ? current : nil)
@@ -196,10 +193,15 @@ struct OutcomeSections: View {
         return SizeCatalog.entries(for: p).filter(\.isSupported).map(\.size)
     }
 
+    /// "Default (4 × 6 in)", from the target printer's settings.
+    private func inherited(_ value: (LabelOptions) -> String) -> String {
+        targetPrinter.map { "Default (\(value(defaults($0))))" } ?? "Default"
+    }
+
     var body: some View {
         Section("Then print it") {
             Picker("Printer", selection: $outcome.printer) {
-                Text(current.map { "Current printer (\($0.displayName))" } ?? "Current printer").tag(String?.none)
+                Text(current.map { "Default printer (\($0.displayName))" } ?? "Default printer").tag(String?.none)
                 Divider()
                 ForEach(printers, id: \.name) { p in
                     Label(p.displayName, systemImage: p.isLabelPrinter ? "printer.dotmatrix" : "photo").tag(Optional(p.name))
@@ -210,7 +212,7 @@ struct OutcomeSections: View {
             }
 
             Picker("Label size", selection: $outcome.size) {
-                Text("Loaded roll").tag(String?.none)
+                Text(inherited { $0.size.display }).tag(String?.none)
                 Divider()
                 ForEach(sizes, id: \.self) { Text($0.display).tag(Optional($0.description)) }
                 if let s = outcome.labelSize, !sizes.contains(s) {
@@ -219,14 +221,14 @@ struct OutcomeSections: View {
             }
 
             Picker("Scaling", selection: $outcome.fit) {
-                Text("Default").tag(FitMode?.none)
+                Text(inherited { $0.fit == .fit ? "Fit" : "Fill" }).tag(FitMode?.none)
                 Divider()
                 Text("Fit").tag(Optional(FitMode.fit))
                 Text("Fill").tag(Optional(FitMode.fill))
             }
 
             Picker("Ink", selection: $outcome.ink) {
-                Text("Default").tag(InkMode?.none)
+                Text(inherited { $0.ink.rawValue.capitalized }).tag(InkMode?.none)
                 Divider()
                 Text("Auto").tag(Optional(InkMode.auto))
                 Text("Crisp").tag(Optional(InkMode.crisp))
@@ -253,7 +255,7 @@ struct OutcomeSections: View {
         }
 
         Section("After printing") {
-            Toggle("Add a Finder tag", isOn: Binding(get: { outcome.tag != nil }, set: { outcome.tag = $0 ? FinderTag() : nil }))
+            Toggle("Add Finder tag", isOn: Binding(get: { outcome.tag != nil }, set: { outcome.tag = $0 ? FinderTag() : nil }))
             if let tag = outcome.tag {
                 HStack {
                     TextField("Tag", text: Binding(get: { tag.name }, set: { outcome.tag?.name = $0 }))
@@ -261,16 +263,15 @@ struct OutcomeSections: View {
                 }
                 .padding(.leading, 20)
             }
-            Toggle("Play a sound", isOn: $outcome.playSound)
         }
     }
 
     private var actionNote: String {
         switch outcome.action {
-        case nil: "Prints after a short countdown. Files from watched folders ask first."
+        case nil: "Follows Before printing in General. Files in watched folders follow New files."
         case .print?: "You can still cancel during the countdown."
         case .review?: "Check the labels, then click Print."
-        case .ask?: "For watched folders and other apps. Files you drop or open show the preview instead."
+        case .ask?: "Files in watched folders send a notification. Other files show the preview."
         }
     }
 }

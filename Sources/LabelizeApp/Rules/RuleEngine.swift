@@ -90,7 +90,6 @@ struct RuleDecision {
     var action: RuleAction
     var copies: Int
     var tag: FinderTag?
-    var playSound: Bool
     /// Why something differs from the rule, e.g. its printer isn't connected.
     var notes: [String]
 }
@@ -139,14 +138,18 @@ final class RuleEngine: ObservableObject {
 
     /// Picks printer and options for a file.
     /// - Parameters:
-    ///   - current: the printer selected in the menu, used when the rule doesn't name one or its printer is missing.
+    ///   - current: the default printer, used when the rule doesn't name one or its printer is missing.
     ///   - defaults: the remembered options for a printer (`Store.options(for:)`).
     ///   - forcedPrinter: the printer tile the file was dropped on; it wins over the rule's printer.
+    ///   - unattended: what a rule without an action does with files nobody handed over (Rules > New files).
     /// - Returns: nil only when there's no printer at all.
+    /// "Everything else" always uses the default printer and its settings; its saved outcome is ignored.
     func decide(_ context: RuleContext, printers: [PrinterInfo], current: PrinterInfo?,
-                defaults: (PrinterInfo) -> LabelOptions, forcedPrinter: PrinterInfo? = nil) -> RuleDecision? {
+                defaults: (PrinterInfo) -> LabelOptions, forcedPrinter: PrinterInfo? = nil,
+                unattended: RuleAction = .ask) -> RuleDecision? {
         let rule = match(context)
-        let o = rule.outcome
+        let isFallback = rule.id == fallback.id
+        let o = isFallback ? RuleOutcome() : rule.outcome
         var notes: [String] = []
 
         var printer = current
@@ -165,11 +168,11 @@ final class RuleEngine: ObservableObject {
         if let fit = o.fit { options.fit = fit }
         if let ink = o.ink { options.ink = ink }
 
-        var action = o.action ?? (context.trigger.isUnattended ? .ask : .print)
+        var action = o.action ?? (context.trigger.isUnattended ? unattended : .print)
         if action == .ask && !context.trigger.isUnattended { action = .review }
 
-        return RuleDecision(rule: rule, isFallback: rule.id == fallback.id, printer: printer, options: options,
-                            action: action, copies: max(1, o.copies), tag: o.tag, playSound: o.playSound, notes: notes)
+        return RuleDecision(rule: rule, isFallback: isFallback, printer: printer, options: options,
+                            action: action, copies: max(1, o.copies), tag: isFallback ? nil : o.tag, notes: notes)
     }
 
     // MARK: Editing

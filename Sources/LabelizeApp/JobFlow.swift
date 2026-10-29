@@ -20,7 +20,8 @@ enum JobFlow {
         let needsCodes = engine.needsCodes, needsText = engine.needsText
         let context = await Task.detached { RuleContext.inspect(first, trigger: trigger, detectCodes: needsCodes, readText: needsText) }.value
         let decision = engine.decide(context, printers: store.eligiblePrinters, current: store.printer,
-                                     defaults: { [store] in store.options(for: $0) }, forcedPrinter: forcedPrinter)
+                                     defaults: { [store] in store.options(for: $0) }, forcedPrinter: forcedPrinter,
+                                     unattended: store.newFilesAction)
         if let d = decision {
             Log.info(.rules, "\(first.lastPathComponent): rule \"\(d.rule.name)\" → \(d.printer.name), \(d.options.size), \(d.action.rawValue), \(d.copies) cop\(d.copies == 1 ? "y" : "ies")")
             for note in d.notes { Log.warning(.rules, note) }
@@ -29,7 +30,7 @@ enum JobFlow {
     }
 
     /// A job with the app's after-print steps: remember it for reprinting, play the sound,
-    /// tag (the rule's tag, else the Files setting) and rename, move or trash the originals.
+    /// tag (the rule's tag, else General > After Printing) and rename, move or trash the originals.
     /// Temporary copies (uploads, clipboard, reprints) are never tagged or moved.
     static func makeJob(_ files: [URL], printer: PrinterInfo, options: LabelOptions, review: Bool,
                         decision: RuleDecision?, copies: Int? = nil, store: Store) -> PrintJob {
@@ -39,8 +40,8 @@ enum JobFlow {
         job.onSent = { [weak job] url in
             guard let job else { return }
             store.lastPrint = Store.LastPrint(file: url, printer: job.printer.name, size: job.options.size)
-            Sounds.play(Sounds.sent, if: store.playSounds && (decision?.playSound ?? true))
-            // A rule's own tag replaces the general one; "Everything else" follows the Files setting.
+            Sounds.play(Sounds.sent, if: store.playSounds)
+            // A rule's own tag replaces the general one; "Everything else" follows General.
             let ruleTag = decision?.isFallback == false ? decision?.tag : nil
             AfterPrint.apply(to: job.files, store: store, tag: ruleTag == nil)
             if let tag = ruleTag {

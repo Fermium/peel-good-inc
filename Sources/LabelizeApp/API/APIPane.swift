@@ -1,84 +1,119 @@
 import AppKit
 import SwiftUI
 
-/// Settings > API: the HTTP API and MCP switches, port, token, the endpoint reference
-/// (from `OpenAPI`), and setup snippets for MCP clients.
+/// Settings > API: MCP and its permissions, then the HTTP API; port, token and status under Advanced.
+/// Setup snippets and the endpoint reference open as sheets.
 struct APIPane: View {
     @ObservedObject var api: APIController
     @State private var portDraft: Int?
     @State private var showToken = false
     @State private var confirmRegenerate = false
+    @State private var showAdvanced = false
+    @State private var showSetup = false
+    @State private var showReference = false
 
     private var port: Int { api.activePort }
-    private var base: String { OpenAPI.baseURL(port: port) }
 
     var body: some View {
         Form {
-            serverSection
-            Section {
-                HStack {
-                    Button("Open API Docs") { NSWorkspace.shared.open(URL(string: base + "/")!) }
-                        .disabled(!(api.httpEnabled && api.isRunning))
-                    CopyButton("Copy OpenAPI URL", text: base + "/openapi.json")
-                    CopyButton("Copy OpenAPI JSON", text: OpenAPI.document(port: port).serialized())
-                    Spacer()
-                }
-            } header: {
-                Text("HTTP API")
-            } footer: {
-                Text("Prints only files sent with each request. Every request needs the token. Requests from web pages are refused.")
-                    .font(.callout).foregroundStyle(.secondary)
-            }
-            ForEach(OpenAPI.tags, id: \.self) { tag in
-                Section(tag) {
-                    ForEach(OpenAPI.endpoints.filter { $0.tag == tag }) { EndpointRow(endpoint: $0, port: port) }
-                }
-            }
             mcpSection
+            httpSection
+            advancedSection
         }
         .formStyle(.grouped)
-        .frame(width: 680, height: 640)
+        .frame(width: 560, height: 650)
         .alert("Regenerate token?", isPresented: $confirmRegenerate) {
             Button("Regenerate", role: .destructive) { api.regenerateToken() }
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("Apps and MCP clients using the current token will need the new one.")
         }
+        .sheet(isPresented: $showSetup) { MCPSetupSheet(port: port) }
+        .sheet(isPresented: $showReference) { APIReferenceSheet(api: api) }
     }
 
-    // MARK: Server
+    // MARK: MCP
 
-    private var serverSection: some View {
+    private var mcpSection: some View {
+        Section {
+            Toggle("MCP server", isOn: Binding(get: { api.mcpEnabled }, set: { api.mcpEnabled = $0 }))
+            Toggle(isOn: Binding(get: { api.mcpCanUseLocalFiles }, set: { api.mcpCanUseLocalFiles = $0 })) {
+                Text(MCPPermission.localFiles.settingTitle)
+                Text("Files by path, the clipboard, and reprinting.")
+            }
+            Picker(selection: Binding(get: { api.mcpSettingsGrant }, set: { api.mcpSettingsGrant = $0 })) {
+                ForEach(APIController.SettingsGrant.allCases, id: \.self) { Text($0.title).tag($0) }
+            } label: {
+                Text(MCPPermission.settings.settingTitle)
+                if api.mcpSettingsGrant == .timed, let until = api.mcpSettingsUntil {
+                    Text("Turns off at \(until.formatted(date: .omitted, time: .shortened)).")
+                } else {
+                    Text("Settings, printers, rules, watched folders and the HTTP API. Never the MCP switch, these permissions or the token.")
+                }
+            }
+            HStack {
+                Spacer()
+                Button("Set Up…") { showSetup = true }
+            }
+        } header: {
+            Text("MCP")
+        } footer: {
+            Text(api.mcpEnabled ? "MCP can always print files it sends and read settings. Tools that need a permission explain how to turn it on."
+                                : "Turn on MCP server to use these.")
+                .font(.callout).foregroundStyle(.secondary)
+        }
+    }
+
+    // MARK: HTTP
+
+    private var httpSection: some View {
         Section {
             Toggle("HTTP API", isOn: Binding(get: { api.httpEnabled }, set: { api.httpEnabled = $0 }))
-            Toggle("MCP server", isOn: Binding(get: { api.mcpEnabled }, set: { api.mcpEnabled = $0 }))
-            LabeledContent("Port") {
-                HStack(spacing: 6) {
-                    TextField("", value: Binding(get: { portDraft ?? api.port }, set: { portDraft = $0 }), format: .number.grouping(.never))
-                        .frame(width: 70)
-                        .multilineTextAlignment(.trailing)
-                        .onSubmit(commitPort)
-                    if let draft = portDraft, draft != api.port {
-                        Button("Apply", action: commitPort).disabled(!APIController.validPorts.contains(draft))
+            HStack {
+                Spacer()
+                Button("API Reference…") { showReference = true }
+            }
+        } header: {
+            Text("HTTP API")
+        } footer: {
+            Text("Prints only files sent with each request. Every request needs the token. Requests from web pages are refused.")
+                .font(.callout).foregroundStyle(.secondary)
+        }
+    }
+
+    // MARK: Advanced
+
+    private var advancedSection: some View {
+        Section {
+            DisclosureGroup("Advanced", isExpanded: $showAdvanced) {
+                LabeledContent("Port") {
+                    HStack(spacing: 6) {
+                        TextField("", value: Binding(get: { portDraft ?? api.port }, set: { portDraft = $0 }), format: .number.grouping(.never))
+                            .frame(width: 70)
+                            .multilineTextAlignment(.trailing)
+                            .onSubmit(commitPort)
+                        if let draft = portDraft, draft != api.port {
+                            Button("Apply", action: commitPort).disabled(!APIController.validPorts.contains(draft))
+                        }
                     }
                 }
-            }
-            LabeledContent("Token") {
-                HStack(spacing: 6) {
-                    Text(showToken ? api.token : String(repeating: "•", count: 16))
-                        .font(.system(.body, design: .monospaced))
-                        .textSelection(.enabled)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                    Button(showToken ? "Hide" : "Show") { showToken.toggle() }
-                    CopyButton("Copy", text: api.token)
-                    Button("Regenerate…") { confirmRegenerate = true }
+                LabeledContent("Token") {
+                    HStack(spacing: 6) {
+                        Text(showToken ? api.token : String(repeating: "•", count: 16))
+                            .font(.system(.body, design: .monospaced))
+                            .textSelection(.enabled)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        Button(showToken ? "Hide" : "Show") { showToken.toggle() }
+                        CopyButton("Copy", text: api.token)
+                        Button("Regenerate…") { confirmRegenerate = true }
+                    }
                 }
-            }
-            LabeledContent("Status") {
-                HStack(spacing: 6) {
-                    Circle().fill(statusColor).frame(width: 8, height: 8)
-                    Text(statusText).foregroundStyle(isFailed ? .red : .secondary)
+                LabeledContent("Status") {
+                    HStack(spacing: 6) {
+                        Circle().fill(statusColor).frame(width: 8, height: 8)
+                        Text(statusText).foregroundStyle(isFailed ? .red : .secondary)
+                    }
                 }
             }
         } footer: {
@@ -112,44 +147,81 @@ struct APIPane: View {
         case .failed: .red
         }
     }
+}
 
-    // MARK: MCP
+// MARK: Sheets
 
-    private var mcpSection: some View {
-        Section {
-            LabeledContent("Endpoint") {
-                HStack {
-                    Text(base + "/mcp").font(.system(.body, design: .monospaced)).textSelection(.enabled)
-                    CopyButton(nil, text: base + "/mcp")
+/// API > Set Up…: the MCP endpoint and ready-to-paste client configuration.
+struct MCPSetupSheet: View {
+    let port: Int
+    @Environment(\.dismiss) private var dismiss
+
+    private var endpoint: String { OpenAPI.baseURL(port: port) + "/mcp" }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Form {
+                Section {
+                    LabeledContent("Endpoint") {
+                        HStack {
+                            Text(endpoint).font(.system(.body, design: .monospaced)).textSelection(.enabled)
+                            CopyButton(nil, text: endpoint)
+                        }
+                    }
+                } footer: {
+                    Text("Paste one of these into a terminal or the client's settings.")
+                        .font(.callout).foregroundStyle(.secondary)
+                }
+                Section("Claude Code") {
+                    SnippetView(title: "HTTP", text: Snippets.claudeCodeHTTP(port: port))
+                    SnippetView(title: "stdio", text: Snippets.claudeCodeStdio)
+                }
+                Section("Claude Desktop") {
+                    SnippetView(title: "claude_desktop_config.json", text: Snippets.claudeDesktop)
                 }
             }
-            Toggle(isOn: Binding(get: { api.mcpCanUseLocalFiles }, set: { api.mcpCanUseLocalFiles = $0 })) {
-                Text(MCPPermission.localFiles.settingTitle)
-                Text("Files by path, the clipboard, and reprinting.")
+            .formStyle(.grouped)
+            Divider()
+            HStack {
+                Spacer()
+                Button("Done") { dismiss() }.keyboardShortcut(.defaultAction)
             }
-            Toggle(isOn: Binding(get: { api.mcpCanChangeSettings }, set: { api.mcpCanChangeSettings = $0 })) {
-                Text(MCPPermission.settings.settingTitle)
-                Text("Settings, printers, rules, watched folders, and the HTTP API. Never the MCP switch, these permissions or the token.")
-            }
-            Toggle(isOn: Binding(get: { api.mcpSettingsAutoOff }, set: { api.mcpSettingsAutoOff = $0 })) {
-                Text("Turn off after 45 minutes")
-                if api.mcpCanChangeSettings, let until = api.mcpSettingsUntil {
-                    Text("Turns off at \(until.formatted(date: .omitted, time: .shortened)).")
-                } else if api.mcpCanChangeSettings {
-                    Text("Stays on until you turn it off.")
-                }
-            }
-            .padding(.leading, 20)
-            SnippetView(title: "Claude Code", text: Snippets.claudeCodeHTTP(port: port))
-            SnippetView(title: "Claude Code (stdio)", text: Snippets.claudeCodeStdio)
-            SnippetView(title: "Claude Desktop: claude_desktop_config.json", text: Snippets.claudeDesktop)
-        } header: {
-            Text("MCP")
-        } footer: {
-            Text(api.mcpEnabled ? "MCP can always print files it sends and read settings. Tools that need a permission explain how to turn it on."
-                                : "Turn on MCP server to use these.")
-                .font(.callout).foregroundStyle(.secondary)
+            .padding(16)
         }
+        .frame(width: 600, height: 620)
+    }
+}
+
+/// API > API Reference…: every endpoint, with the docs page and the OpenAPI URL.
+struct APIReferenceSheet: View {
+    @ObservedObject var api: APIController
+    @Environment(\.dismiss) private var dismiss
+
+    private var port: Int { api.activePort }
+    private var base: String { OpenAPI.baseURL(port: port) }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Form {
+                ForEach(OpenAPI.tags, id: \.self) { tag in
+                    Section(tag) {
+                        ForEach(OpenAPI.endpoints.filter { $0.tag == tag }) { EndpointRow(endpoint: $0, port: port) }
+                    }
+                }
+            }
+            .formStyle(.grouped)
+            Divider()
+            HStack {
+                Button("Open API Docs") { NSWorkspace.shared.open(URL(string: base + "/")!) }
+                    .disabled(!(api.httpEnabled && api.isRunning))
+                    .help(api.httpEnabled && api.isRunning ? "Open the docs page in your browser" : "Turn on HTTP API first")
+                CopyButton("Copy OpenAPI URL", text: base + "/openapi.json")
+                Spacer()
+                Button("Done") { dismiss() }.keyboardShortcut(.defaultAction)
+            }
+            .padding(16)
+        }
+        .frame(width: 680, height: 600)
     }
 }
 

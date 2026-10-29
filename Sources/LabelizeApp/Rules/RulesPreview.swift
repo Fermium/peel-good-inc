@@ -22,7 +22,7 @@ enum RulesPreviewData {
 }
 
 #Preview("Rule editor") {
-    RuleEditorView(rule: RuleTemplate.amazonReturns.make(printers: RulesPreviewData.printers), isFallback: false,
+    RuleEditorView(rule: RuleTemplate.amazonReturns.make(printers: RulesPreviewData.printers),
                    printers: RulesPreviewData.printers, current: RulesPreviewData.printers[0]) { _ in }
 }
 
@@ -43,7 +43,7 @@ enum RulesPreviewHarness {
                 let suffix = appearance == .aqua ? "" : "-dark"
                 render(RulesSettingsView(engine: RulesPreviewData.engine(), previewPrinters: RulesPreviewData.printers),
                        to: dir.appendingPathComponent("rules\(suffix).png"), appearance: appearance)
-                render(RuleEditorView(rule: RuleTemplate.amazonReturns.make(printers: RulesPreviewData.printers), isFallback: false,
+                render(RuleEditorView(rule: RuleTemplate.amazonReturns.make(printers: RulesPreviewData.printers),
                                       printers: RulesPreviewData.printers, current: RulesPreviewData.printers[0]) { _ in },
                        to: dir.appendingPathComponent("editor\(suffix).png"), appearance: appearance)
             }
