@@ -13,11 +13,13 @@ usage: labelize [options] <file.pdf|svg|png|jpg>...
   --crop auto|content|none   (default auto: find the label or code on the page)
   --pad MM           padding around the crop (default 2)
   --rotate auto|none|cw|ccw  (default auto)
-  --ink auto|crisp|photo     (default auto)
-  --cutoff 0-100     black/white cutoff in percent (default 50)
+  --ink auto|crisp|photo|halftone  (default auto)
+  --cutoff 0-100     black/white cutoff in percent (default 50); shifts midtones in photo/halftone
+  --tone-gamma G     printer dot gain, coverage c prints as c^G (default 0.65, 1 = off)
   --nudge X,Y        shift in mm, +x right, +y down
   --no-snap          don't fit codes to the printer's dot grid
   --test-label       use a calibration pattern as the input
+  --step-wedge       write an 11-patch gray wedge (photo ink, tone-gamma 1 unless given)
   --copies N
   --out DIR          output folder (default ./out)
   --print            send to the printer
@@ -41,6 +43,8 @@ var dryRun = false
 var listPrinters = false
 var listSizes = false
 var testLabel = false
+var stepWedge = false
+var gammaGiven = false
 
 var args = CommandLine.arguments.dropFirst()
 func value(_ flag: String) -> String {
@@ -73,6 +77,7 @@ while let arg = args.popFirst() {
     case "--ink": options.ink = choice(arg, InkMode.self)
     case "--pad": options.paddingMM = number(arg)
     case "--cutoff": options.cutoff = number(arg) / 100
+    case "--tone-gamma": options.toneGamma = number(arg); gammaGiven = true
     case "--nudge":
         let parts = value(arg).split(separator: ",").compactMap { Double($0) }
         guard parts.count == 2 else { fail("--nudge needs X,Y") }
@@ -83,6 +88,7 @@ while let arg = args.popFirst() {
     case "--print": shouldPrint = true
     case "--dry-run": dryRun = true
     case "--test-label": testLabel = true
+    case "--step-wedge": stepWedge = true
     default:
         if arg.hasPrefix("-") { fail("unknown option \(arg)\n\n\(usage)") }
         files.append(URL(fileURLWithPath: arg))
@@ -120,7 +126,7 @@ if listSizes {
     exit(0)
 }
 
-guard !files.isEmpty || testLabel else { print(usage); exit(1) }
+guard !files.isEmpty || testLabel || stepWedge else { print(usage); exit(1) }
 
 // Resolve the size against the printer so presets use the printer's own media name.
 let printer = selectedPrinter()
@@ -147,6 +153,22 @@ if testLabel {
     files.insert(url, at: 0)
     options.crop = .none
     options.ink = .crisp
+}
+
+if stepWedge {
+    // Raw response: no tone compensation, so the printed patches measure the printer itself.
+    if !gammaGiven { options.toneGamma = 1 }
+    if options.ink != .halftone { options.ink = .photo }
+    let url = outDir.appendingPathComponent("wedge-\(options.size)-\(options.ink.rawValue).pdf")
+    let page = TestPattern.stepWedge(size: options.size, title: "Step wedge · \(options.ink.rawValue) · gamma \(String(format: "%.2f", options.toneGamma))")
+    var box = CGRect(origin: .zero, size: options.size.points)
+    guard let ctx = CGContext(url as CFURL, mediaBox: &box, nil) else { fail("can't write \(url.path)") }
+    ctx.beginPDFPage(nil)
+    page.draw(in: ctx)
+    ctx.endPDFPage()
+    ctx.closePDF()
+    files.insert(url, at: 0)
+    options.crop = .none
 }
 
 for file in files {

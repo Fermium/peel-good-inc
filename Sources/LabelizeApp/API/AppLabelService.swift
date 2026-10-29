@@ -254,7 +254,7 @@ final class AppLabelService: LabelService {
             o.fit = fit
         }
         if let text = r.ink {
-            guard let ink = InkMode(rawValue: text.lowercased()) else { throw APIError.badRequest("Ink must be auto, crisp or photo.", code: "invalid_ink") }
+            guard let ink = InkMode(rawValue: text.lowercased()) else { throw APIError.badRequest("Ink must be auto, crisp, photo or halftone.", code: "invalid_ink") }
             o.ink = ink
         }
         return o

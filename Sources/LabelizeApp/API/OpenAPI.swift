@@ -163,7 +163,7 @@ enum OpenAPI {
             Field("state", .string(values: ["idle", "printing", "stopped", "unknown"]), required: true),
             Field("size", .string("Current label size, width x height in inches."), required: true),
             Field("fit", .string(values: ["fit", "fill"]), required: true),
-            Field("ink", .string(values: ["auto", "crisp", "photo"]), required: true),
+            Field("ink", .string(values: ["auto", "crisp", "photo", "halftone"]), required: true),
         ])),
         ("Size", .object([
             Field("size", .string("Width x height in inches. Pass this as size."), required: true),
@@ -180,7 +180,7 @@ enum OpenAPI {
             Field("printer", .string()),
             Field("size", .string()),
             Field("fit", .string(values: ["fit", "fill"])),
-            Field("ink", .string(values: ["auto", "crisp", "photo"])),
+            Field("ink", .string(values: ["auto", "crisp", "photo", "halftone"])),
             Field("copies", .integer(min: 1, max: AppLabelService.maxCopies)),
         ], "Up to \(APILimits.maxFiles) files, each sent as a part named file, up to \(APILimits.maxFileBytes / 1_048_576) MB each and \(APILimits.maxLabels) pages in all. Every page of every file prints.")),
         ("Code", .object([
@@ -214,7 +214,7 @@ enum OpenAPI {
         ])),
         ("LabelInfo", .object([
             Field("index", .integer(), required: true),
-            Field("ink", .string("The ink used. Auto picks one per label.", values: ["crisp", "photo"]), required: true),
+            Field("ink", .string("The ink used. Auto picks one per label.", values: ["crisp", "photo", "halftone"]), required: true),
             Field("scalePercent", .number("Source to label scale."), required: true),
             Field("rotated", .boolean(), required: true),
             Field("codes", .array(.ref("Code")), required: true),
@@ -225,7 +225,7 @@ enum OpenAPI {
             Field("width", .integer("Pixels at printer resolution."), required: true),
             Field("height", .integer(), required: true),
             Field("png", .string("PNG image, base64.", format: "byte"), required: true),
-            Field("ink", .string("The ink used. Auto picks one per label.", values: ["crisp", "photo"]), required: true),
+            Field("ink", .string("The ink used. Auto picks one per label.", values: ["crisp", "photo", "halftone"]), required: true),
             Field("scalePercent", .number("Source to label scale."), required: true),
             Field("rotated", .boolean(), required: true),
             Field("codes", .array(.ref("Code")), required: true),
@@ -304,7 +304,7 @@ enum OpenAPI {
         Parameter(name: "printer", location: .query, required: false, schema: .string("Queue name or display name. Defaults to the default printer set in Peel Good Inc."), example: "MUNBYN_ITPP941AP"),
         Parameter(name: "size", location: .query, required: false, schema: .string("Label size like 4x6, 2.25x1.25 or 100x150mm. Defaults to the printer's size."), example: "4x6"),
         Parameter(name: "fit", location: .query, required: false, schema: .string(values: ["fit", "fill"]), example: "fit"),
-        Parameter(name: "ink", location: .query, required: false, schema: .string(values: ["auto", "crisp", "photo"]), example: "auto"),
+        Parameter(name: "ink", location: .query, required: false, schema: .string(values: ["auto", "crisp", "photo", "halftone"]), example: "auto"),
         Parameter(name: "copies", location: .query, required: false, schema: .integer(min: 1, max: AppLabelService.maxCopies), example: "1"),
         Parameter(name: "filename", location: .query, required: false, schema: .string("Name for a raw body, shown in jobs."), example: "label.pdf"),
     ]

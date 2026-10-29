@@ -186,7 +186,7 @@ final class AppConfigurator {
                 guard let v = FitMode(rawValue: try Self.string(value, key)) else { throw APIError.badRequest("fit must be fit or fill.", code: "invalid_fit") }
                 steps.append { self.change(label, self.store.fit(for: p).rawValue, v.rawValue) { self.store.setFit(v, for: p) } }
             case "ink":
-                guard let v = InkMode(rawValue: try Self.string(value, key)) else { throw APIError.badRequest("ink must be auto, crisp or photo.", code: "invalid_ink") }
+                guard let v = InkMode(rawValue: try Self.string(value, key)) else { throw APIError.badRequest("ink must be auto, crisp, photo or halftone.", code: "invalid_ink") }
                 steps.append { self.change(label, self.store.ink(for: p).rawValue, v.rawValue) { self.store.setInk(v, for: p) } }
             case "cutoff":
                 let v = try Self.number(value, key, 0.2...0.8)

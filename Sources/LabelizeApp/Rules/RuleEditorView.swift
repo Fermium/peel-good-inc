@@ -233,6 +233,7 @@ struct OutcomeSections: View {
                 Text("Auto").tag(Optional(InkMode.auto))
                 Text("Crisp").tag(Optional(InkMode.crisp))
                 Text("Photo").tag(Optional(InkMode.photo))
+                Text("Halftone").tag(Optional(InkMode.halftone))
             }
             .disabled(targetPrinter.map { !$0.isLabelPrinter } ?? false)
             .help("Label printers only")

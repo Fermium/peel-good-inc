@@ -57,7 +57,7 @@ struct APIPrintRequest: Codable, Sendable, Equatable {
     var size: String?
     /// fit or fill.
     var fit: String?
-    /// auto, crisp or photo.
+    /// auto, crisp, photo or halftone.
     var ink: String?
     var copies: Int?
 
@@ -126,7 +126,7 @@ struct APIJob: Codable, Sendable, Equatable, Identifiable {
 
 struct APILabelInfo: Codable, Sendable, Equatable {
     var index: Int
-    /// The ink actually used: crisp or photo (auto picks one per label).
+    /// The ink actually used: crisp, photo or halftone (auto picks crisp or photo per label).
     var ink: String
     /// Source points to label points, in percent.
     var scalePercent: Double

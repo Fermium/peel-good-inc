@@ -181,7 +181,7 @@ enum MCPTools {
         "printer": ["type": "string", "description": "Queue name or display name from list_printers. Defaults to the default printer set in Peel Good Inc."],
         "size": ["type": "string", "description": "Label size like 4x6, 2.25x1.25 or 100x150mm. Defaults to the printer's size."],
         "fit": ["type": "string", "enum": ["fit", "fill"]],
-        "ink": ["type": "string", "enum": ["auto", "crisp", "photo"], "description": "crisp for text and barcodes, photo for grays."],
+        "ink": ["type": "string", "enum": ["auto", "crisp", "photo", "halftone"], "description": "crisp for text and barcodes, photo for photos, halftone for flat grays."],
     ]
 
     private static let fileInput: [String: Value] = [
@@ -221,7 +221,7 @@ enum MCPTools {
         "printer": ["type": "string", "description": "Queue name or display name."],
         "size": ["type": "string", "description": "Label size, like 4x6."],
         "fit": ["type": "string", "enum": ["fit", "fill"]],
-        "ink": ["type": "string", "enum": ["auto", "crisp", "photo"]],
+        "ink": ["type": "string", "enum": ["auto", "crisp", "photo", "halftone"]],
         "cutoff": ["type": "number", "minimum": 0.2, "maximum": 0.8, "description": "Gray level below which a dot prints black."],
         "nudgeXmm": ["type": "number", "minimum": -10, "maximum": 10, "description": "Alignment, + moves right."],
         "nudgeYmm": ["type": "number", "minimum": -10, "maximum": 10, "description": "Alignment, + moves down."],
