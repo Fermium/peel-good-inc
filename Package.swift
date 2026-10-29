@@ -17,10 +17,13 @@ let package = Package(
     targets: [
         .systemLibrary(name: "CCups", path: "Sources/CCups"),
         .target(name: "LabelKit", dependencies: ["CCups"], swiftSettings: [.swiftLanguageMode(.v6)]),
-        .executableTarget(name: "labelize", dependencies: ["LabelKit"]),
+        // The command line's one description (commands, help, completions, man page), shared with Settings > CLI.
+        .target(name: "LabelizeCLI", dependencies: ["LabelKit"]),
+        .executableTarget(name: "labelize", dependencies: ["LabelKit", "LabelizeCLI"]),
         .executableTarget(name: "make-fixtures"),
         .executableTarget(name: "LabelizeApp", dependencies: [
             "LabelKit",
+            "LabelizeCLI",
             .product(name: "Hummingbird", package: "hummingbird"),
             .product(name: "MCP", package: "swift-sdk"),
             .product(name: "HTTPTypes", package: "swift-http-types"),
@@ -28,6 +31,7 @@ let package = Package(
         ]),
         .executableTarget(name: "peel-good-mcp"),
         .testTarget(name: "LabelKitTests", dependencies: ["LabelKit"]),
+        .testTarget(name: "LabelizeCLITests", dependencies: ["LabelizeCLI", "LabelKit"]),
         .testTarget(name: "LabelizeAppTests", dependencies: ["LabelizeApp", .product(name: "MCP", package: "swift-sdk")]),
     ],
     swiftLanguageModes: [.v5]
