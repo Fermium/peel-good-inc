@@ -61,6 +61,8 @@ if [[ -f "$BIN/peel-good-mcp" ]]; then
   cp "$BIN/peel-good-mcp" "$APP/Contents/MacOS/peel-good-mcp"
 fi
 cp Resources/*.wav Resources/Labelize.icns "$APP/Contents/Resources/"
+cp docs/brand/logo-light.png docs/brand/logo-dark.png LICENSE "$APP/Contents/Resources/"
+python3 scripts/make-sbom.py "$VERSION" "$APP/Contents/Resources/sbom.cdx.json"
 
 # Share extension (SwiftPM can't make .appex): one swiftc per arch, then lipo.
 APPEX="$APP/Contents/PlugIns/LabelizeShare.appex"

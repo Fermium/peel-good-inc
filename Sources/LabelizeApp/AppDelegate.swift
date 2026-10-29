@@ -63,6 +63,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             settings.show(tab: tab)
         }
         if CommandLine.arguments.contains("-showLogs") { LogWindow.show() }
+        if CommandLine.arguments.contains("-showAbout") { AboutWindow.show() }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -311,6 +312,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         reprint.isEnabled = store.lastPrint != nil
         menu.addItem(reprint)
         menu.addItem(.separator())
+        menu.addItem(item("About Peel Good Inc.", #selector(showAbout), "", symbol: "info.circle"))
         menu.addItem(item("Settings…", #selector(showSettings), ",", symbol: "gearshape"))
         // Hold ⌥ to swap Settings for Logs.
         let logs = item("Logs…", #selector(showLogs), ",", symbol: "list.bullet.rectangle")
@@ -392,6 +394,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
 
     @objc private func showHistory() {
         NSWorkspace.shared.open(Store.historyFolder)
+    }
+
+    @objc private func showAbout() {
+        afterMenuCloses { AboutWindow.show() }
     }
 
     @objc private func showLogs() {

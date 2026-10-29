@@ -10,7 +10,8 @@ rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 cp .build/release/LabelizeApp "$app/Contents/MacOS/Labelize"
 cp .build/release/peel-good-mcp "$app/Contents/MacOS/peel-good-mcp"
-cp Resources/*.wav Resources/Labelize.icns "$app/Contents/Resources/"
+cp Resources/*.wav Resources/Labelize.icns docs/brand/logo-light.png docs/brand/logo-dark.png LICENSE "$app/Contents/Resources/"
+python3 scripts/make-sbom.py "$(git describe --tags --always 2>/dev/null || echo dev)" "$app/Contents/Resources/sbom.cdx.json"
 
 # Share extension ("Peel Good Inc." in Share menus), built directly: SwiftPM can't make .appex bundles.
 appex="$app/Contents/PlugIns/LabelizeShare.appex"

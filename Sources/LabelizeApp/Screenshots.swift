@@ -85,6 +85,12 @@ enum Screenshots {
             ink.title = "Ink Modes"
             await settle(ink, 1.5)
             save(windowImage(ink), file("ink-modes"))
+
+            let about = window(NSHostingController(rootView: active(AboutView())), style: [.titled, .closable], appearance: appearance)
+            about.title = "About Peel Good Inc."
+            await settle(about, 0.8)
+            save(windowImage(about), file("about"))
+            about.close()
             ink.close()
 
             // Logs: only the seeded sample, never the real log.
