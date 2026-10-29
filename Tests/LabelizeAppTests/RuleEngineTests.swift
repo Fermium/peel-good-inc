@@ -1,5 +1,6 @@
 import Foundation
 import LabelKit
+import LabelizeCore
 import XCTest
 @testable import LabelizeApp
 
@@ -28,7 +29,7 @@ final class RuleEngineTests: XCTestCase {
         XCTAssertEqual(d.options.ink, .photo)
         XCTAssertEqual(d.copies, 1)
         XCTAssertEqual(d.action, .print)
-        XCTAssertNil(d.tag, "the tag follows General")
+        XCTAssertEqual(d.tag, .general, "the tag follows General")
     }
 
     /// Rules > New files decides for watched folders; files you hand over print, and Ask becomes the preview.
@@ -52,7 +53,7 @@ final class RuleEngineTests: XCTestCase {
         let o = try JSONDecoder().decode(RuleOutcome.self, from: Data(json.utf8))
         XCTAssertEqual(o.printer, "Canon_TS9500_series")
         XCTAssertEqual(o.copies, 2)
-        XCTAssertEqual(o.tag?.name, "Done")
+        XCTAssertEqual(o.tag.custom?.name, "Done")
         let out = String(decoding: try JSONEncoder().encode(o), as: UTF8.self)
         XCTAssertFalse(out.contains("playSound"), out)
     }
@@ -60,7 +61,7 @@ final class RuleEngineTests: XCTestCase {
     func testSummaryUsesDefaultPrinterAndShowPreview() {
         var o = RuleOutcome()
         o.action = .review
-        XCTAssertEqual(RuleSummary.outcome(o, printers: printers), "Default printer · shows preview · tags “Printed”")
+        XCTAssertEqual(RuleSummary.outcome(o, printers: printers), "Default printer · shows preview")
         XCTAssertEqual(RuleAction.review.title, "Show preview")
     }
 }

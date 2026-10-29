@@ -1,4 +1,7 @@
 import Foundation
+import LabelKit
+import LabelizeCore
+import PeelGoodShared
 
 /// The REST API described once, in Swift. The OpenAPI document, the docs page, the API pane
 /// and the curl examples are all generated from `OpenAPI.endpoints` and `OpenAPI.components`.
@@ -146,6 +149,16 @@ enum OpenAPI {
 
     // MARK: Components
 
+    /// One label's details. LabelPreview is these plus its image.
+    static let labelInfoFields: [Field] = [
+        Field("index", .integer(), required: true),
+        Field("ink", .string("The ink used. Auto picks one per label.", values: Limits.inks.filter { $0 != InkMode.auto.rawValue }), required: true),
+        Field("scalePercent", .number("Source to label scale."), required: true),
+        Field("rotated", .boolean(), required: true),
+        Field("codes", .array(.ref("Code")), required: true),
+        Field("warnings", .array(.string()), required: true),
+    ]
+
     static let components: [(String, Schema)] = [
         ("Health", .object([
             Field("status", .string("Always ok.", values: ["ok"]), required: true),
@@ -162,8 +175,8 @@ enum OpenAPI {
             Field("isLabelPrinter", .boolean("A 4 in thermal printer (prints 1-bit labels)."), required: true),
             Field("state", .string(values: ["idle", "printing", "stopped", "unknown"]), required: true),
             Field("size", .string("Current label size, width x height in inches."), required: true),
-            Field("fit", .string(values: ["fit", "fill"]), required: true),
-            Field("ink", .string(values: ["auto", "crisp", "photo", "halftone"]), required: true),
+            Field("fit", .string(values: Limits.fits), required: true),
+            Field("ink", .string(values: Limits.inks), required: true),
         ])),
         ("Size", .object([
             Field("size", .string("Width x height in inches. Pass this as size."), required: true),
@@ -179,9 +192,9 @@ enum OpenAPI {
             Field("file", .array(.string(format: "binary")), required: true),
             Field("printer", .string()),
             Field("size", .string()),
-            Field("fit", .string(values: ["fit", "fill"])),
-            Field("ink", .string(values: ["auto", "crisp", "photo", "halftone"])),
-            Field("copies", .integer(min: 1, max: AppLabelService.maxCopies)),
+            Field("fit", .string(values: Limits.fits)),
+            Field("ink", .string(values: Limits.inks)),
+            Field("copies", .integer(min: Limits.copies.lowerBound, max: Limits.copies.upperBound)),
         ], "Up to \(APILimits.maxFiles) files, each sent as a part named file, up to \(APILimits.maxFileBytes / 1_048_576) MB each and \(APILimits.maxLabels) pages in all. Every page of every file prints.")),
         ("Code", .object([
             Field("symbology", .string("QR, Code128, DataMatrix, and so on."), required: true),
@@ -212,24 +225,11 @@ enum OpenAPI {
                                     values: ["countdown", "review"])),
             Field("labelDetails", .array(.ref("LabelInfo"), "Per label, once composed.")),
         ])),
-        ("LabelInfo", .object([
-            Field("index", .integer(), required: true),
-            Field("ink", .string("The ink used. Auto picks one per label.", values: ["crisp", "photo", "halftone"]), required: true),
-            Field("scalePercent", .number("Source to label scale."), required: true),
-            Field("rotated", .boolean(), required: true),
-            Field("codes", .array(.ref("Code")), required: true),
-            Field("warnings", .array(.string()), required: true),
-        ])),
-        ("LabelPreview", .object([
-            Field("index", .integer(), required: true),
+        ("LabelInfo", .object(labelInfoFields)),
+        ("LabelPreview", .object(labelInfoFields + [
             Field("width", .integer("Pixels at printer resolution."), required: true),
             Field("height", .integer(), required: true),
             Field("png", .string("PNG image, base64.", format: "byte"), required: true),
-            Field("ink", .string("The ink used. Auto picks one per label.", values: ["crisp", "photo", "halftone"]), required: true),
-            Field("scalePercent", .number("Source to label scale."), required: true),
-            Field("rotated", .boolean(), required: true),
-            Field("codes", .array(.ref("Code")), required: true),
-            Field("warnings", .array(.string()), required: true),
         ])),
         ("Preview", .object([
             Field("printer", .string(), required: true),
@@ -273,8 +273,7 @@ enum OpenAPI {
         static let code = APICode(symbology: "QR", payload: "1Z999AA10123456784", scannable: true, severity: "ok", message: nil)
         static let preview = APIPreview(printer: "MUNBYN_ITPP941AP", size: "4x6", rule: "Everything else", copies: 1, action: "countdown",
                                         labels: 1, codesFound: 1, codesVerified: 1, codesMissing: [], warnings: [],
-                                        images: [APILabelPreview(index: 0, width: 812, height: 1218, png: Data("PNG…".utf8), ink: "crisp",
-                                                                 scalePercent: 100, rotated: false, codes: [code], warnings: [])])
+                                        images: [APILabelPreview(info(0), width: 812, height: 1218, png: Data("PNG…".utf8))])
         static let health = APIHealth(status: "ok", version: "0.1", http: true, mcp: true, port: APISettings.defaultPort)
         static let error = APIErrorBody(error: .init(code: "printer_not_found", message: "Printer Zebra not found."))
     }
@@ -303,9 +302,9 @@ enum OpenAPI {
     private static let optionParameters: [Parameter] = [
         Parameter(name: "printer", location: .query, required: false, schema: .string("Queue name or display name. Defaults to the default printer set in Peel Good Inc."), example: "MUNBYN_ITPP941AP"),
         Parameter(name: "size", location: .query, required: false, schema: .string("Label size like 4x6, 2.25x1.25 or 100x150mm. Defaults to the printer's size."), example: "4x6"),
-        Parameter(name: "fit", location: .query, required: false, schema: .string(values: ["fit", "fill"]), example: "fit"),
-        Parameter(name: "ink", location: .query, required: false, schema: .string(values: ["auto", "crisp", "photo", "halftone"]), example: "auto"),
-        Parameter(name: "copies", location: .query, required: false, schema: .integer(min: 1, max: AppLabelService.maxCopies), example: "1"),
+        Parameter(name: "fit", location: .query, required: false, schema: .string(values: Limits.fits), example: "fit"),
+        Parameter(name: "ink", location: .query, required: false, schema: .string(values: Limits.inks), example: "auto"),
+        Parameter(name: "copies", location: .query, required: false, schema: .integer(min: Limits.copies.lowerBound, max: Limits.copies.upperBound), example: "1"),
         Parameter(name: "filename", location: .query, required: false, schema: .string("Name for a raw body, shown in jobs."), example: "label.pdf"),
     ]
 
@@ -375,14 +374,14 @@ enum OpenAPI {
             "info": [
                 "title": "Peel Good Inc.",
                 "version": .string(appVersion),
-                "description": "Print shipping labels from other apps on this Mac. The server only listens on 127.0.0.1. Send the token from ~/Library/Application Support/Peel Good/token as a bearer token. Requests with an Origin header are refused. Only files sent with a request can print.",
+                "description": .string("Print shipping labels from other apps on this Mac. The server only listens on 127.0.0.1. Send the token from \(AppIdentity.supportFolderDisplay)/token as a bearer token. Requests with an Origin header are refused. Only files sent with a request can print."),
             ],
             "servers": [["url": .string("http://127.0.0.1:\(port)")]],
             "security": [["bearer": []]],
             "tags": .array(tags.map { ["name": .string($0)] }),
             "paths": .object(paths),
             "components": [
-                "securitySchemes": ["bearer": ["type": "http", "scheme": "bearer", "description": "Contents of ~/Library/Application Support/Peel Good/token."]],
+                "securitySchemes": ["bearer": ["type": "http", "scheme": "bearer", "description": .string("Contents of \(AppIdentity.supportFolderDisplay)/token.")]],
                 "schemas": .object(components.map { ($0.0, $0.1.json) }),
             ],
         ]

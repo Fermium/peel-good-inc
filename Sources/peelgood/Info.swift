@@ -2,6 +2,7 @@ import CoreGraphics
 import Foundation
 import LabelizeCLI
 import LabelKit
+import LabelizeCore
 
 // printers, sizes, history and version.
 
@@ -24,7 +25,7 @@ func listPrinters(_ ctx: Context) throws -> ExitCode {
     }
     let used = try? ctx.choosePrinter(printers, required: false)
     let rows = printers.map { p in
-        PrinterRow(name: p.name, model: p.model, state: p.state.rawValue, isDefault: p.isDefault, isLabelPrinter: p.isLabelPrinter,
+        PrinterRow(name: p.name, model: p.displayName, state: p.state.rawValue, isDefault: p.isDefault, isLabelPrinter: p.isLabelPrinter,
                    chosenInApp: ctx.defaults.printerName == p.name, usedByDefault: used?.0.name == p.name,
                    presets: p.presets.map(\.description))
     }
@@ -35,7 +36,7 @@ func listPrinters(_ ctx: Context) throws -> ExitCode {
         return .printer
     }
     let width = printers.map(\.name.count).max()! + 2
-    let modelWidth = min(28, printers.map(\.model.count).max()! + 2)
+    let modelWidth = min(28, printers.map(\.displayName.count).max()! + 2)
     for (p, row) in zip(printers, rows) {
         let bullet = row.usedByDefault ? s.green("●") : s.dim("○")
         let state: String = switch p.state {
@@ -47,8 +48,9 @@ func listPrinters(_ ctx: Context) throws -> ExitCode {
         var tags: [String] = []
         if p.isLabelPrinter { tags.append("label printer") }
         if row.chosenInApp { tags.append("chosen in the app") }
+        if ctx.defaults.hiddenPrinters.contains(p.name) { tags.append("hidden in the app") }
         if p.isDefault { tags.append("system default") }
-        let model = String(p.model.prefix(modelWidth - 2)).padding(toLength: modelWidth, withPad: " ", startingAt: 0)
+        let model = String(p.displayName.prefix(modelWidth - 2)).padding(toLength: modelWidth, withPad: " ", startingAt: 0)
         ctx.say("\(bullet) \(s.bold(p.name.padding(toLength: width, withPad: " ", startingAt: 0)))\(model)\(state)"
             + (tags.isEmpty ? "" : "  \(s.dim(tags.joined(separator: ", ")))"))
     }
@@ -73,7 +75,9 @@ func listSizes(_ ctx: Context) throws -> ExitCode {
     if let name = inv.arguments.first { inv.values["printer"] = name }
     let scoped = Context(inv: inv, out: ctx.out, err: ctx.err, defaults: ctx.defaults, tool: ctx.tool, environment: ctx.environment)
     guard let (p, _) = try scoped.choosePrinter(printers, required: true) else { return .printer }
-    let appSize = ctx.defaults.string("size.\(p.name)").flatMap(LabelSize.init(parsing:))
+    // The size the app really prints at: the saved one, else 4x6, or 4x6 when the printer can't take the saved one.
+    let app = ctx.defaults.options(for: p)
+    let appSize = app.options.size
     let entries = SizeCatalog.entries(for: p)
     if inv.has("names") {
         entries.filter(\.isSupported).forEach { print($0.size.description) }
@@ -81,12 +85,13 @@ func listSizes(_ ctx: Context) throws -> ExitCode {
     }
     let rows = entries.map { e in
         SizeRow(size: e.size.description, media: e.size.cupsMedia, source: e.source.rawValue, supported: e.isSupported,
-                reason: e.unsupportedReason, appDefault: appSize.map { $0.matches(e.size) } ?? false)
+                reason: e.unsupportedReason, appDefault: appSize.matches(e.size))
     }
     if ctx.json { ctx.emit(["printer": AnyEncodable(p.name), "sizes": AnyEncodable(rows)]); return .ok }
     let s = ctx.out
-    ctx.say("\(s.bold(p.model)) \(s.dim("(\(p.name))"))")
-    if let lo = p.customMin, let hi = p.customMax { ctx.say(s.dim("  takes custom sizes from \(lo.display) to \(hi.display)")) }
+    ctx.say("\(s.bold(p.displayName)) \(s.dim("(\(p.name))"))")
+    if let lo = p.customMin, let hi = p.customMax { ctx.say(s.dim("  takes custom sizes from \(lo.primary) to \(hi.primary)")) }
+    if let note = app.note { ctx.say("  \(s.warn) \(s.yellow(note))") }
     for (e, row) in zip(entries, rows) {
         let mark = e.isSupported ? s.ok : s.fail
         let size = e.size.description.padding(toLength: 11, withPad: " ", startingAt: 0)
@@ -112,22 +117,7 @@ struct HistoryRow: Encodable {
 }
 
 func historyRows(_ ctx: Context) -> [HistoryRow] {
-    let keys: [URLResourceKey] = [.creationDateKey]
-    let files = (try? FileManager.default.contentsOfDirectory(at: ctx.historyFolder, includingPropertiesForKeys: keys)) ?? []
-    let stamp = try! Regex(#"^(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}(?:\.\d+)?Z)\s+"#)
-    let parser = ISO8601DateFormatter()
-    return files.filter { $0.pathExtension.lowercased() == "pdf" }.map { url in
-        var name = url.deletingPathExtension().lastPathComponent
-        var date = (try? url.resourceValues(forKeys: Set(keys)).creationDate) ?? .distantPast
-        if let m = name.prefixMatch(of: stamp), let s = m.output[1].substring {
-            let iso = String(s).replacingOccurrences(of: #"T(\d{2})-(\d{2})-(\d{2})"#, with: "T$1:$2:$3", options: .regularExpression)
-            date = parser.date(from: iso) ?? date
-        }
-        while let m = name.prefixMatch(of: stamp) { name.removeSubrange(m.range) }
-        while name.hasSuffix(".label") { name.removeLast(".label".count) }
-        let pages = CGPDFDocument(url as CFURL)?.numberOfPages ?? 0
-        return HistoryRow(name: name.isEmpty ? "label" : name, date: date, labels: pages, path: url.path)
-    }.sorted { $0.date > $1.date }
+    History.entries(in: ctx.historyFolder).map { HistoryRow(name: $0.name, date: $0.date, labels: $0.labels, path: $0.url.path) }
 }
 
 func listHistory(_ ctx: Context) throws -> ExitCode {
@@ -142,7 +132,7 @@ func listHistory(_ ctx: Context) throws -> ExitCode {
     if ctx.json { ctx.emit(rows); return .ok }
     let s = ctx.out
     guard !rows.isEmpty else {
-        ctx.say("\(s.dim("No prints yet. Labels printed by the app show up here."))")
+        ctx.say("\(s.dim("No prints yet. Labels printed by the app or `\(ctx.tool) print` show up here."))")
         return .ok
     }
     let relative = RelativeDateTimeFormatter()

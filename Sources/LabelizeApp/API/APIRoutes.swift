@@ -167,7 +167,7 @@ enum APIRoutes {
             request.size = form.field("size")
             request.fit = form.field("fit")
             request.ink = form.field("ink")
-            request.copies = try form.field("copies").map { try int($0, "copies") }
+            request.copies = try APIPrintRequest.given(form.field("copies")).map { try int($0, "copies") }
             for (i, part) in form.files.enumerated() {
                 uploads.append((try uploadName(part.filename, contentType: part.contentType, index: i), part.data))
             }
@@ -242,40 +242,21 @@ enum APIRoutes {
         var name = (filename.map { ($0 as NSString).lastPathComponent } ?? "").replacingOccurrences(of: ":", with: "-")
         if name.isEmpty || name.hasPrefix(".") { name = "Upload \(index + 1)" }
         if Intake.isSupported(URL(fileURLWithPath: name)) { return name }
-        let ext: String? = switch contentType?.lowercased().split(separator: ";").first.map(String.init) {
-        case "application/pdf": "pdf"
-        case "image/png": "png"
-        case "image/jpeg": "jpg"
-        case "image/svg+xml": "svg"
-        case "image/tiff": "tiff"
-        case "image/gif": "gif"
-        case "image/heic": "heic"
-        default: nil
-        }
-        guard let ext else {
+        guard let ext = Intake.format(mimeType: contentType)?.ext else {
             throw APIError(status: 415, code: "unsupported_type", message: "\(filename ?? "The upload") isn't a PDF, SVG or image.")
         }
         return "\(name).\(ext)"
     }
 
-    nonisolated static func decodeJSON<T: Decodable>(_ type: T.Type, _ r: APIRequest) throws -> T? {
-        let body = r.body.drop { $0 == 0x20 || $0 == 0x0A || $0 == 0x0D || $0 == 0x09 }
-        guard !body.isEmpty else { return nil }
-        do {
-            return try APIJSON.decoder.decode(T.self, from: Data(body))
-        } catch {
-            throw APIError.badRequest("Body isn't valid JSON for this endpoint: \(error.localizedDescription)", code: "bad_json")
-        }
-    }
-
     nonisolated static func merge(_ r: APIPrintRequest, query: [String: String]) throws -> APIPrintRequest {
-        var r = r
-        r.path = r.path ?? query["path"]
-        r.printer = r.printer ?? query["printer"]
-        r.size = r.size ?? query["size"]
-        r.fit = r.fit ?? query["fit"]
-        r.ink = r.ink ?? query["ink"]
-        if r.copies == nil, let c = query["copies"] { r.copies = try int(c, "copies") }
+        let given = APIPrintRequest.given
+        var r = r.normalized
+        r.path = r.path ?? given(query["path"])
+        r.printer = r.printer ?? given(query["printer"])
+        r.size = r.size ?? given(query["size"])
+        r.fit = r.fit ?? given(query["fit"])
+        r.ink = r.ink ?? given(query["ink"])
+        if r.copies == nil, let c = given(query["copies"]) { r.copies = try int(c, "copies") }
         return r
     }
 

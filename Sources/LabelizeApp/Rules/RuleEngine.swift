@@ -1,102 +1,12 @@
 import Foundation
 import LabelKit
-
-// MARK: Matching
-
-extension RuleCondition {
-    func matches(_ c: RuleContext) -> Bool {
-        guard isComplete else { return false }
-        let tokens = values.map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
-        let value = tokens.first ?? ""
-        switch field {
-        case .source:
-            let hosts = c.sourceHosts
-            if op == .isUnknown { return hosts.isEmpty }
-            let domains = tokens.map(RuleContext.normalizedDomain)
-            let hit = hosts.contains { h in domains.contains { h == $0 || h.hasSuffix("." + $0) } }
-            return op == .is ? hit : !hit
-        case .name:
-            let full = c.fileName.lowercased(), stem = (c.fileName as NSString).deletingPathExtension.lowercased()
-            let t = tokens.map { $0.lowercased() }
-            switch op {
-            case .contains: return t.contains { full.contains($0) }
-            case .doesNotContain: return !t.contains { full.contains($0) }
-            case .beginsWith: return t.contains { full.hasPrefix($0) }
-            case .endsWith: return t.contains { full.hasSuffix($0) || stem.hasSuffix($0) }
-            default: return t.contains { full == $0 || stem == $0 }
-            }
-        case .kind:
-            let hit: Bool = switch FileKind(rawValue: value) {
-            case .screenshot: c.isScreenshot
-            case .image: c.kind == .image || c.kind == .screenshot
-            case let k?: c.kind == k
-            case nil: false
-            }
-            return op == .is ? hit : !hit
-        case .folder:
-            guard let folder = c.folder?.resolvingSymlinksInPath().standardizedFileURL.path else { return op == .isNotInside }
-            let inside = tokens.contains { t in
-                let base = URL(fileURLWithPath: (t as NSString).expandingTildeInPath).resolvingSymlinksInPath().standardizedFileURL.path
-                return folder == base || folder.hasPrefix(base.hasSuffix("/") ? base : base + "/")
-            }
-            return op == .isInside ? inside : !inside
-        case .trigger:
-            let hit = c.trigger.rawValue == value
-            return op == .is ? hit : !hit
-        case .pageSize:
-            // Screenshots and photos have no physical size, so they never count as a page size.
-            let hit = !c.isRaster && c.firstPageSize.map { PageShape(rawValue: value)?.matches($0) ?? false } ?? false
-            return op == .is ? hit : !hit
-        case .pageCount:
-            switch op {
-            case .isMoreThan: return c.pageCount > number
-            case .isFewerThan: return c.pageCount < number
-            default: return c.pageCount == number
-            }
-        case .code:
-            let kind = CodeKind(rawValue: value) ?? .any
-            let hit = (c.codes ?? []).contains { kind.matches($0.symbology) }
-            return op == .includes ? hit : !hit
-        case .pageText:
-            let text = (c.pageText ?? "").lowercased()
-            let hit = tokens.contains { text.contains($0.lowercased()) }
-            return op == .contains ? hit : !hit
-        case .codeText:
-            let t = tokens.map { $0.lowercased() }
-            let hit = (c.codes ?? []).contains { code in t.contains { code.payload.lowercased().contains($0) } }
-            return op == .contains ? hit : !hit
-        }
-    }
-}
-
-extension Rule {
-    /// A rule with no complete conditions never matches, so a half-made rule can't swallow every file.
-    func matches(_ c: RuleContext) -> Bool {
-        guard isEnabled, !conditions.isEmpty else { return false }
-        return matchAll ? conditions.allSatisfy { $0.matches(c) } : conditions.contains { $0.matches(c) }
-    }
-}
-
-// MARK: Decision
-
-/// A rule's outcome made concrete for the printers that are actually connected.
-struct RuleDecision {
-    /// The matching rule, or the "Everything else" rule.
-    var rule: Rule
-    var isFallback: Bool
-    var printer: PrinterInfo
-    var options: LabelOptions
-    /// Never `.ask` for files the user handed over directly; those get `.review` instead.
-    var action: RuleAction
-    var copies: Int
-    var tag: FinderTag?
-    /// Why something differs from the rule, e.g. its printer isn't connected.
-    var notes: [String]
-}
+import LabelizeCore
+import PeelGoodShared
 
 // MARK: Engine
 
 /// The rule list, its persistence, and evaluation. One shared instance backs both the Settings pane and printing.
+/// The model and the matching are LabelizeCore's `RuleBook`, which `peelgood print` reads too.
 @MainActor
 final class RuleEngine: ObservableObject {
     static let shared = RuleEngine()
@@ -111,68 +21,27 @@ final class RuleEngine: ObservableObject {
     /// `fileURL: nil` keeps rules in memory only (previews, tests).
     init(fileURL: URL? = RuleEngine.defaultFileURL) {
         self.fileURL = fileURL
-        let loaded = fileURL.flatMap(Self.load)
+        let loaded = fileURL.flatMap { RuleBook.load(from: $0) }
         rules = loaded?.rules ?? []
-        fallback = loaded?.fallback ?? Self.defaultFallback
+        fallback = loaded?.fallback ?? RuleBook.defaultFallback
     }
 
-    static let defaultFallback = Rule(name: "Everything else", conditions: [])
+    nonisolated static var defaultFileURL: URL { AppPaths.rulesFile }
 
-    nonisolated static var defaultFileURL: URL {
-        AppPaths.support.appendingPathComponent("rules.json")
-    }
+    var book: RuleBook { RuleBook(rules: rules, fallback: fallback) }
 
     /// True if any enabled rule looks at codes, so `RuleContext.inspect` should run detection.
-    var needsCodes: Bool {
-        rules.contains { $0.isEnabled && $0.conditions.contains { $0.field == .code || $0.field == .codeText } }
-    }
-
-    var needsText: Bool {
-        rules.contains { $0.isEnabled && $0.conditions.contains { $0.field == .pageText } }
-    }
+    var needsCodes: Bool { book.needsCodes }
+    var needsText: Bool { book.needsText }
 
     /// The first enabled rule that matches, else "Everything else".
-    func match(_ context: RuleContext) -> Rule {
-        rules.first { $0.matches(context) } ?? fallback
-    }
+    func match(_ context: RuleContext) -> Rule { book.match(context) }
 
-    /// Picks printer and options for a file.
-    /// - Parameters:
-    ///   - current: the default printer, used when the rule doesn't name one or its printer is missing.
-    ///   - defaults: the remembered options for a printer (`Store.options(for:)`).
-    ///   - forcedPrinter: the printer tile the file was dropped on; it wins over the rule's printer.
-    ///   - unattended: what a rule without an action does with files nobody handed over (Rules > New files).
-    /// - Returns: nil only when there's no printer at all.
-    /// "Everything else" always uses the default printer and its settings; its saved outcome is ignored.
+    /// Picks printer and options for a file: see `RuleBook.decide`.
     func decide(_ context: RuleContext, printers: [PrinterInfo], current: PrinterInfo?,
                 defaults: (PrinterInfo) -> LabelOptions, forcedPrinter: PrinterInfo? = nil,
                 unattended: RuleAction = .ask) -> RuleDecision? {
-        let rule = match(context)
-        let isFallback = rule.id == fallback.id
-        let o = isFallback ? RuleOutcome() : rule.outcome
-        var notes: [String] = []
-
-        var printer = current
-        if let name = o.printer {
-            if let p = printers.first(where: { $0.name == name }) { printer = p }
-            else if let current { notes.append("The rule's printer isn't connected, so this uses \(current.displayName).") }
-        }
-        if let forcedPrinter { printer = forcedPrinter }
-        guard let printer else { return nil }
-
-        var options = defaults(printer)
-        if let size = o.labelSize {
-            if let resolved = printer.resolve(size) { options.size = resolved }
-            else { notes.append("\(printer.displayName) can't take \(size.display) labels, so this uses \(options.size.display).") }
-        }
-        if let fit = o.fit { options.fit = fit }
-        if let ink = o.ink { options.ink = ink }
-
-        var action = o.action ?? (context.trigger.isUnattended ? unattended : .print)
-        if action == .ask && !context.trigger.isUnattended { action = .review }
-
-        return RuleDecision(rule: rule, isFallback: isFallback, printer: printer, options: options,
-                            action: action, copies: max(1, o.copies), tag: isFallback ? nil : o.tag, notes: notes)
+        book.decide(context, printers: printers, current: current, defaults: defaults, forcedPrinter: forcedPrinter, unattended: unattended)
     }
 
     // MARK: Editing
@@ -197,22 +66,6 @@ final class RuleEngine: ObservableObject {
 
     // MARK: Persistence
 
-    private struct File: Codable {
-        var version = 1
-        var rules: [Rule]
-        var fallback: Rule
-    }
-
-    /// A file that won't decode is set aside (rules.json.broken) rather than overwritten.
-    private static func load(_ url: URL) -> File? {
-        guard let data = try? Data(contentsOf: url) else { return nil }
-        if let file = try? JSONDecoder().decode(File.self, from: data) { return file }
-        let aside = url.appendingPathExtension("broken")
-        try? FileManager.default.removeItem(at: aside)
-        try? FileManager.default.moveItem(at: url, to: aside)
-        return nil
-    }
-
     private func scheduleSave() {
         guard fileURL != nil else { return }
         saveTask?.cancel()
@@ -225,13 +78,9 @@ final class RuleEngine: ObservableObject {
 
     func save() {
         guard let fileURL else { return }
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         saveTask?.cancel()
         do {
-            let data = try encoder.encode(File(rules: rules, fallback: fallback))
-            try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try data.write(to: fileURL, options: .atomic)
+            try book.save(to: fileURL)
         } catch {
             Log.error(.rules, "couldn't save rules: \(error.localizedDescription)")
         }

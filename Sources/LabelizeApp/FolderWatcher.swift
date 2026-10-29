@@ -3,6 +3,7 @@ import CoreServices
 import CryptoKit
 import SwiftUI
 import UserNotifications
+import LabelizeCore
 
 /// Watches folders (not their subfolders) for new printable files and hands each one over once:
 /// after it has finished downloading, and never the same contents twice.
@@ -12,7 +13,7 @@ final class FolderWatcher: ObservableObject {
 
     @Published var folders: [URL] {
         didSet {
-            UserDefaults.standard.set(folders.map(\.path), forKey: "watchedFolders")
+            settings.watchedFolders = folders
             restart()
         }
     }
@@ -24,9 +25,11 @@ final class FolderWatcher: ObservableObject {
     private var seen: [String]
     private static let partial: Set<String> = ["crdownload", "download", "part", "partial", "tmp"]
 
+    private let settings = AppSettings.userDefaults(.standard)
+
     private init() {
-        folders = (UserDefaults.standard.stringArray(forKey: "watchedFolders") ?? []).map { URL(fileURLWithPath: $0, isDirectory: true) }
-        seen = UserDefaults.standard.stringArray(forKey: "watchedSeen") ?? []
+        folders = settings.watchedFolders
+        seen = settings.watchedSeen
     }
 
     func start() { restart() }
@@ -90,7 +93,7 @@ final class FolderWatcher: ObservableObject {
         }
         seen.append(hash)
         if seen.count > 500 { seen.removeFirst(seen.count - 500) }
-        UserDefaults.standard.set(seen, forKey: "watchedSeen")
+        settings.watchedSeen = seen
         Log.info(.files, "new file in \(url.deletingLastPathComponent().lastPathComponent): \(url.lastPathComponent)")
         onFile(url)
     }

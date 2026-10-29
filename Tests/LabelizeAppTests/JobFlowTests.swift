@@ -1,5 +1,6 @@
 import AppKit
 import LabelKit
+import LabelizeCore
 import MCP
 import XCTest
 @testable import LabelizeApp
@@ -140,9 +141,9 @@ final class JobFlowTests: XCTestCase {
         XCTAssertEqual(name.components(separatedBy: "Z ").count, 2, name)
         XCTAssertNotNil(first.savedPDF)
 
-        XCTAssertEqual(PrintJob.baseName(URL(fileURLWithPath: "/h/2026-10-29T20-57-08Z 2026-10-29T20-56-58Z test-label.label.label.pdf")), "test-label")
-        XCTAssertEqual(PrintJob.baseName(URL(fileURLWithPath: "/h/order 1459.pdf")), "order 1459")
-        XCTAssertEqual(PrintJob.baseName(URL(fileURLWithPath: "/h/2026-10-29T20-57-08Z .label.pdf")), "label")
+        XCTAssertEqual(History.baseName(URL(fileURLWithPath: "/h/2026-10-29T20-57-08Z 2026-10-29T20-56-58Z test-label.label.label.pdf")), "test-label")
+        XCTAssertEqual(History.baseName(URL(fileURLWithPath: "/h/order 1459.pdf")), "order 1459")
+        XCTAssertEqual(History.baseName(URL(fileURLWithPath: "/h/2026-10-29T20-57-08Z .label.pdf")), "label")
     }
 
     func testPreviewReplyHasRuleAndNoEmptyPNG() async throws {
@@ -171,6 +172,31 @@ final class JobFlowTests: XCTestCase {
         XCTAssertEqual(store.options(for: printer).ink, .photo)
         let job = try await service.print(files: [file], request: APIPrintRequest(printer: printer.name), source: APIJob.Source.upload)
         XCTAssertEqual(job.labelDetails?.map(\.ink), ["photo", "photo"])
+    }
+
+    /// The API takes the action the rules decided: Everything else's saved action is ignored, as for a drop.
+    func testAPIUsesTheDecidedAction() async throws {
+        service.rules.fallback.outcome.action = .review
+        let job = try await service.print(files: [file], request: APIPrintRequest(), source: APIJob.Source.upload)
+        XCTAssertEqual(job.action, "countdown")
+        XCTAssertEqual(job.status, .printed)
+
+        var rule = Rule(name: "Ask me", conditions: [RuleCondition(field: .trigger, op: .is, values: [RuleTrigger.api.rawValue])])
+        rule.outcome.action = .ask
+        service.rules.add(rule)
+        let plan = try await service.plan([file], APIPrintRequest())
+        XCTAssertEqual(plan.action, .review, "Ask is the preview for files handed over")
+        XCTAssertTrue(plan.review)
+    }
+
+    /// Print Clipboard (menu and MCP) is "From the clipboard", not "From another app".
+    func testClipboardTrigger() async throws {
+        let rule = Rule(name: "Clipboard", conditions: [RuleCondition(field: .trigger, op: .is, values: [RuleTrigger.clipboard.rawValue])])
+        service.rules.add(rule)
+        let viaClipboard = try await service.plan([file], APIPrintRequest(), trigger: .clipboard)
+        XCTAssertEqual(viaClipboard.rule, "Clipboard")
+        let viaAPI = try await service.plan([file], APIPrintRequest())
+        XCTAssertEqual(viaAPI.rule, "Everything else")
     }
 
     // MARK: Helpers

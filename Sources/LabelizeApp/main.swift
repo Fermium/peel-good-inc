@@ -1,4 +1,5 @@
 import AppKit
+import PeelGoodShared
 
 MainActor.assumeIsolated {
     AppPaths.migrate()   // before anything reads or writes the data folders

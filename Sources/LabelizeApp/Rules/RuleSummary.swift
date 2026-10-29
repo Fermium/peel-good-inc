@@ -1,5 +1,6 @@
 import Foundation
 import LabelKit
+import LabelizeCore
 
 /// Plain-English rule descriptions for the list and the test result.
 enum RuleSummary {
@@ -10,21 +11,26 @@ enum RuleSummary {
         return EnglishList.join(parts, conjunction: rule.matchAll ? "and" : "or")
     }
 
-    /// "Label Printer ITPP941AP · 4 × 4 in · Crisp · shows preview". Fields left at Default aren't listed.
+    /// "Label Printer ITPP941AP · 4 × 4 in · Crisp · shows preview". Fields left at Default aren't listed
+    /// (a Default tag follows General).
     static func outcome(_ o: RuleOutcome, printers: [PrinterInfo]) -> String {
         var parts = [printerName(o.printer, printers: printers)]
         if let size = o.labelSize { parts.append(size.display) }
-        if let fit = o.fit { parts.append(fit == .fit ? "Fit" : "Fill") }
-        if let ink = o.ink { parts.append(ink.rawValue.capitalized) }
+        if let fit = o.fit { parts.append(fit.title) }
+        if let ink = o.ink { parts.append(ink.title) }
         if let action = o.action { parts.append(action.shortTitle) }
         if o.copies > 1 { parts.append("\(o.copies) copies") }
-        if let tag = o.tag { parts.append("tags “\(tag.name)”") }
+        switch o.tag {
+        case .general: break
+        case .none: parts.append("no tag")
+        case .custom(let tag): parts.append("tags “\(tag.name)”")
+        }
         return parts.joined(separator: " · ")
     }
 
     static func printerName(_ name: String?, printers: [PrinterInfo]) -> String {
         guard let name else { return "Default printer" }
-        return printers.first { $0.name == name }?.displayName ?? "\(name.replacingOccurrences(of: "_", with: " ")) (not connected)"
+        return PrinterResolver.match(name, in: printers)?.displayName ?? "\(PrinterInfo.displayName(queue: name)) (not connected)"
     }
 
     static func phrase(_ c: RuleCondition) -> String {
@@ -57,6 +63,7 @@ enum RuleSummary {
             case .openWith: (yes, no) = ("is opened from Finder", "isn't opened from Finder")
             case .watchedFolder: (yes, no) = ("turns up in a watched folder", "doesn't come from a watched folder")
             case .api: (yes, no) = ("is sent by another app", "isn't sent by another app")
+            case .cli: (yes, no) = ("is printed from the command line", "isn't printed from the command line")
             }
             return positive ? yes : no
         case .pageSize:

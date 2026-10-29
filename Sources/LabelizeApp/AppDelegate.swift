@@ -1,5 +1,6 @@
 import AppKit
 import LabelKit
+import LabelizeCore
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -11,7 +12,7 @@ final class AppDelegate: NSObject, JobPresenter, NSApplicationDelegate, NSWindow
     private var job: PrintJob?
     private var dropZoneWatch: Timer?
     private var dragEnteredAt: Date?
-    private lazy var settings = SettingsWindowController(store: store, testLabel: { [weak self] in self?.startTestLabel(review: false) })
+    private lazy var settings = SettingsWindowController(store: store, testLabel: { [weak self] printer in self?.startTestLabel(on: printer, review: false) })
 
     /// Hovering this long over the icon with a file brings up the printer choice.
     static let holdForPrinterChoice: TimeInterval = 0.8
@@ -58,7 +59,7 @@ final class AppDelegate: NSObject, JobPresenter, NSApplicationDelegate, NSWindow
         APIController.shared.attach(api)
 
         if CommandLine.arguments.contains("-previewTestLabel") {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { MainActor.assumeIsolated { self.startTestLabel(review: true) } }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { MainActor.assumeIsolated { self.startTestLabel(on: self.store.printer, review: true) } }
         }
         if let i = CommandLine.arguments.firstIndex(of: "-showSettings") {
             let tab = CommandLine.arguments.dropFirst(i + 1).first.flatMap { $0.hasPrefix("-") ? nil : $0 }
@@ -200,33 +201,26 @@ final class AppDelegate: NSObject, JobPresenter, NSApplicationDelegate, NSWindow
 
     // MARK: Jobs
 
-    /// Files handed over by drop, clipboard, Open With, Services or Share: the first file's
-    /// matching rule picks printer, size, fit, ink, copies and whether to review first.
-    private func printOnDefault(_ files: [URL], review: Bool? = nil, trigger: RuleTrigger = .drop, forcedPrinter: PrinterInfo? = nil,
+    /// Files handed over by drop, clipboard, Open With, Services or Share, and files from watched folders:
+    /// the first file's matching rule picks printer, size, fit, ink, copies and whether to review first (`JobFlow.plan`).
+    private func printOnDefault(_ files: [URL], review: Bool = false, trigger: RuleTrigger = .drop, forcedPrinter: PrinterInfo? = nil,
                                 override: RuleAction? = nil) {
         guard let first = files.first else { return }
         store.refresh()
         Task {
-            guard let decision = await JobFlow.decide(files, trigger: trigger, store: store, engine: .shared, forcedPrinter: forcedPrinter) else {
+            guard let plan = try? await JobFlow.plan(files, trigger: trigger, store: store, engine: .shared, forcedPrinter: forcedPrinter,
+                                                     review: review, action: override) else {
                 Log.error(.rules, "no printer for \(first.lastPathComponent)")
                 NSAlert(error: NSError(domain: "Labelize", code: 1, userInfo: [NSLocalizedDescriptionKey: "No label printer found."])).runModal()
                 return
             }
-            let action = override ?? decision.action
             // Files that turn up on their own ask first, with a notification.
-            if action == .ask {
-                Notifier.shared.ask(first, detail: "Print on \(decision.printer.displayName) at \(decision.options.size.display)?")
+            if plan.action == .ask {
+                Notifier.shared.ask(first, detail: "Print on \(plan.printer.displayName) at \(plan.options.size.display)?")
                 return
             }
-            start(files, on: decision.printer, options: decision.options,
-                  review: review == true || store.alwaysReview || action != .print, decision: decision)
+            present(JobFlow.makeJob(plan, store: store))
         }
-    }
-
-    private func start(_ files: [URL], on printer: PrinterInfo, options: LabelOptions? = nil, review: Bool? = nil, decision: RuleDecision? = nil) {
-        let review = review ?? (store.alwaysReview || NSEvent.modifierFlags.contains(.option))
-        present(JobFlow.makeJob(files, printer: printer, options: options ?? store.options(for: printer), review: review,
-                                decision: decision, store: store))
     }
 
     /// Shows a job in the popover and starts it. Drops come here through `start`, API prints directly.
@@ -329,17 +323,6 @@ final class AppDelegate: NSObject, JobPresenter, NSApplicationDelegate, NSWindow
         return item
     }
 
-    private func radioMenu(_ choices: [(String, String)], selected: String, action: Selector) -> NSMenu {
-        let menu = NSMenu()
-        for (title, value) in choices {
-            let item = item(title, action, "")
-            item.representedObject = value
-            item.state = value == selected ? .on : .off
-            menu.addItem(item)
-        }
-        return menu
-    }
-
     /// Target for items that only open a submenu.
     @objc private func noop() {}
 
@@ -350,16 +333,6 @@ final class AppDelegate: NSObject, JobPresenter, NSApplicationDelegate, NSWindow
     @objc private func chooseSize(_ sender: NSMenuItem) {
         guard let p = store.printer, let s = sender.representedObject as? LabelSize else { return }
         store.setSize(s, for: p)
-    }
-
-    @objc private func chooseFit(_ sender: NSMenuItem) {
-        guard let p = store.printer, let fit = FitMode(rawValue: sender.representedObject as? String ?? "") else { return }
-        store.setFit(fit, for: p)
-    }
-
-    @objc private func chooseInk(_ sender: NSMenuItem) {
-        guard let p = store.printer, let ink = InkMode(rawValue: sender.representedObject as? String ?? "") else { return }
-        store.setInk(ink, for: p)
     }
 
     @objc private func printClipboard() {
@@ -378,22 +351,14 @@ final class AppDelegate: NSObject, JobPresenter, NSApplicationDelegate, NSWindow
         NSApp.activate()
         guard panel.runModal() == .OK else { return }
         let urls = panel.urls
-        afterMenuCloses { self.printOnDefault(urls) }
+        afterMenuCloses { self.printOnDefault(urls, trigger: .openWith) }
     }
 
-    /// The saved label PDF is already label-sized, so it prints 1:1.
+    /// The saved label PDF is already label-sized, so it prints 1:1 (`JobFlow.reprintPlan`, as for MCP).
     @objc private func reprintLast() {
-        guard let last = store.lastPrint,
-              let printer = store.printers.first(where: { $0.name == last.printer }) ?? store.printer else { return }
-        var options = store.options(for: printer)
-        options.size = printer.resolve(last.size) ?? last.size
-        options.crop = .none
-        options.nudgeMM = .zero
-        afterMenuCloses { self.start([last.file], on: printer, options: options) }
-    }
-
-    @objc private func showHistory() {
-        NSWorkspace.shared.open(Store.historyFolder)
+        let review = NSEvent.modifierFlags.contains(.option)
+        guard let plan = try? JobFlow.reprintPlan(store: store, review: review) else { return }
+        afterMenuCloses { self.present(JobFlow.makeJob(plan, store: self.store)) }
     }
 
     @objc private func showLogs() {
@@ -406,25 +371,10 @@ final class AppDelegate: NSObject, JobPresenter, NSApplicationDelegate, NSWindow
 
     // MARK: Test label
 
-    @objc private func printTestLabel() {
-        afterMenuCloses { self.startTestLabel(review: false) }
-    }
-
-    func startTestLabel(review: Bool) {
-        guard let printer = store.printer else { return }
-        let size = store.size(for: printer)
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("Labelize Test \(size).pdf")
-        let page = TestPattern.page(size: size, title: "\(printer.displayName) · \(size.display)")
-        var box = CGRect(origin: .zero, size: size.points)
-        guard let ctx = CGContext(url as CFURL, mediaBox: &box, nil) else { return }
-        ctx.beginPDFPage(nil)
-        page.draw(in: ctx)
-        ctx.endPDFPage()
-        ctx.closePDF()
-        var options = store.options(for: printer)
-        options.crop = .none
-        options.ink = .crisp
-        start([url], on: printer, options: options, review: review)
+    /// Prints the test pattern on a printer at its size. The default printer stays as it is.
+    func startTestLabel(on printer: PrinterInfo?, review: Bool) {
+        guard let printer, let plan = JobFlow.testLabelPlan(printer: printer, store: store, review: review) else { return }
+        present(JobFlow.makeJob(plan, store: store))
     }
 }
 

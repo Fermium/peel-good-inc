@@ -1,7 +1,9 @@
 import CoreGraphics
 import Foundation
 import LabelizeCLI
+import LabelizeCore
 import LabelKit
+import PeelGoodShared
 
 /// print, preview, test-label and step-wedge: compose labels, write them, maybe send them.
 struct LabelRun {
@@ -23,9 +25,8 @@ struct LabelRun {
     struct File: Encodable {
         var input: String
         var pages: [Page]
+        /// This file's labels on their own.
         var pdf: String
-        var lp: [String]?
-        var job: String?
     }
 
     struct Report: Encodable {
@@ -40,10 +41,19 @@ struct LabelRun {
         var nudgeMM: [Double]
         var fromApp: [String]
         var copies: Int
+        /// The app's rule that matched the first file, when rules were applied.
+        var rule: String?
+        var notes: [String]
         var dryRun: Bool
         var sent: Bool
         var outputFolder: String
         var files: [File]
+        /// Every label of every file, in order: the one PDF that is sent (or would be), as the app sends a drop.
+        var pdf: String?
+        var lp: [String]?
+        var job: String?
+        /// The copy saved to History, when it was sent.
+        var history: String?
     }
 
     enum Kind { case print, preview, testLabel, stepWedge }
@@ -56,23 +66,8 @@ struct LabelRun {
         let printers = Printers.all()
         let sends = kind != .preview && !inv.has("dry-run")
         let needsPrinter = kind != .preview
-        let chosen = try ctx.choosePrinter(printers, required: needsPrinter)
-        let printer = chosen?.0
+        var chosen = try ctx.choosePrinter(printers, required: needsPrinter)
 
-        // The app's settings for this printer, then the command line on top.
-        let fromApp = printer.map { ctx.defaults.options(for: $0.name) } ?? (LabelOptions(), [])
-        var options = try Layout.apply(inv, to: fromApp.options)
-        var fromAppKeys = fromApp.fromApp.filter { inv[$0] == nil }
-        if let printer {
-            guard let resolved = printer.resolve(options.size) else {
-                throw CLIError("\(printer.name) can't take \(options.size.display) labels",
-                               hint: "`\(ctx.tool) sizes \(printer.name)` lists the sizes it takes.", code: .printer)
-            }
-            options.size = resolved
-        }
-        let copies = try Layout.copies(inv)
-
-        // Inputs: the files, or a generated test page.
         let outDir: URL
         if let out = inv["out"] {
             outDir = URL(fileURLWithPath: (out as NSString).expandingTildeInPath, isDirectory: true)
@@ -85,49 +80,85 @@ struct LabelRun {
         }
 
         var inputs: [URL] = inv.arguments.map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath) }
-        if kind == .testLabel || kind == .stepWedge {
-            let model = printer?.model ?? "Peel Good Inc."
-            let name = kind == .testLabel ? "test-label-\(options.size)" : "step-wedge-\(options.size)"
-            let page = kind == .testLabel
-                ? TestPattern.page(size: options.size, title: "\(model) · \(options.size) in")
-                : TestPattern.stepWedge(size: options.size, title: "\(model) · \(options.size) in")
-            let url = outDir.appendingPathComponent("\(name).pdf")
-            try writeSource(page, size: options.size, to: url)
-            inputs = [url]
-            options.crop = .none
-            options.rotation = .none
-            if kind == .testLabel { options.ink = .crisp; fromAppKeys.remove("ink"); fromAppKeys.remove("cutoff") }
-            // The wedge shows the printer's raw response: photo ink, no tone correction unless asked.
-            if kind == .stepWedge {
-                if inv["ink"] == nil { options.ink = .photo; fromAppKeys.remove("ink") }
-                if inv["tone-gamma"] == nil { options.toneGamma = 1 }
-            }
-        }
         for url in inputs where !FileManager.default.fileExists(atPath: url.path) {
             let nearby = (try? FileManager.default.contentsOfDirectory(atPath: url.deletingLastPathComponent().path)) ?? []
             let near = Parser.closest(url.lastPathComponent, among: nearby)
             throw CLIError("no file at \(tilde(url.path))", hint: near.map { "Did you mean \($0)?" }, code: .input)
         }
 
-        var report = Report(command: name, printer: printer?.name, printerModel: printer?.model, printerFrom: chosen?.1,
+        // The app's rules pick printer, size, fit, ink and copies for the first file, as for a drop, and the same
+        // way for preview, so it shows what print will do. --printer wins over the rule's printer, like a printer
+        // tile does in the app.
+        var notes: [String] = []
+        let decision = kind == .print || kind == .preview ? decideByRules(inputs, printers: printers, chosen: chosen?.0) : nil
+        if let d = decision {
+            if ctx.requestedPrinter == nil, d.printer.name != chosen?.0.name { chosen = (d.printer, "rule “\(d.ruleName)”") }
+            notes += d.notes
+            if sends, d.action != .print {
+                notes.append("“\(d.ruleName)” shows the preview in the app; \(ctx.tool) prints right away.")
+            }
+        }
+        let printer = chosen?.0
+
+        // The app's settings for this printer (or the rule's options), then the command line on top.
+        let saved = printer.map { ctx.defaults.options(for: $0) }
+        if let note = saved?.note, inv["size"] == nil, decision == nil || decision?.options.size == saved?.options.size { notes.append(note) }
+        var options = try Layout.apply(inv, to: decision?.options ?? saved?.options ?? LabelOptions(), on: printer, tool: ctx.tool)
+        let given = try Layout.overrides(inv).given
+        var fromAppKeys = (saved?.saved ?? []).subtracting(given)
+        var copies = try Layout.copies(inv)
+        if inv["copies"] == nil, let d = decision { copies = d.copies }
+
+        // Generated test pages print as drawn.
+        let generated: TestLabel? = switch kind {
+        case .testLabel: .pattern
+        case .stepWedge: .stepWedge
+        default: nil
+        }
+        if let generated {
+            let url = outDir.appendingPathComponent("\(generated.fileStem(options.size)).pdf")
+            do { try generated.writePDF(size: options.size, title: TestLabel.title(printer: printer, size: options.size), to: url) } catch {
+                throw CLIError("can't write \(tilde(url.path))")
+            }
+            inputs = [url]
+            generated.adjust(&options, keepInk: generated == .stepWedge && inv["ink"] != nil, keepToneGamma: inv["tone-gamma"] != nil)
+            if generated == .pattern { fromAppKeys.subtract(["ink", "cutoff"]) }
+            if generated == .stepWedge, inv["ink"] == nil { fromAppKeys.remove("ink") }
+            fromAppKeys.remove("toneGamma")
+        }
+
+        var report = Report(command: name, printer: printer?.name, printerModel: printer?.displayName, printerFrom: chosen?.1,
                             size: options.size.description, media: options.size.cupsMedia, ink: options.ink.rawValue,
                             cutoffPercent: Int((options.cutoff * 100).rounded()), nudgeMM: [options.nudgeMM.x, options.nudgeMM.y],
-                            fromApp: fromAppKeys.sorted(), copies: copies, dryRun: inv.has("dry-run"), sent: false,
-                            outputFolder: outDir.path, files: [])
-        header(printer: printer, from: chosen?.1, options: options, fromApp: fromAppKeys, copies: copies)
+                            fromApp: fromAppKeys.sorted(), copies: copies, rule: decision?.ruleName, notes: notes,
+                            dryRun: inv.has("dry-run"), sent: false, outputFolder: outDir.path, files: [])
+        header(printer: printer, from: chosen?.1, options: options, fromApp: fromAppKeys, copies: copies,
+               rule: decision.flatMap { $0.isFallback ? nil : $0.ruleName })
+        for note in notes { ctx.say("  \(ctx.out.warn) \(ctx.out.yellow(note))") }
 
         var failed = false
+        var labels: [ComposedLabel] = []
         for url in inputs {
             do {
-                report.files.append(try process(url, options: options, printer: printer, outDir: outDir, copies: copies, sends: sends))
+                let (file, composed) = try process(url, options: options, printer: printer, outDir: outDir, sends: sends)
+                report.files.append(file)
+                labels += composed
             } catch let e as CLIError {
-                // Keep going with the other files; report this one.
+                // Report every file that can't be read, then stop: like a drop in the app, the files print together or not at all.
                 ctx.note("\(ctx.err.fail) \(e.message)" + (e.hint.map { "\n  \(ctx.err.dim($0))" } ?? ""))
                 failed = true
                 if inputs.count == 1 { throw ExitOnly(code: e.code) }
             }
         }
-        report.sent = sends && !failed
+        if let printer, kind != .preview {
+            if failed {
+                if sends { ctx.note("\(ctx.err.fail) nothing sent: every file has to be readable") }
+            } else {
+                try send(labels, inputs: inputs, report: &report, printer: printer, options: options, outDir: outDir,
+                         copies: copies, sends: sends)
+            }
+        }
+        report.sent = sends && !failed && report.job != nil
         if ctx.json { ctx.emit(report) }
         // Only when asked: --open shows the PDFs in Preview.
         if kind == .preview, inv.has("open"), !report.files.isEmpty {
@@ -139,6 +170,37 @@ struct LabelRun {
         return failed ? .failure : .ok
     }
 
+    /// The rule book, when rules apply: --rules, or rules.json exists; never with --no-rules. Read only.
+    private func decideByRules(_ inputs: [URL], printers: [PrinterInfo], chosen: PrinterInfo?) -> RuleDecision? {
+        let inv = ctx.inv
+        guard !inv.has("no-rules"), let first = inputs.first else { return nil }
+        guard let book = RuleBook.load(from: AppPaths.rulesFile, setAsideBroken: false) else {
+            if inv.has("rules") { ctx.note("\(ctx.err.warn) no rules to apply in \(tilde(AppPaths.rulesFile.path))") }
+            return nil
+        }
+        let resolver = ctx.resolver(printers)
+        let context = RuleContext.inspect(first, trigger: .cli, detectCodes: book.needsCodes, readText: book.needsText)
+        return book.decide(context, printers: resolver.eligible, current: chosen,
+                           defaults: { ctx.defaults.options(for: $0).options },
+                           forcedPrinter: ctx.requestedPrinter != nil ? chosen : nil, unattended: ctx.defaults.newFilesAction)
+    }
+
+    /// Saves the sent PDF to History and makes it Reprint Last Label, like the app does, unless --no-history.
+    /// Reprint Last Label is the one setting the command line writes.
+    private func record(_ pdf: URL, source: URL, printer: PrinterInfo, size: LabelSize) -> URL? {
+        guard !ctx.inv.has("no-history") else { return nil }
+        do {
+            let saved = try History.save(pdf, source: source, in: ctx.historyFolder)
+            let writer = AppSettings.system(environment: ctx.environment, writable: true)
+            if writer.isWritable { writer.lastPrint = AppSettings.LastPrint(file: saved, printer: printer.name, size: size) }
+            History.prune(keepingDays: ctx.defaults.historyDays, in: ctx.historyFolder)
+            return saved
+        } catch {
+            ctx.note("\(ctx.err.warn) couldn't save to History: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
     var name: String {
         switch kind {
         case .print: "print"
@@ -148,23 +210,25 @@ struct LabelRun {
         }
     }
 
-    private func header(printer: PrinterInfo?, from: String?, options: LabelOptions, fromApp: Set<String>, copies: Int) {
+    private func header(printer: PrinterInfo?, from: String?, options: LabelOptions, fromApp: Set<String>, copies: Int, rule: String?) {
         let s = ctx.out
-        var parts = [s.bold(options.size.display), "ink \(options.ink.rawValue)"]
+        var parts = [s.bold(options.size.primary), "ink \(options.ink.rawValue)"]
         if options.cutoff != 0.5 { parts.append("cutoff \(Int((options.cutoff * 100).rounded()))%") }
         if options.nudgeMM != .zero { parts.append(String(format: "nudge %g,%g mm", options.nudgeMM.x, options.nudgeMM.y)) }
         if copies > 1 { parts.append("\(copies) copies") }
-        let on = printer.map { " on \(s.bold($0.model)) \(s.dim("(\($0.name))"))" } ?? ""
+        let on = printer.map { " on \(s.bold($0.displayName)) \(s.dim("(\($0.name))"))" } ?? ""
         ctx.say("\(s.accent("●")) \(parts.joined(separator: " \(s.dot) "))\(on)")
-        if ctx.verbose || (!fromApp.isEmpty && kind != .preview) {
+        if ctx.verbose || rule != nil || (!fromApp.isEmpty && kind != .preview) {
             var notes: [String] = []
+            if let rule, from != "rule “\(rule)”" { notes.append("rule “\(rule)”") }
             if let from, from != "--printer" { notes.append("printer from \(from == "app" ? "the app" : from)") }
             if !fromApp.isEmpty { notes.append(fromApp.sorted().joined(separator: ", ") + " from the app's settings") }
             if !notes.isEmpty { ctx.say("  " + s.dim(notes.joined(separator: "; "))) }
         }
     }
 
-    private func process(_ url: URL, options: LabelOptions, printer: PrinterInfo?, outDir: URL, copies: Int, sends: Bool) throws -> File {
+    /// Composes one file's pages and writes its own label PDF (and PNGs for previews). Doesn't send.
+    private func process(_ url: URL, options: LabelOptions, printer: PrinterInfo?, outDir: URL, sends: Bool) throws -> (File, [ComposedLabel]) {
         let s = ctx.out
         let pages: [SourcePage]
         do { pages = try DocumentLoader.load(url) } catch {
@@ -180,12 +244,13 @@ struct LabelRun {
             let label = LabelComposer.compose(page, options)
             labels.append(label)
             let c = label.crop.rect
-            let readable = label.expectedCodes.count - label.missingCodes.count
+            let counts = label.codeCounts, readable = counts.verified
+            let warnings = label.reportableWarnings
             var entry = Page(page: i + 1, sourceInches: [round3(page.size.width / 72), round3(page.size.height / 72)],
                              crop: [c.minX, c.minY, c.width, c.height].map { round3($0 / 72) }, cropReason: label.crop.reason,
                              rotated: label.rotated, scalePercent: Int((label.scale * 100).rounded()), ink: label.ink.rawValue,
-                             codes: label.expectedCodes.count, codesReadable: readable,
-                             codeKinds: label.expectedCodes.map(\.symbology), warnings: label.warnings)
+                             codes: counts.expected, codesReadable: readable,
+                             codeKinds: label.expectedCodes.map(\.symbology), warnings: warnings)
             if writesPreviews {
                 let png = outDir.appendingPathComponent("\(base)-p\(i + 1).png")
                 do { try LabelWriter.writePNG(label, to: png) } catch { throw CLIError("\(error)") }
@@ -195,13 +260,13 @@ struct LabelRun {
 
             var line = [label.crop.reason, "\(entry.scalePercent)%", "ink \(label.ink.rawValue)"]
             if label.rotated { line.insert("rotated", at: 1) }
-            if !label.expectedCodes.isEmpty {
-                let codes = "\(readable)/\(label.expectedCodes.count) code\(label.expectedCodes.count == 1 ? "" : "s") scan"
-                line.append(readable == label.expectedCodes.count ? s.green(codes) : s.red(codes))
+            if counts.expected > 0 {
+                let codes = "\(readable)/\(counts.expected) code\(counts.expected == 1 ? "" : "s") scan"
+                line.append(counts.missing.isEmpty ? s.green(codes) : s.red(codes))
             }
-            let mark = label.missingCodes.isEmpty ? s.ok : s.fail
+            let mark = counts.missing.isEmpty ? s.ok : s.fail
             ctx.say("  \(mark) \(s.dim("page \(i + 1)"))  " + line.joined(separator: " \(s.dot) "))
-            for w in label.warnings { ctx.say("    \(s.warn) \(s.yellow(w))") }
+            for w in warnings { ctx.say("    \(s.warn) \(s.yellow(w))") }
             if ctx.verbose {
                 ctx.say(s.dim("    page \(inches(page.size.width))x\(inches(page.size.height)) in, crop \(inches(c.width))x\(inches(c.height)) at (\(inches(c.minX)), \(inches(c.minY)))"))
                 ctx.say(s.dim("    smooth gray \(String(format: "%.1f", label.smoothGray * 100))%, 1-dot features \(label.oneDotFeatures)"))
@@ -217,11 +282,7 @@ struct LabelRun {
 
         let pdf = outDir.appendingPathComponent("\(base).label.pdf")
         do {
-            if printer?.isLabelPrinter == false {
-                try LabelWriter.writeVectorPDF(labels, size: options.size, to: pdf)
-            } else {
-                try LabelWriter.writePDF(labels, size: options.size, to: pdf)
-            }
+            try LabelWriter.write(labels, size: options.size, forLabelPrinter: printer?.isLabelPrinter != false, to: pdf)
         } catch { throw CLIError("\(error)") }
         file.pdf = pdf.path
 
@@ -229,32 +290,46 @@ struct LabelRun {
             ctx.say("  \(s.arrow) \(tilde(pdf.path))")
             for p in file.pages.compactMap(\.png) { ctx.say("    \(s.dim(tilde(p)))") }
         }
-        guard let printer, kind != .preview else { return file }
+        return (file, labels)
+    }
+
+    /// Writes every label into one PDF and sends it once with the copies, then saves it to History once,
+    /// with the first file as its source: what the app does with a drop of several files.
+    private func send(_ labels: [ComposedLabel], inputs: [URL], report: inout Report, printer: PrinterInfo, options: LabelOptions,
+                      outDir: URL, copies: Int, sends: Bool) throws {
+        let s = ctx.out
+        guard let first = inputs.first, !labels.isEmpty else { return }
+        let base = first.deletingPathExtension().lastPathComponent
+        let pdf: URL
+        if inputs.count == 1, let own = report.files.first?.pdf {
+            pdf = URL(fileURLWithPath: own)
+        } else {
+            pdf = outDir.appendingPathComponent("\(base) and \(inputs.count - 1) more.label.pdf")
+            do {
+                try LabelWriter.write(labels, size: options.size, forLabelPrinter: printer.isLabelPrinter, to: pdf)
+            } catch { throw CLIError("\(error)") }
+        }
+        report.pdf = pdf.path
         let args = LabelPrint.lpArguments(file: pdf, printer: printer.name, size: options.size, copies: copies)
-        file.lp = ["lp"] + args
+        report.lp = ["lp"] + args
+        let what = "\(labels.count) label\(labels.count == 1 ? "" : "s")"
         if sends {
             do {
                 let id = try LabelPrint.send(file: pdf, printer: printer.name, size: options.size, copies: copies)
-                file.job = id
-                ctx.say("  \(s.ok) \(s.green("Sent to \(printer.model)")) \(s.dim(id))")
+                report.job = id
+                ctx.say("\(s.ok) \(s.green("Sent \(what) to \(printer.displayName)")) \(s.dim(id))")
+                if let saved = record(pdf, source: first, printer: printer, size: options.size) {
+                    report.history = saved.path
+                    if ctx.verbose { ctx.say(s.dim("  saved to History: \(tilde(saved.path))")) }
+                }
             } catch {
                 throw CLIError("printing failed on \(printer.name): \(error)",
                                hint: "`\(ctx.tool) doctor` checks the printer and CUPS.", code: .printer)
             }
         } else {
             let shown = (["lp"] + args).map { $0.contains(" ") ? "'\($0)'" : $0 }.joined(separator: " ")
-            ctx.say("  \(s.arrow) \(s.dim("dry run, would run:")) \(shown)")
+            ctx.say("\(s.arrow) \(s.dim("dry run, \(what), would run:")) \(shown)")
         }
-        return file
-    }
-
-    private func writeSource(_ page: SourcePage, size: LabelSize, to url: URL) throws {
-        var box = CGRect(origin: .zero, size: size.points)
-        guard let pdf = CGContext(url as CFURL, mediaBox: &box, nil) else { throw CLIError("can't write \(tilde(url.path))") }
-        pdf.beginPDFPage(nil)
-        page.draw(in: pdf)
-        pdf.endPDFPage()
-        pdf.closePDF()
     }
 }
 

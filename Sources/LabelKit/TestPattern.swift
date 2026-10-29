@@ -118,3 +118,21 @@ public enum TestPattern {
         }
     }
 }
+
+extension TestPattern {
+    /// The test pattern with a smooth gray ramp in the lower right, so each ink mode shows its character.
+    public static func inkSample(size: LabelSize, title: String) -> SourcePage {
+        let s = size.points
+        return SourcePage(size: s) { ctx in
+            page(size: size, title: title).draw(in: ctx)
+            let ramp = CGRect(x: s.width * 0.55, y: 14, width: s.width * 0.4, height: s.height * 0.3)
+            if let g = CGGradient(colorsSpace: CGColorSpaceCreateDeviceGray(),
+                                  colors: [CGColor(gray: 0, alpha: 1), CGColor(gray: 1, alpha: 1)] as CFArray, locations: nil) {
+                ctx.saveGState()
+                ctx.clip(to: ramp)
+                ctx.drawLinearGradient(g, start: CGPoint(x: ramp.minX, y: 0), end: CGPoint(x: ramp.maxX, y: 0), options: [])
+                ctx.restoreGState()
+            }
+        }
+    }
+}

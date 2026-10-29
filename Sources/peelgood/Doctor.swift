@@ -1,7 +1,9 @@
 import AppKit
 import Foundation
 import LabelizeCLI
+import LabelizeCore
 import LabelKit
+import PeelGoodShared
 
 /// `peelgood doctor`: read-only checks, each with what to do about it.
 struct Doctor {
@@ -14,7 +16,7 @@ struct Doctor {
     }
 
     let ctx: Context
-    static let bundleID = "com.fermiumlabs.labelize"
+    static let bundleID = AppIdentity.bundleID
 
     func run() -> ExitCode {
         var checks: [Check] = []
@@ -46,11 +48,10 @@ struct Doctor {
             case .stopped:
                 add("Printers", .failed, "\(p.name) is paused", fix: "Resume it in System Settings > Printers & Scanners, or run: cupsenable \(p.name)")
             default:
-                add("Printers", .ok, "Default: \(p.model) (\(p.name), \(source)), \(p.state.rawValue)")
+                add("Printers", .ok, "Default: \(p.displayName) (\(p.name), \(source)), \(p.state.rawValue)")
             }
-            let size = ctx.defaults.options(for: p.name).options.size
-            if p.resolve(size) == nil {
-                add("Printers", .warning, "\(p.name) can't take the app's size \(size.display)", fix: "Pick a size in Settings > Printers.")
+            if let note = ctx.defaults.options(for: p).note {
+                add("Printers", .warning, note, fix: "Pick a size in Settings > Printers.")
             }
         } else if !printers.isEmpty {
             add("Printers", .warning, "No default label printer", fix: "Pass --printer, or set LABELIZE_PRINTER.")
@@ -60,7 +61,7 @@ struct Doctor {
         let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: Self.bundleID)
         if let appURL {
             let version = (NSDictionary(contentsOf: appURL.appendingPathComponent("Contents/Info.plist"))?["CFBundleShortVersionString"] as? String) ?? "?"
-            add("App", .ok, "Peel Good Inc. \(version) at \(tilde(appURL.path))")
+            add("App", .ok, "\(AppIdentity.appName) \(version) at \(tilde(appURL.path))")
         } else {
             add("App", .warning, "Peel Good Inc. isn't installed", fix: "brew install --cask fermium/tap/peel-good-inc")
         }
@@ -69,18 +70,14 @@ struct Doctor {
             fix: running ? nil : "The command works on its own. Open the app for rules, watched folders and the API.")
         if ctx.defaults.source == "none" {
             add("App", .info, "Not reading the app's settings (PEELGOOD_DEFAULTS_DOMAIN=none)")
-        } else if ctx.defaults.printerName != nil || ctx.defaults.string("size.\(ctx.defaults.printerName ?? "")") != nil {
+        } else if ctx.defaults.printerName != nil || ctx.defaults.savedSize(ctx.defaults.printerName ?? "") != nil {
             add("App", .ok, "Using the app's settings for defaults")
         }
 
         // API and MCP
-        let serverInfo = ctx.supportFolder.appendingPathComponent("server.json")
-        if let data = try? Data(contentsOf: serverInfo),
-           let info = try? JSONSerialization.jsonObject(with: data) as? [String: Any], let port = info["port"] as? Int {
-            let pid = (info["pid"] as? NSNumber)?.int32Value ?? 0
-            let alive = pid > 0 && kill(pid, 0) == 0
-            let http = info["http"] as? Bool ?? false, mcp = info["mcp"] as? Bool ?? false
-            if !alive {
+        if let info = ServerInfo.load() {
+            let port = info.port, http = info.http, mcp = info.mcp
+            if !info.isAlive {
                 add("API", .info, "API is off (the app isn't running)")
             } else if health(port: port) {
                 let on = [http ? "HTTP API" : nil, mcp ? "MCP" : nil].compactMap { $0 }
@@ -93,7 +90,7 @@ struct Doctor {
             add("API", .info, "API and MCP are off", fix: running ? "Turn them on in Settings > API." : nil)
         }
         if let appURL {
-            let relay = appURL.appendingPathComponent("Contents/MacOS/peel-good-mcp")
+            let relay = appURL.appendingPathComponent("Contents/MacOS/\(AppIdentity.mcpRelayName)")
             if FileManager.default.isExecutableFile(atPath: relay.path) { add("API", .ok, "MCP relay for Claude Desktop at \(tilde(relay.path))") }
         }
 
@@ -146,8 +143,8 @@ struct Doctor {
     private func health(port: Int) -> Bool {
         guard let url = URL(string: "http://127.0.0.1:\(port)/v1/health") else { return false }
         var request = URLRequest(url: url, timeoutInterval: 1.5)
-        if let token = try? String(contentsOf: ctx.supportFolder.appendingPathComponent("token"), encoding: .utf8) {
-            request.setValue("Bearer \(token.trimmingCharacters(in: .whitespacesAndNewlines))", forHTTPHeaderField: "Authorization")
+        if let token = ServerInfo.token() {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
         let done = DispatchSemaphore(value: 0)
         nonisolated(unsafe) var ok = false

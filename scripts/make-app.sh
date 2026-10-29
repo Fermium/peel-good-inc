@@ -26,7 +26,7 @@ appex="$app/Contents/PlugIns/LabelizeShare.appex"
 mkdir -p "$appex/Contents/MacOS"
 swiftc -O -parse-as-library -application-extension -module-name LabelizeShare \
     -target "$(uname -m)-apple-macos15.0" -Xlinker -e -Xlinker _NSExtensionMain \
-    Extensions/Share/ShareViewController.swift -o "$appex/Contents/MacOS/LabelizeShare"
+    Extensions/Share/ShareViewController.swift Sources/PeelGoodShared/AppIdentity.swift -o "$appex/Contents/MacOS/LabelizeShare"
 cat > "$appex/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

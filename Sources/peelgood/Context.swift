@@ -1,13 +1,16 @@
 import Foundation
 import LabelizeCLI
+import LabelizeCore
 import LabelKit
+import PeelGoodShared
 
 /// What every command gets: the parsed line, output styles, the app's defaults and paths.
 struct Context {
     let inv: Invocation
     let out: Style
     let err: Style
-    let defaults: AppDefaults
+    /// The app's settings, read only (only Reprint Last Label is ever written, by `LabelRun`).
+    let defaults: AppSettings
     let tool: String
     let environment: [String: String]
 
@@ -34,33 +37,33 @@ struct Context {
 
     // MARK: Paths
 
-    var supportFolder: URL {
-        if let dir = environment["LABELIZE_SUPPORT_DIR"], !dir.isEmpty { return URL(fileURLWithPath: (dir as NSString).expandingTildeInPath, isDirectory: true) }
-        return FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("Peel Good", isDirectory: true)
-    }
-
-    var historyFolder: URL { supportFolder.appendingPathComponent("History", isDirectory: true) }
+    /// The app's data folder (`AppPaths`, which honours LABELIZE_SUPPORT_DIR).
+    var supportFolder: URL { AppPaths.support }
+    var historyFolder: URL { AppPaths.history }
 
     // MARK: Printers
 
-    /// --printer, then LABELIZE_PRINTER, then the app's choice, then the system's label printer.
+    func resolver(_ printers: [PrinterInfo]) -> PrinterResolver { PrinterResolver(printers: printers, settings: defaults) }
+
+    /// The name asked for: --printer, then LABELIZE_PRINTER.
+    var requestedPrinter: (name: String, from: String)? {
+        if let name = inv["printer"] { return (name, "--printer") }
+        if let name = environment["LABELIZE_PRINTER"], !name.isEmpty { return (name, "LABELIZE_PRINTER") }
+        return nil
+    }
+
+    /// --printer, then LABELIZE_PRINTER, matched like the app and the API do (`PrinterResolver`); then the
+    /// app's default: its chosen printer, the label printer, or the first that takes 4x6. Hidden printers
+    /// are never picked by default.
     func choosePrinter(_ printers: [PrinterInfo], required: Bool) throws -> (PrinterInfo, String)? {
-        if let name = inv["printer"] ?? environment["LABELIZE_PRINTER"].flatMap({ $0.isEmpty ? nil : $0 }) {
-            let from = inv["printer"] != nil ? "--printer" : "LABELIZE_PRINTER"
-            if let p = printers.first(where: { $0.name == name }) ?? printers.first(where: { $0.name.lowercased() == name.lowercased() }) {
-                return (p, from)
-            }
-            let matches = printers.filter { $0.name.localizedCaseInsensitiveContains(name) || $0.makeAndModel.localizedCaseInsensitiveContains(name) }
-            if matches.count == 1 { return (matches[0], from) }
-            let near = Parser.closest(name, among: printers.map(\.name)) ?? matches.first?.name
+        let resolver = resolver(printers)
+        if let (name, from) = requestedPrinter {
+            if let p = resolver.find(name) { return (p, from) }
+            let near = Parser.closest(name, among: printers.map(\.name)) ?? resolver.candidates(name).first?.name
             throw CLIError("no printer named \(name)",
                            hint: near.map { "Did you mean \($0)? `\(tool) printers` lists them." } ?? "`\(tool) printers` lists them.", code: .printer)
         }
-        if let name = defaults.printerName, let p = printers.first(where: { $0.name == name }), p.resolve(.fourBySix) != nil {
-            return (p, "app")
-        }
-        if let p = Printers.defaultLabelPrinter(in: printers) { return (p, "label printer") }
+        if let choice = resolver.defaultChoice { return (choice.printer, choice.source.rawValue) }
         guard required else { return nil }
         throw CLIError(printers.isEmpty ? "no printers on this Mac" : "no label printer found",
                        hint: printers.isEmpty ? "Add one in System Settings > Printers & Scanners."
@@ -80,18 +83,6 @@ struct Context {
     static var version: (short: String, build: String?) {
         guard let app = enclosingApp, let info = NSDictionary(contentsOf: app.appendingPathComponent("Contents/Info.plist")) else { return ("dev", nil) }
         return (info["CFBundleShortVersionString"] as? String ?? "dev", info["CFBundleVersion"] as? String)
-    }
-}
-
-extension LabelSize {
-    /// "4×6 in"
-    var display: String { description.replacingOccurrences(of: "x", with: "×") + " in" }
-}
-
-extension PrinterInfo {
-    var model: String {
-        let m = makeAndModel.replacingOccurrences(of: "-AirPrint", with: "")
-        return m.isEmpty ? name.replacingOccurrences(of: "_", with: " ") : m
     }
 }
 

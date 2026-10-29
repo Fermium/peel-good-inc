@@ -1,6 +1,7 @@
 // Share extension: "Peel Good Inc." in the Share menu of Finder, Preview, Safari and others.
 // Copies the shared items into the extension's container, hands them to the app
 // (which prints them on the default printer) and finishes immediately.
+// Built with Sources/PeelGoodShared/AppIdentity.swift for the bundle ID (see scripts/make-app.sh).
 import AppKit
 import UniformTypeIdentifiers
 
@@ -23,7 +24,7 @@ final class ShareViewController: NSViewController {
         for provider in providers {
             if let url = await copy(provider) { files.append(url) }
         }
-        if !files.isEmpty, let app = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.fermiumlabs.labelize") {
+        if !files.isEmpty, let app = NSWorkspace.shared.urlForApplication(withBundleIdentifier: AppIdentity.bundleID) {
             let config = NSWorkspace.OpenConfiguration()
             config.activates = false
             _ = try? await NSWorkspace.shared.open(files, withApplicationAt: app, configuration: config)

@@ -1,5 +1,6 @@
 import AppKit
 import LabelKit
+import LabelizeCore
 import SwiftUI
 
 /// The sheet for one rule: "If [all] of these are true … Then print it on …". Edits a copy; OK commits.
@@ -9,16 +10,23 @@ struct RuleEditorView: View {
     let current: PrinterInfo?
     /// A printer's own settings, shown as "Default (…)".
     let defaults: (PrinterInfo) -> LabelOptions
+    /// The Store's settings, for General's Finder tag. Nil in previews: tagging off.
+    let settings: AppSettings?
     let onCommit: (Rule) -> Void
     @State private var draft: Rule
     @Environment(\.dismiss) private var dismiss
 
     init(rule: Rule, printers: [PrinterInfo], current: PrinterInfo?,
-         defaults: @escaping (PrinterInfo) -> LabelOptions = { _ in LabelOptions() }, onCommit: @escaping (Rule) -> Void) {
+         defaults: @escaping (PrinterInfo) -> LabelOptions = { _ in LabelOptions() }, settings: AppSettings? = nil,
+         onCommit: @escaping (Rule) -> Void) {
+        // A rule may name its printer by display name; the picker's tags are queue names.
+        var rule = rule
+        if let name = rule.outcome.printer, let p = PrinterResolver.match(name, in: printers) { rule.outcome.printer = p.name }
         _draft = State(initialValue: rule)
         self.printers = printers
         self.current = current
         self.defaults = defaults
+        self.settings = settings
         self.onCommit = onCommit
     }
 
@@ -29,7 +37,7 @@ struct RuleEditorView: View {
                     TextField("Name", text: $draft.name, prompt: Text(suggestedName))
                 }
                 conditionsSection
-                OutcomeSections(outcome: $draft.outcome, printers: printers, current: current, defaults: defaults)
+                OutcomeSections(outcome: $draft.outcome, printers: printers, current: current, defaults: defaults, settings: settings)
             }
             .formStyle(.grouped)
 
@@ -183,13 +191,14 @@ struct OutcomeSections: View {
     let printers: [PrinterInfo]
     let current: PrinterInfo?
     let defaults: (PrinterInfo) -> LabelOptions
+    var settings: AppSettings? = nil
 
     private var targetPrinter: PrinterInfo? {
-        outcome.printer.flatMap { name in printers.first { $0.name == name } } ?? (outcome.printer == nil ? current : nil)
+        outcome.printer.flatMap { PrinterResolver.match($0, in: printers) } ?? (outcome.printer == nil ? current : nil)
     }
 
     private var sizes: [LabelSize] {
-        guard let p = targetPrinter else { return SizeCatalog.munbyn.filter { $0.width >= 2 } }
+        guard let p = targetPrinter else { return SizeCatalog.standard.filter { $0.width >= 2 } }
         return SizeCatalog.entries(for: p).filter(\.isSupported).map(\.size)
     }
 
@@ -218,19 +227,15 @@ struct OutcomeSections: View {
             }
 
             Picker("Scaling", selection: $outcome.fit) {
-                Text(inherited { $0.fit == .fit ? "Fit" : "Fill" }).tag(FitMode?.none)
+                Text(inherited { $0.fit.title }).tag(FitMode?.none)
                 Divider()
-                Text("Fit").tag(Optional(FitMode.fit))
-                Text("Fill").tag(Optional(FitMode.fill))
+                ForEach(FitMode.allCases, id: \.self) { Text($0.title).tag(Optional($0)) }
             }
 
             Picker("Ink", selection: $outcome.ink) {
-                Text(inherited { $0.ink.rawValue.capitalized }).tag(InkMode?.none)
+                Text(inherited { $0.ink.title }).tag(InkMode?.none)
                 Divider()
-                Text("Auto").tag(Optional(InkMode.auto))
-                Text("Crisp").tag(Optional(InkMode.crisp))
-                Text("Photo").tag(Optional(InkMode.photo))
-                Text("Halftone").tag(Optional(InkMode.halftone))
+                ForEach(InkMode.allCases, id: \.self) { Text($0.title).tag(Optional($0)) }
             }
             .disabled(targetPrinter.map { !$0.isLabelPrinter } ?? false)
             .help("Label printers only")
@@ -247,21 +252,54 @@ struct OutcomeSections: View {
             LabeledContent("Copies") {
                 HStack(spacing: 4) {
                     Text("\(outcome.copies)").monospacedDigit()
-                    Stepper("Copies", value: $outcome.copies, in: 1...20).labelsHidden()
+                    Stepper("Copies", value: $outcome.copies, in: Limits.copies).labelsHidden()
                 }
             }
         }
 
         Section("After printing") {
-            Toggle("Add Finder tag", isOn: Binding(get: { outcome.tag != nil }, set: { outcome.tag = $0 ? FinderTag() : nil }))
-            if let tag = outcome.tag {
+            VStack(alignment: .leading, spacing: 4) {
+                Picker("Finder tag", selection: Binding(get: { TagMode(outcome.tag) }, set: { mode in
+                    switch mode {
+                    case .general: outcome.tag = .general
+                    case .none: outcome.tag = .none
+                    case .custom: outcome.tag = .custom(outcome.tag.custom ?? FinderTag(name: general.tag.name, color: general.tag.color))
+                    }
+                })) {
+                    Text("Default (\(general.on ? general.tag.name : "None"))").tag(TagMode.general)
+                    Text("None").tag(TagMode.none)
+                    Text("Custom").tag(TagMode.custom)
+                }
+                if !general.on {
+                    Text("Finder tags are off in General.").font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            if let tag = outcome.tag.custom {
                 HStack {
-                    TextField("Tag", text: Binding(get: { tag.name }, set: { outcome.tag?.name = $0 }))
-                    TagColorDots(color: Binding(get: { tag.color }, set: { outcome.tag?.color = $0 }))
+                    TextField("Tag", text: Binding(get: { tag.name }, set: { outcome.tag = .custom(FinderTag(name: $0, color: tag.color)) }))
+                    TagColorDots(color: Binding(get: { tag.color }, set: { outcome.tag = .custom(FinderTag(name: tag.name, color: $0)) }))
                 }
                 .padding(.leading, 20)
+                .disabled(!general.on)
             }
         }
+    }
+
+    private enum TagMode: Hashable {
+        case general, none, custom
+        init(_ t: RuleTag) {
+            switch t {
+            case .general: self = .general
+            case .none: self = .none
+            case .custom: self = .custom
+            }
+        }
+    }
+
+    /// General > After Printing: whether tagging is on, and its tag.
+    private var general: (on: Bool, tag: FinderTag) {
+        guard let settings else { return (false, FinderTag(name: AppSettings.Default.tagName, color: AppSettings.Default.tagColor)) }
+        return (settings.tagAfterPrint, settings.generalTag)
     }
 
     private var actionNote: String {

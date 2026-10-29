@@ -1,11 +1,13 @@
 import AppKit
 import ImageIO
 import LabelKit
+import LabelizeCore
 import UniformTypeIdentifiers
 
-/// The real `LabelService`. Prints go through the same flow as a drop: the rules (trigger "From another app",
-/// with the request's printer, size, fit, ink and copies on top), then the popover with its countdown, or the
-/// preview when Before printing is "Show preview" or the rule says preview or ask. Each call waits for the outcome
+/// The real `LabelService`. Prints go through the same flow as a drop (`JobFlow.plan`): the rules (trigger
+/// "From another app", or "From the clipboard" for the clipboard, with the request's printer, size, fit, ink and
+/// copies on top), then the popover with its countdown, or the preview when Before printing is "Show preview" or
+/// the rule's action says preview or ask. Each call waits for the outcome
 /// (printed, cancelled, failed) up to `waitLimit`, then returns status waiting; `jobs()` shows how it ended.
 @MainActor
 final class AppLabelService: LabelService {
@@ -21,7 +23,6 @@ final class AppLabelService: LabelService {
     private var recent: [APIJob] = []
     private var waiters: [String: CheckedContinuation<Void, Never>] = [:]
     nonisolated static let maxJobs = 50
-    nonisolated static let maxCopies = 100
 
     init(store: Store, sender: Sender? = nil) {
         self.store = store
@@ -59,8 +60,12 @@ final class AppLabelService: LabelService {
     }
 
     func print(files: [URL], request: APIPrintRequest, source: String) async throws -> APIJob {
+        try await print(files: files, request: request, source: source, trigger: .api)
+    }
+
+    func print(files: [URL], request: APIPrintRequest, source: String, trigger: RuleTrigger) async throws -> APIJob {
         guard !files.isEmpty else { throw APIError.badRequest("No file to print.", code: "no_file") }
-        return try await run(files, plan: try await plan(files, request), source: source)
+        return try await run(files, plan: try await plan(files, request, trigger: trigger), source: source)
     }
 
     func preview(files: [URL], request: APIPrintRequest) async throws -> APIPreview {
@@ -73,42 +78,35 @@ final class AppLabelService: LabelService {
                 guard let image = label.bitmap.cgImage(), let png = Self.pngData(image) else {
                     throw APIError.failed("Couldn't render label \(i + 1).", code: "render_failed")
                 }
-                return APILabelPreview(index: i, width: image.width, height: image.height, png: png,
-                                       ink: label.ink.rawValue, scalePercent: Self.percent(label), rotated: label.rotated,
-                                       codes: Self.codes(label), warnings: label.warnings)
+                return APILabelPreview(Self.detail(label, index: i), width: image.width, height: image.height, png: png)
             }
         }.value
-        let summary = Self.summary(labels)
+        let counts = labels.codeCounts
         return APIPreview(printer: printer.name, size: options.size.description, rule: plan.rule, copies: plan.copies,
                           action: plan.review ? "review" : "countdown", labels: labels.count,
-                          codesFound: summary.found, codesVerified: summary.verified, codesMissing: summary.missing,
-                          warnings: summary.warnings, images: images)
+                          codesFound: counts.expected, codesVerified: counts.verified, codesMissing: counts.missing,
+                          warnings: (plan.decision?.notes ?? []) + labels.reportableWarnings, images: images)
     }
 
     func printClipboard(request: APIPrintRequest) async throws -> APIJob {
         let files = await Intake.files(from: .general, name: "Clipboard")
         guard !files.isEmpty else { throw APIError.unprocessable("Nothing printable on the clipboard.", code: "clipboard_empty") }
-        return try await print(files: files, request: request, source: APIJob.Source.clipboard)
+        return try await print(files: files, request: request, source: APIJob.Source.clipboard, trigger: .clipboard)
     }
 
     /// The saved label PDF is already label-sized, so it prints 1:1 (same as Reprint Last Label).
     func reprintLast(copies: Int?) async throws -> APIJob {
         store.refresh()
         guard let last = store.lastPrint else { throw APIError.notFound("Nothing printed yet.", code: "no_last_print") }
-        guard let printer = store.printers.first(where: { $0.name == last.printer }) ?? store.printer else {
-            throw APIError.notFound("Printer \(last.printer) not found.", code: "printer_not_found")
-        }
-        var options = store.options(for: printer)
-        options.size = printer.resolve(last.size) ?? last.size
-        options.crop = .none
-        options.nudgeMM = .zero
-        let plan = Plan(printer: printer, options: options, copies: try Self.copies(copies), review: store.alwaysReview, decision: nil)
-        return try await run([last.file], plan: plan, source: APIJob.Source.reprint)
+        let plan: JobPlan?
+        do { plan = try JobFlow.reprintPlan(store: store, copies: copies) } catch let e as OptionError { throw APIError(e) }
+        guard let plan else { throw APIError.notFound("Printer \(last.printer) not found.", code: "printer_not_found") }
+        return try await run(plan.files, plan: plan, source: APIJob.Source.reprint)
     }
 
     func jobs() -> [APIJob] { recent }
 
-    /// Lets the app add jobs that didn't come through the API (drops, menu), if wanted.
+    /// Adds a job to the list `jobs()` returns (newest first, at most `maxJobs`).
     func record(_ job: APIJob) {
         recent.insert(job, at: 0)
         if recent.count > Self.maxJobs { recent.removeLast(recent.count - Self.maxJobs) }
@@ -116,34 +114,25 @@ final class AppLabelService: LabelService {
 
     // MARK: Printing
 
-    struct Plan {
-        var printer: PrinterInfo
-        var options: LabelOptions
-        var copies: Int
-        /// Wait for Print in the preview instead of counting down.
-        var review: Bool
-        var decision: RuleDecision?
-        /// The matching rule's name, "Everything else", or nil for reprints.
-        var rule: String? { decision.map { $0.isFallback ? "Everything else" : $0.rule.displayName } }
-    }
-
-    /// The rule for the first file, with the request's options on top. A rule without an action
-    /// counts down like a drop; "Show preview", or a rule that shows the preview or asks, waits for Print.
-    func plan(_ files: [URL], _ r: APIPrintRequest) async throws -> Plan {
+    /// The rule for the first file, with the request's options on top (`JobFlow.plan`). The rule's action decides:
+    /// none counts down like a drop; Show preview or Ask (Ask is the preview for files handed over) waits for Print.
+    func plan(_ files: [URL], _ r: APIPrintRequest, trigger: RuleTrigger = .api) async throws -> JobPlan {
         store.refresh()
+        let r = r.normalized   // an empty printer means "not given": the rule's printer, else the default
         let forced = try r.printer.map { try findPrinter($0) }
-        guard let d = await JobFlow.decide(files, trigger: .api, store: store, engine: rules, forcedPrinter: forced) else {
-            throw APIError.notFound("No label printer found.", code: "no_printer")
+        do {
+            guard let plan = try await JobFlow.plan(files, trigger: trigger, store: store, engine: rules, forcedPrinter: forced,
+                                                    overrides: r.overrides, copies: r.copies) else {
+                throw APIError.notFound("No label printer found.", code: "no_printer")
+            }
+            return plan
+        } catch let e as OptionError {
+            throw APIError(e)
         }
-        let options = try Self.override(d.options, with: r, on: d.printer)
-        let copies = try r.copies.map { try Self.copies($0) } ?? d.copies
-        let action = d.rule.outcome.action ?? .print
-        return Plan(printer: d.printer, options: options, copies: copies, review: store.alwaysReview || action != .print, decision: d)
     }
 
-    private func run(_ files: [URL], plan: Plan, source: String) async throws -> APIJob {
-        let job = JobFlow.makeJob(files, printer: plan.printer, options: plan.options, review: plan.review,
-                                  decision: plan.decision, copies: plan.copies, store: store)
+    private func run(_ files: [URL], plan: JobPlan, source: String) async throws -> APIJob {
+        let job = JobFlow.makeJob(plan, store: store)
         job.sender = sender
         let id = UUID().uuidString
         record(APIJob(id: id, created: Date(), source: source, status: .waiting, files: files.map(\.lastPathComponent),
@@ -180,12 +169,12 @@ final class AppLabelService: LabelService {
     private func fill(_ id: String, from job: PrintJob) {
         guard let i = recent.firstIndex(where: { $0.id == id }) else { return }
         var r = recent[i]
-        let summary = Self.summary(job.labels)
+        let counts = job.labels.codeCounts
         r.labels = job.labels.count
-        r.codesFound = summary.found
-        r.codesVerified = summary.verified
-        r.codesMissing = summary.missing
-        r.warnings = job.notes + summary.warnings
+        r.codesFound = counts.expected
+        r.codesVerified = counts.verified
+        r.codesMissing = counts.missing
+        r.warnings = job.warnings
         r.labelDetails = job.labels.enumerated().map { Self.detail($1, index: $0) }
         r.printer = job.printer.name
         r.size = job.options.size.description
@@ -223,47 +212,14 @@ final class AppLabelService: LabelService {
 
     // MARK: Resolving options
 
+    /// A printer by queue or display name (`PrinterResolver.match`, hidden ones included), or the default.
     func findPrinter(_ name: String?) throws -> PrinterInfo {
         guard let name, !name.isEmpty else {
             guard let p = store.printer else { throw APIError.notFound("No label printer found.", code: "no_printer") }
             return p
         }
-        let all = store.eligiblePrinters + store.printers
-        if let p = all.first(where: { $0.name == name }) { return p }
-        if let p = all.first(where: { $0.name.caseInsensitiveCompare(name) == .orderedSame || $0.displayName.caseInsensitiveCompare(name) == .orderedSame }) {
-            return p
-        }
-        throw APIError.notFound("Printer \(name) not found.", code: "printer_not_found")
-    }
-
-    /// The request's size, fit and ink on top of the rule's (or the printer's) options.
-    static func override(_ base: LabelOptions, with r: APIPrintRequest, on printer: PrinterInfo) throws -> LabelOptions {
-        var o = base
-        if let text = r.size {
-            guard let wanted = LabelSize(parsing: text) else {
-                throw APIError.badRequest("Size \(text) isn't valid. Use a size like 4x6 or 100x150mm.", code: "invalid_size")
-            }
-            guard let size = printer.resolve(wanted) else {
-                let reason = SizeCatalog.entries(for: printer).first { $0.size == wanted }?.unsupportedReason
-                throw APIError.unprocessable("\(printer.displayName) can't print \(wanted) labels\(reason.map { ": \($0)" } ?? "").", code: "unsupported_size")
-            }
-            o.size = size
-        }
-        if let text = r.fit {
-            guard let fit = FitMode(rawValue: text.lowercased()) else { throw APIError.badRequest("Fit must be fit or fill.", code: "invalid_fit") }
-            o.fit = fit
-        }
-        if let text = r.ink {
-            guard let ink = InkMode(rawValue: text.lowercased()) else { throw APIError.badRequest("Ink must be auto, crisp, photo or halftone.", code: "invalid_ink") }
-            o.ink = ink
-        }
-        return o
-    }
-
-    static func copies(_ n: Int?) throws -> Int {
-        let n = n ?? 1
-        guard (1...maxCopies).contains(n) else { throw APIError.badRequest("Copies must be 1 to \(maxCopies).", code: "invalid_copies") }
-        return n
+        guard let p = store.resolver.find(name) else { throw APIError.notFound("Printer \(name) not found.", code: "printer_not_found") }
+        return p
     }
 
     // MARK: Reports
@@ -280,17 +236,10 @@ final class AppLabelService: LabelService {
     /// How one label came out: the ink actually used, its scale, rotation and codes.
     nonisolated static func detail(_ label: ComposedLabel, index: Int) -> APILabelInfo {
         APILabelInfo(index: index, ink: label.ink.rawValue, scalePercent: percent(label), rotated: label.rotated,
-                     codes: codes(label), warnings: label.warnings)
+                     codes: codes(label), warnings: label.reportableWarnings)
     }
 
     nonisolated static func percent(_ label: ComposedLabel) -> Double { (Double(label.scale) * 1000).rounded() / 10 }
-
-    nonisolated static func summary(_ labels: [ComposedLabel]) -> (found: Int, verified: Int, missing: [String], warnings: [String]) {
-        let found = labels.reduce(0) { $0 + $1.expectedCodes.count }
-        let missing = labels.flatMap(\.missingCodes).map(\.payload)
-        let warnings = Array(Set(labels.flatMap(\.warnings))).sorted()
-        return (found, found - missing.count, missing, warnings)
-    }
 
     nonisolated static func pngData(_ image: CGImage) -> Data? {
         let data = NSMutableData()

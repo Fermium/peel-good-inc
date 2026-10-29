@@ -28,7 +28,6 @@ final class APIController: ObservableObject {
 
     @Published private(set) var status: Status = .off
     @Published private(set) var token: String
-    @Published private(set) var mcpSessions = 0
     private(set) var service: LabelService?
 
     private let defaults = UserDefaults.standard

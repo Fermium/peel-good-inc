@@ -1,5 +1,6 @@
 import Foundation
 import Security
+import PeelGoodShared
 
 /// Files and defaults the local API shares with clients: the bearer token (mode 0600)
 /// and server.json, which says where the server is listening.
@@ -12,8 +13,8 @@ enum APISettings {
         return url
     }
 
-    static var tokenURL: URL { folder.appendingPathComponent("token") }
-    static var serverInfoURL: URL { folder.appendingPathComponent("server.json") }
+    static var tokenURL: URL { _ = folder; return AppPaths.token }
+    static var serverInfoURL: URL { _ = folder; return AppPaths.serverInfo }
 
     // MARK: Token
 
@@ -42,20 +43,11 @@ enum APISettings {
 
     // MARK: server.json
 
-    struct ServerInfo: Codable, Sendable {
-        var port: Int
-        var pid: Int32
-        var http: Bool
-        var mcp: Bool
-        var url: String
-        var mcpURL: String
-        var tokenPath: String
-        var version: String
-    }
+    /// PeelGoodShared's, which Doctor and the MCP relay read.
+    typealias ServerInfo = PeelGoodShared.ServerInfo
 
     static func writeServerInfo(port: Int, http: Bool, mcp: Bool) {
         let info = ServerInfo(port: port, pid: ProcessInfo.processInfo.processIdentifier, http: http, mcp: mcp,
-                              url: "http://127.0.0.1:\(port)", mcpURL: "http://127.0.0.1:\(port)/mcp",
                               tokenPath: tokenURL.path, version: OpenAPI.appVersion)
         guard let data = try? APIJSON.encoder.encode(info) else { return }
         writePrivate(data, to: serverInfoURL)

@@ -1,5 +1,7 @@
 import Foundation
 import LabelKit
+import LabelizeCore
+import PeelGoodShared
 
 /// One description of the command line, used everywhere: the parser, `--help`, shell
 /// completions, the man page and the manual in Settings > CLI. Change a command here and
@@ -135,25 +137,23 @@ public enum Manual {
         T.allCases.map(\.rawValue)
     }
 
-    /// Ink modes come from LabelKit, so new ones (halftone) show up in help and completions by themselves.
-    static let inkHelp: [String: String] = [
-        "auto": "picks per page", "crisp": "hard cutoff, sharp text and codes",
-        "photo": "dithers grays", "halftone": "dot screen for gradients",
-    ]
-
+    /// Ink modes and their help come from LabelKit, so new ones show up in help and completions by themselves.
     static var inkSummary: String {
-        "How grays print: " + choices(InkMode.self).map { "\($0) (\(inkHelp[$0] ?? $0))" }.joined(separator: ", ") + "."
+        "How grays print: " + InkMode.allCases.map { "\($0.rawValue) (\($0.help))" }.joined(separator: ", ") + "."
     }
 
     public static let printer = CLIOption("printer", short: "p", value: "NAME", help: "Printer queue. Default: the one chosen in the app, else your label printer.",
                                           completion: .printers)
     public static let size = CLIOption("size", short: "s", value: "WxH", help: "Label size in inches, or with mm (100x150mm). Default: the app's size for the printer, else 4x6.",
                                        completion: .sizes)
-    public static let copies = CLIOption("copies", short: "n", value: "N", help: "Copies of each label.")
+    public static let copies = CLIOption("copies", short: "n", value: "N", help: "Copies of each label, \(Limits.describe(Limits.copies)).")
+    public static let rules = CLIOption("rules", help: "Apply the app's rules (on when the app has any).")
+    public static let noRules = CLIOption("no-rules", help: "Ignore the app's rules.")
+    public static let noHistory = CLIOption("no-history", help: "Don't save the print to History or Reprint Last Label.")
     public static let dryRun = CLIOption("dry-run", help: "Do everything but print: show the lp command instead.")
     public static let out = CLIOption("out", short: "o", value: "DIR", help: "Folder for the label PDF and PNG previews.", completion: .directory)
     public static let ink = CLIOption("ink", value: "MODE", help: inkSummary, choices: choices(InkMode.self))
-    public static let cutoff = CLIOption("cutoff", value: "0-100", help: "Black and white cutoff in percent. Default 50.")
+    public static let cutoff = CLIOption("cutoff", value: "\(Int(Limits.cutoff.lowerBound * 100))-\(Int(Limits.cutoff.upperBound * 100))", help: "Black and white cutoff in percent. Default 50.")
     public static let toneGamma = CLIOption("tone-gamma", value: "G", help: "Printer dot gain for photo and halftone: coverage c prints as c^G. Default 0.65, 1 turns it off.")
     public static let nudge = CLIOption("nudge", value: "X,Y", help: "Shift in mm, +x right, +y down. Default: the app's calibration.")
 
@@ -182,19 +182,21 @@ public enum Manual {
 
     public static let commands: [CLICommand] = [
         CLICommand("print", aliases: ["p"], group: .labels, summary: "Print files as labels",
-                   discussion: "Finds the label on each page, fits it to the label size and sends it to the printer. Every page becomes a label.",
+                   discussion: "Finds the label on each page, fits it to the label size and sends it to the printer. Every page becomes a label. When the app has rules, the first file's matching rule picks the printer, size, fit, ink and copies, as if it were dropped; options you pass win. All the files print as one job, as a drop of several files does in the app: one PDF, sent once with the copies, saved to History once and made Reprint Last Label.",
                    arguments: [files],
-                   options: layout + [copies, dryRun, CLIOption("out", short: "o", value: "DIR", help: "Also keep the label PDF here.", completion: .directory)],
+                   options: layout + [copies, dryRun, rules, noRules, noHistory,
+                                      CLIOption("out", short: "o", value: "DIR", help: "Also keep the label PDF here.", completion: .directory)],
                    examples: [
                        CLIExample("peelgood print order-1460-label.pdf", "Print on your label printer with the app's settings"),
                        CLIExample("peelgood print return.png --size 4x6 --copies 2", "Two copies at 4x6"),
                        CLIExample("peelgood print label.pdf --dry-run", "See what would be sent"),
                        CLIExample("peelgood print ~/Downloads/*.pdf --printer Label_Printer", "Print a batch on a named printer"),
+                       CLIExample("peelgood print label.pdf --no-rules --no-history", "Only the printer's settings, and leave no trace"),
                    ]),
         CLICommand("preview", group: .labels, summary: "Make the label without printing",
-                   discussion: "Writes the label PDF and one PNG per page, then lists them. Nothing is sent to a printer.",
+                   discussion: "Writes the label PDF and one PNG per page, then lists them. Nothing is sent to a printer. The app's rules apply as they do for print, so the preview shows what print will do.",
                    arguments: [files],
-                   options: layout + [CLIOption("out", short: "o", value: "DIR", help: "Folder for the files. Default: a temporary folder.", completion: .directory),
+                   options: layout + [rules, noRules, CLIOption("out", short: "o", value: "DIR", help: "Folder for the files. Default: a temporary folder.", completion: .directory),
                                       CLIOption("open", help: "Open the label PDF in Preview when done.")],
                    examples: [
                        CLIExample("peelgood preview label.pdf", "Write the label PDF and PNGs to a temporary folder"),
@@ -227,8 +229,8 @@ public enum Manual {
         CLICommand("doctor", group: .app, summary: "Check printers, CUPS, the app and its API",
                    discussion: "Runs read-only checks and says what to fix. Exits 5 when a check fails.",
                    examples: [CLIExample("peelgood doctor", "Check everything")]),
-        CLICommand("history", group: .app, summary: "List recent prints from the app",
-                   discussion: "Labels the app printed, newest first. They're kept in ~/Library/Application Support/Peel Good/History.",
+        CLICommand("history", group: .app, summary: "List recent prints",
+                   discussion: "Labels the app and `peelgood print` printed, newest first. They're kept in \(AppIdentity.supportFolderDisplay)/History.",
                    options: [CLIOption("limit", short: "n", value: "N", help: "How many. Default 10."),
                              CLIOption("paths", help: "Full paths only, one per line.")],
                    examples: [CLIExample("peelgood history", "The last 10 prints"),
@@ -261,8 +263,8 @@ public enum Manual {
         ("LABELIZE_PRINTER", "Printer to use when --printer isn't given."),
         ("NO_COLOR", "Turns off color, like --no-color."),
         ("CLICOLOR_FORCE", "Color even when output isn't a terminal."),
-        ("PEELGOOD_DEFAULTS_DOMAIN", "Settings domain to read defaults from (read only). Default com.fermiumlabs.labelize; none turns it off."),
-        ("LABELIZE_SUPPORT_DIR", "The app's data folder. Default ~/Library/Application Support/Peel Good."),
+        ("PEELGOOD_DEFAULTS_DOMAIN", "Settings domain to read defaults from. Only Reprint Last Label is written back. Default \(AppIdentity.bundleID); none turns it off."),
+        ("LABELIZE_SUPPORT_DIR", "The app's data folder. Default \(AppIdentity.supportFolderDisplay)."),
     ]
 
     /// The old flag-only form, still accepted.

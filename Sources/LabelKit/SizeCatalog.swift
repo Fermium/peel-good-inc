@@ -11,9 +11,6 @@ public enum SizeCatalog {
         (100, 150), (100, 100), (100, 50), (57, 32), (50, 25),
     ].map { LabelSize(width: $0.0 / 25.4, height: $0.1 / 25.4) }
 
-    /// The previous name for `standard`.
-    public static var munbyn: [LabelSize] { standard }
-
     public struct Entry: Sendable {
         public enum Source: String, Sendable { case printer, catalog }
         public var size: LabelSize

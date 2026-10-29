@@ -1,5 +1,6 @@
 import Foundation
 import os
+import PeelGoodShared
 
 /// App logging: every message goes to the unified log (Console.app, `log stream
 /// --predicate 'subsystem == "com.fermiumlabs.labelize"'`) and to a readable file in
@@ -25,15 +26,14 @@ enum Log {
         case app, drop, intake, job, print, files, rules, api
     }
 
-    static let subsystem = "com.fermiumlabs.labelize"
+    static let subsystem = AppIdentity.bundleID
     private static let loggers = Dictionary(uniqueKeysWithValues: Category.allCases.map { ($0, Logger(subsystem: subsystem, category: $0.rawValue)) })
     private static let queue = DispatchQueue(label: "labelize.log.file")
     private static let maxFileBytes = 2_000_000
 
     static var fileURL: URL {
-        let dir = AppPaths.logs
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir.appendingPathComponent("Peel Good.log")
+        try? FileManager.default.createDirectory(at: AppPaths.logs, withIntermediateDirectories: true)
+        return AppPaths.logFile
     }
 
     static func debug(_ c: Category, _ message: @autoclosure () -> String) { write(.debug, c, message()) }
