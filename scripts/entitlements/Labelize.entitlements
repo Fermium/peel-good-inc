@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<!--
+  Main app: NOT sandboxed, hardened runtime on (codesign -o runtime).
+  Nothing needed today: outside the sandbox, printing (CUPS, /usr/bin/lp, lpadmin), file access and
+  a local HTTP listener (Hummingbird) need no entitlement. com.apple.security.print and
+  com.apple.security.network.server only matter for sandboxed code.
+  Add a hardened-runtime exception only if something breaks, e.g.
+  com.apple.security.cs.disable-library-validation (loading third-party plug-ins) or
+  com.apple.security.automation.apple-events (+ NSAppleEventsUsageDescription) for AppleScript.
+-->
+<dict/>
+</plist>

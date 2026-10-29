@@ -1,0 +1,187 @@
+#!/bin/bash
+# CI-friendly build of "Peel Good Inc.app" (formerly Labelize.app): universal binaries, version from the environment,
+# Developer ID signing with hardened runtime, per-target entitlements. No lsregister/pbs/pluginkit.
+#
+# Environment (all optional):
+#   VERSION        CFBundleShortVersionString, e.g. 1.2.3 (default 0.0.0)
+#   BUILD_NUMBER   CFBundleVersion, monotonically increasing integer (default 1)
+#   SIGN_IDENTITY  "Developer ID Application: Name (TEAMID)" or its SHA-1; "-" = ad hoc (default "-")
+#   KEYCHAIN       keychain to sign from (CI temp keychain); default: search list
+#   ARCHS          "arm64 x86_64" (default) or "arm64"
+#   OUT_DIR        output folder (default build/release)
+#
+# Usage: scripts/release-build.sh          (run from anywhere; works on the repo root)
+# Bash 3.2 compatible (macOS /bin/bash).
+set -euo pipefail
+
+ROOT="${REPO_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
+cd "$ROOT"
+SCRIPTS="$(cd "$(dirname "$0")" && pwd)"
+ENT="$SCRIPTS/entitlements"
+
+VERSION="${VERSION:-0.0.0}"
+BUILD_NUMBER="${BUILD_NUMBER:-1}"
+SIGN_IDENTITY="${SIGN_IDENTITY:--}"
+ARCHS="${ARCHS:-arm64 x86_64}"
+OUT_DIR="${OUT_DIR:-build/release}"
+BUNDLE_ID="com.fermiumlabs.labelize"
+APP_NAME="Peel Good Inc."            # CFBundleName/DisplayName (trailing period is part of the name)
+APP_BUNDLE="Peel Good Inc.app"      # folder name: not "$APP_NAME.app", which would give "Inc..app"
+MIN_OS="15.0"
+
+[[ "$VERSION" =~ ^[0-9]+(\.[0-9]+){0,2}$ ]] || { echo "VERSION must be N[.N[.N]], got '$VERSION'" >&2; exit 1; }
+[[ "$BUILD_NUMBER" =~ ^[0-9]+(\.[0-9]+)*$ ]] || { echo "BUILD_NUMBER must be numeric, got '$BUILD_NUMBER'" >&2; exit 1; }
+
+echo "==> $APP_NAME $VERSION ($BUILD_NUMBER), archs: $ARCHS, identity: $SIGN_IDENTITY"
+xcrun swift --version
+
+# ---------- 1. SwiftPM products (universal) ----------
+arch_flags=()
+for a in $ARCHS; do arch_flags+=(--arch "$a"); done
+
+products="LabelizeApp labelize"
+# Optional products, included when Package.swift declares them.
+grep -q '"labelize-mcp"' Package.swift && products="$products labelize-mcp"
+
+for p in $products; do
+  swift build -c release "${arch_flags[@]}" --product "$p"
+done
+BIN="$(swift build -c release "${arch_flags[@]}" --show-bin-path)"
+echo "bin path: $BIN"
+
+# ---------- 2. Bundle layout ----------
+APP="$OUT_DIR/$APP_BUNDLE"
+rm -rf "$APP"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$APP/Contents/Helpers"
+cp "$BIN/LabelizeApp" "$APP/Contents/MacOS/Labelize"
+# The CLI goes to Contents/Helpers, NOT Contents/MacOS: "labelize" and "Labelize" collide on
+# case-insensitive APFS. The cask symlinks it onto PATH.
+cp "$BIN/labelize" "$APP/Contents/Helpers/labelize"
+if [[ -f "$BIN/labelize-mcp" ]]; then
+  cp "$BIN/labelize-mcp" "$APP/Contents/MacOS/labelize-mcp"
+fi
+cp Resources/*.wav Resources/Labelize.icns "$APP/Contents/Resources/"
+
+# Share extension (SwiftPM can't make .appex): one swiftc per arch, then lipo.
+APPEX="$APP/Contents/PlugIns/LabelizeShare.appex"
+mkdir -p "$APPEX/Contents/MacOS"
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT
+slices=()
+for a in $ARCHS; do
+  xcrun swiftc -O -parse-as-library -application-extension -module-name LabelizeShare \
+    -target "$a-apple-macos$MIN_OS" -Xlinker -e -Xlinker _NSExtensionMain \
+    Extensions/Share/ShareViewController.swift -o "$TMP/LabelizeShare-$a"
+  slices+=("$TMP/LabelizeShare-$a")
+done
+xcrun lipo -create "${slices[@]}" -output "$APPEX/Contents/MacOS/LabelizeShare"
+
+cat > "$APPEX/Contents/Info.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleName</key><string>LabelizeShare</string>
+    <key>CFBundleDisplayName</key><string>$APP_NAME</string>
+    <key>CFBundleIdentifier</key><string>$BUNDLE_ID.share</string>
+    <key>CFBundleExecutable</key><string>LabelizeShare</string>
+    <key>CFBundlePackageType</key><string>XPC!</string>
+    <key>CFBundleShortVersionString</key><string>$VERSION</string>
+    <key>CFBundleVersion</key><string>$BUILD_NUMBER</string>
+    <key>LSMinimumSystemVersion</key><string>$MIN_OS</string>
+    <key>NSExtension</key>
+    <dict>
+        <key>NSExtensionPointIdentifier</key><string>com.apple.share-services</string>
+        <key>NSExtensionPrincipalClass</key><string>ShareViewController</string>
+        <key>NSExtensionAttributes</key>
+        <dict>
+            <key>NSExtensionActivationRule</key>
+            <dict>
+                <key>NSExtensionActivationSupportsFileWithMaxCount</key><integer>20</integer>
+                <key>NSExtensionActivationSupportsImageWithMaxCount</key><integer>20</integer>
+            </dict>
+        </dict>
+    </dict>
+</dict>
+</plist>
+PLIST
+
+cat > "$APP/Contents/Info.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleName</key><string>$APP_NAME</string>
+    <key>CFBundleDisplayName</key><string>$APP_NAME</string>
+    <key>CFBundleIdentifier</key><string>$BUNDLE_ID</string>
+    <key>CFBundleExecutable</key><string>Labelize</string>
+    <key>CFBundlePackageType</key><string>APPL</string>
+    <key>CFBundleShortVersionString</key><string>$VERSION</string>
+    <key>CFBundleVersion</key><string>$BUILD_NUMBER</string>
+    <key>LSMinimumSystemVersion</key><string>$MIN_OS</string>
+    <key>LSApplicationCategoryType</key><string>public.app-category.productivity</string>
+    <key>NSHumanReadableCopyright</key><string>© $(date +%Y) Fermium LABS</string>
+    <key>LSUIElement</key><true/>
+    <key>NSHighResolutionCapable</key><true/>
+    <key>CFBundleIconFile</key><string>Labelize</string>
+    <key>CFBundleDocumentTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleTypeName</key><string>Printable label source</string>
+            <key>CFBundleTypeRole</key><string>Viewer</string>
+            <key>LSHandlerRank</key><string>Alternate</string>
+            <key>LSItemContentTypes</key>
+            <array><string>com.adobe.pdf</string><string>public.svg-image</string><string>public.image</string></array>
+        </dict>
+    </array>
+    <key>NSServices</key>
+    <array>
+        <dict>
+            <key>NSMenuItem</key><dict><key>default</key><string>Print as Label</string></dict>
+            <key>NSMessage</key><string>printAsLabel</string>
+            <key>NSPortName</key><string>Labelize</string>
+            <key>NSRequiredContext</key><dict/>
+            <key>NSSendFileTypes</key>
+            <array><string>com.adobe.pdf</string><string>public.svg-image</string><string>public.image</string></array>
+            <key>NSSendTypes</key>
+            <array><string>com.adobe.pdf</string><string>public.png</string><string>public.tiff</string></array>
+        </dict>
+    </array>
+</dict>
+</plist>
+PLIST
+plutil -lint "$APP/Contents/Info.plist" "$APPEX/Contents/Info.plist"
+printf 'APPL????' > "$APP/Contents/PkgInfo"
+
+# ---------- 3. Sign, inside out (no --deep) ----------
+sign_flags=(--force --sign "$SIGN_IDENTITY")
+if [[ "$SIGN_IDENTITY" == "-" ]]; then
+  sign_flags+=(--timestamp=none)          # ad hoc: no secure timestamp possible
+else
+  sign_flags+=(--options runtime --timestamp)   # required by notarization
+fi
+[[ -n "${KEYCHAIN:-}" ]] && sign_flags+=(--keychain "$KEYCHAIN")
+
+sign() {  # sign <path> <entitlements> [identifier]
+  local id_flags=()
+  [[ -n "${3:-}" ]] && id_flags=(--identifier "$3")
+  codesign "${sign_flags[@]}" ${id_flags[@]+"${id_flags[@]}"} --entitlements "$2" "$1"
+}
+
+# 3a. bare executables that are not the bundle's main executable
+sign "$APP/Contents/Helpers/labelize" "$ENT/Helper.entitlements" "$BUNDLE_ID.cli"
+if [[ -f "$APP/Contents/MacOS/labelize-mcp" ]]; then
+  sign "$APP/Contents/MacOS/labelize-mcp" "$ENT/Helper.entitlements" "$BUNDLE_ID.mcp"
+fi
+# 3b. nested bundles
+sign "$APPEX" "$ENT/Share.entitlements"
+# 3c. the app itself, last
+sign "$APP" "$ENT/Labelize.entitlements"
+
+# ---------- 4. Verify ----------
+codesign --verify --deep --strict --verbose=2 "$APP"
+codesign -dvv "$APP" 2>&1 | grep -E 'Identifier|Authority|TeamIdentifier|flags|Timestamp' || true
+for f in "$APP/Contents/MacOS/Labelize" "$APP/Contents/Helpers/labelize" "$APPEX/Contents/MacOS/LabelizeShare"; do
+  echo "$(basename "$f"): $(xcrun lipo -archs "$f")"
+done
+echo "built $APP"
