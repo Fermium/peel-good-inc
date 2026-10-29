@@ -30,7 +30,15 @@ enum Log {
     private static let queue = DispatchQueue(label: "labelize.log.file")
     private static let maxFileBytes = 2_000_000
 
+    /// Tests and development runs (`-apiMock`, `-apiDryRun`) log to a temporary file, not the user's log.
+    private static let isScratchRun: Bool = {
+        let env = ProcessInfo.processInfo.environment, args = ProcessInfo.processInfo.arguments
+        return env["XCTestConfigurationFilePath"] != nil || env["XCTestBundlePath"] != nil
+            || args.contains("-apiMock") || args.contains("-apiDryRun") || NSClassFromString("XCTestCase") != nil
+    }()
+
     static var fileURL: URL {
+        if isScratchRun { return FileManager.default.temporaryDirectory.appendingPathComponent("Peel Good test.log") }
         let dir = AppPaths.logs
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir.appendingPathComponent("Peel Good.log")
