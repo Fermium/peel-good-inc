@@ -80,10 +80,21 @@ final class AppDelegate: NSObject, JobPresenter, NSApplicationDelegate, NSWindow
 
     // MARK: Icon
 
+    /// The printer glyph drawn by scripts/make-menubar-icon.swift, outline normally and solid while a
+    /// file hovers. Falls back to an SF Symbol when the PDFs are missing (e.g. `swift run`).
+    private lazy var menuBarIcons: (outline: NSImage?, filled: NSImage?) = {
+        func load(_ name: String, fallback: String) -> NSImage? {
+            let image = Bundle.main.url(forResource: name, withExtension: "pdf").flatMap(NSImage.init(contentsOf:))
+                ?? NSImage(systemSymbolName: fallback, accessibilityDescription: nil)
+            image?.isTemplate = true
+            image?.accessibilityDescription = "Peel Good Inc."
+            return image
+        }
+        return (load("menubar", fallback: "shippingbox"), load("menubar-filled", fallback: "shippingbox.fill"))
+    }()
+
     private func setIcon(filled: Bool) {
-        let image = NSImage(systemSymbolName: filled ? "shippingbox.fill" : "shippingbox", accessibilityDescription: "Peel Good Inc.")
-        image?.isTemplate = true
-        statusItem.button?.image = image
+        statusItem.button?.image = filled ? menuBarIcons.filled : menuBarIcons.outline
     }
 
     /// A small lift-and-settle when a file hovers over the icon.
