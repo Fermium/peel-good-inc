@@ -2,40 +2,58 @@ import Foundation
 import LabelKit
 
 /// "When a file [conditions] → print it like [outcome]". Rules are tried top to bottom; the first match wins.
-struct Rule: Codable, Identifiable, Hashable {
-    var id = UUID()
-    var name: String
-    var isEnabled = true
+public struct Rule: Codable, Identifiable, Hashable, Sendable {
+    public var id = UUID()
+    public var name: String
+    public var isEnabled = true
     /// All conditions must hold, or any one of them.
-    var matchAll = true
-    var conditions: [RuleCondition]
-    var outcome = RuleOutcome()
+    public var matchAll = true
+    public var conditions: [RuleCondition]
+    public var outcome = RuleOutcome()
 
     /// Shown when the name is left blank.
-    var displayName: String { name.trimmingCharacters(in: .whitespaces).isEmpty ? "Untitled Rule" : name }
+    public var displayName: String { name.trimmingCharacters(in: .whitespaces).isEmpty ? "Untitled Rule" : name }
 
     /// Conditions whose value is still blank; they never match, so the editor flags them.
-    var incompleteConditions: [RuleCondition] { conditions.filter { !$0.isComplete } }
+    public var incompleteConditions: [RuleCondition] { conditions.filter { !$0.isComplete } }
+
+    public init(id: UUID = UUID(), name: String, isEnabled: Bool = true, matchAll: Bool = true,
+                conditions: [RuleCondition], outcome: RuleOutcome = RuleOutcome()) {
+        self.id = id
+        self.name = name
+        self.isEnabled = isEnabled
+        self.matchAll = matchAll
+        self.conditions = conditions
+        self.outcome = outcome
+    }
 }
 
 // MARK: Conditions
 
 /// One sentence fragment: "[Source website] [is] [amazon.com, amazon.co.uk]".
 /// Kept flat (rather than an enum with payloads) so pop-ups can bind straight to it and the JSON stays readable.
-struct RuleCondition: Codable, Identifiable, Hashable {
-    var id = UUID()
-    var field: Field
-    var op: Op
+public struct RuleCondition: Codable, Identifiable, Hashable, Sendable {
+    public var id = UUID()
+    public var field: Field
+    public var op: Op
     /// Tokens (domains, names, code text), or a single choice/path, depending on the field.
-    var values: [String] = []
+    public var values: [String] = []
     /// For page count.
-    var number = 1
+    public var number = 1
 
-    enum Field: String, Codable, CaseIterable, Identifiable {
+    public init(id: UUID = UUID(), field: Field, op: Op, values: [String] = [], number: Int = 1) {
+        self.id = id
+        self.field = field
+        self.op = op
+        self.values = values
+        self.number = number
+    }
+
+    public enum Field: String, Codable, CaseIterable, Identifiable, Sendable {
         case source, name, kind, folder, trigger, pageSize, pageCount, pageText, code, codeText
-        var id: Self { self }
+        public var id: Self { self }
 
-        var title: String {
+        public var title: String {
             switch self {
             case .source: "Source website"
             case .name: "File name"
@@ -50,7 +68,7 @@ struct RuleCondition: Codable, Identifiable, Hashable {
             }
         }
 
-        var ops: [Op] {
+        public var ops: [Op] {
             switch self {
             case .source: [.is, .isNot, .isUnknown]
             case .name: [.contains, .doesNotContain, .beginsWith, .endsWith, .is]
@@ -63,7 +81,7 @@ struct RuleCondition: Codable, Identifiable, Hashable {
         }
 
         /// Choices for pop-up fields, as (stored value, title).
-        var choices: [(String, String)] {
+        public var choices: [(String, String)] {
             switch self {
             case .kind: FileKind.allCases.map { ($0.rawValue, $0.title) }
             case .trigger: RuleTrigger.allCases.map { ($0.rawValue, $0.title) }
@@ -73,9 +91,9 @@ struct RuleCondition: Codable, Identifiable, Hashable {
             }
         }
 
-        var usesTokens: Bool { [.source, .name, .pageText, .codeText].contains(self) }
+        public var usesTokens: Bool { [.source, .name, .pageText, .codeText].contains(self) }
 
-        var tokenPlaceholder: String {
+        public var tokenPlaceholder: String {
             switch self {
             case .source: "amazon.com, royalmail.com"
             case .name: "label, return"
@@ -86,7 +104,7 @@ struct RuleCondition: Codable, Identifiable, Hashable {
         }
 
         /// A sensible starting condition when the user picks this field.
-        var starter: RuleCondition {
+        public var starter: RuleCondition {
             var c = RuleCondition(field: self, op: ops[0])
             switch self {
             case .folder: c.values = [FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Downloads").path]
@@ -97,11 +115,11 @@ struct RuleCondition: Codable, Identifiable, Hashable {
         }
     }
 
-    enum Op: String, Codable {
+    public enum Op: String, Codable, Sendable {
         case `is`, isNot, isUnknown, contains, doesNotContain, beginsWith, endsWith
         case isInside, isNotInside, isMoreThan, isFewerThan, includes, doesNotInclude
 
-        var title: String {
+        public var title: String {
             switch self {
             case .is: "is"
             case .isNot: "is not"
@@ -119,16 +137,16 @@ struct RuleCondition: Codable, Identifiable, Hashable {
             }
         }
 
-        var takesValue: Bool { self != .isUnknown }
+        public var takesValue: Bool { self != .isUnknown }
     }
 
-    var isComplete: Bool {
+    public var isComplete: Bool {
         guard op.takesValue, field != .pageCount else { return true }
         return values.contains { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
     }
 
     /// The field moved to a new kind: keep the id, reset what no longer makes sense.
-    mutating func change(to field: Field) {
+    public mutating func change(to field: Field) {
         guard field != self.field else { return }
         let id = id
         self = field.starter
@@ -136,9 +154,9 @@ struct RuleCondition: Codable, Identifiable, Hashable {
     }
 }
 
-enum FileKind: String, Codable, CaseIterable {
+public enum FileKind: String, Codable, CaseIterable, Sendable {
     case pdf, image, svg, screenshot
-    var title: String {
+    public var title: String {
         switch self {
         case .pdf: "PDF"
         case .image: "Image"
@@ -148,26 +166,31 @@ enum FileKind: String, Codable, CaseIterable {
     }
 }
 
-/// How a file reached Labelize.
-enum RuleTrigger: String, Codable, CaseIterable {
-    case drop, clipboard, openWith, watchedFolder, api
-    var title: String {
+/// How a file reached Peel Good Inc.
+/// Drop and the printer tiles are `drop`; Open With, Print File…, Services and Share are `openWith`;
+/// Print Clipboard (menu and MCP) is `clipboard`; HTTP and MCP files are `api`; `peelgood print` is `cli`.
+public enum RuleTrigger: String, Codable, CaseIterable, Sendable {
+    case drop, clipboard, openWith, watchedFolder, api, cli
+    public var title: String {
         switch self {
         case .drop: "Dropped on the icon"
         case .clipboard: "From the clipboard"
         case .openWith: "Opened in Finder"
         case .watchedFolder: "In a watched folder"
         case .api: "From another app"
+        case .cli: "From the command line"
         }
     }
-    /// Unattended triggers have nobody looking at the screen when the file arrives.
-    var isUnattended: Bool { self == .watchedFolder || self == .api }
+    /// Files that turn up on their own, with nobody handing them over: only watched folders.
+    /// They follow Rules > New files when no rule says, and Ask posts a notification.
+    /// Every other trigger is a file someone handed over: no action prints, Ask shows the preview.
+    public var isUnattended: Bool { self == .watchedFolder }
 }
 
 /// Page sizes worth recognising, in either orientation.
-enum PageShape: String, Codable, CaseIterable {
+public enum PageShape: String, Codable, CaseIterable, Sendable {
     case fourBySix, letter, a4
-    var title: String {
+    public var title: String {
         switch self {
         case .fourBySix: "4 × 6 in label"
         case .letter: "US Letter"
@@ -175,7 +198,7 @@ enum PageShape: String, Codable, CaseIterable {
         }
     }
     /// Width × height in millimetres.
-    var mm: (Double, Double) {
+    public var mm: (Double, Double) {
         switch self {
         case .fourBySix: (101.6, 152.4)
         case .letter: (215.9, 279.4)
@@ -183,16 +206,16 @@ enum PageShape: String, Codable, CaseIterable {
         }
     }
     /// True if a page of this size in points is this shape, within 3 mm (Royal Mail's 101 × 152 counts as 4 × 6).
-    func matches(_ points: CGSize) -> Bool {
+    public func matches(_ points: CGSize) -> Bool {
         let w = points.width / 72 * 25.4, h = points.height / 72 * 25.4
         let (a, b) = (min(w, h), max(w, h)), (x, y) = (min(mm.0, mm.1), max(mm.0, mm.1))
         return abs(a - x) <= 3 && abs(b - y) <= 3
     }
 }
 
-enum CodeKind: String, Codable, CaseIterable {
+public enum CodeKind: String, Codable, CaseIterable, Sendable {
     case any, qr, dataMatrix, pdf417, aztec, barcode
-    var title: String {
+    public var title: String {
         switch self {
         case .any: "any code"
         case .qr: "a QR code"
@@ -203,7 +226,7 @@ enum CodeKind: String, Codable, CaseIterable {
         }
     }
     /// Does a Vision symbology name ("QR", "Code128", "DataMatrix"…) count as this kind?
-    func matches(_ symbology: String) -> Bool {
+    public func matches(_ symbology: String) -> Bool {
         let s = symbology.lowercased()
         switch self {
         case .any: return true
@@ -220,26 +243,27 @@ enum CodeKind: String, Codable, CaseIterable {
 
 /// What to do with a matching file. Every field left nil falls back to the printer's remembered settings.
 /// There is deliberately no way to skip or drop pages: every page of every file always prints.
-struct RuleOutcome: Codable, Hashable {
+public struct RuleOutcome: Codable, Hashable, Sendable {
     /// CUPS queue name; nil means the default printer.
-    var printer: String?
+    public var printer: String?
     /// "4x6"; nil means that printer's label size.
-    var size: String?
-    var fit: FitMode?
-    var ink: InkMode?
+    public var size: String?
+    public var fit: FitMode?
+    public var ink: InkMode?
     /// nil follows General > Before printing for files you hand over, Rules > New files for watched folders.
-    var action: RuleAction?
-    var copies = 1
-    var tag: FinderTag? = FinderTag()
+    public var action: RuleAction?
+    public var copies = 1
+    /// Default follows General > After Printing; see `RuleTag`.
+    public var tag: RuleTag = .general
 
-    var labelSize: LabelSize? { size.flatMap(LabelSize.init(parsing:)) }
+    public var labelSize: LabelSize? { size.flatMap(LabelSize.init(parsing:)) }
 
-    init() {}
+    public init() {}
 
     /// Older files also have `playSound`; it's ignored, since sounds follow General.
-    enum CodingKeys: String, CodingKey { case printer, size, fit, ink, action, copies, tag }
+    public enum CodingKeys: String, CodingKey { case printer, size, fit, ink, action, copies, tag }
 
-    init(from decoder: Decoder) throws {
+    public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         printer = try c.decodeIfPresent(String.self, forKey: .printer)
         size = try c.decodeIfPresent(String.self, forKey: .size)
@@ -247,10 +271,11 @@ struct RuleOutcome: Codable, Hashable {
         ink = try c.decodeIfPresent(String.self, forKey: .ink).flatMap(InkMode.init(rawValue:))
         action = try c.decodeIfPresent(RuleAction.self, forKey: .action)
         copies = max(1, try c.decodeIfPresent(Int.self, forKey: .copies) ?? 1)
-        tag = try c.decodeIfPresent(FinderTag.self, forKey: .tag)
+        // Before tag modes, a missing tag meant "no tag" and an object was the rule's own tag.
+        tag = try c.decodeIfPresent(RuleTag.self, forKey: .tag) ?? .none
     }
 
-    func encode(to encoder: Encoder) throws {
+    public func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encodeIfPresent(printer, forKey: .printer)
         try c.encodeIfPresent(size, forKey: .size)
@@ -258,11 +283,11 @@ struct RuleOutcome: Codable, Hashable {
         try c.encodeIfPresent(ink?.rawValue, forKey: .ink)
         try c.encodeIfPresent(action, forKey: .action)
         try c.encode(copies, forKey: .copies)
-        try c.encodeIfPresent(tag, forKey: .tag)
+        try c.encode(tag, forKey: .tag)
     }
 }
 
-enum RuleAction: String, Codable, CaseIterable {
+public enum RuleAction: String, Codable, CaseIterable, Sendable {
     /// Print after the short cancel countdown.
     case print
     /// Show the preview with Print / Cancel.
@@ -270,7 +295,7 @@ enum RuleAction: String, Codable, CaseIterable {
     /// Post a notification with Print / Preview buttons; for files you dropped, this is the same as review.
     case ask
 
-    var title: String {
+    public var title: String {
         switch self {
         case .print: "Print"
         case .review: "Show preview"
@@ -278,39 +303,11 @@ enum RuleAction: String, Codable, CaseIterable {
         }
     }
 
-    var shortTitle: String {
+    public var shortTitle: String {
         switch self {
         case .print: "prints"
         case .review: "shows preview"
         case .ask: "asks"
         }
-    }
-}
-
-/// A Finder tag, written with its colour so "Printed" can be green.
-struct FinderTag: Codable, Hashable {
-    var name = "Printed"
-    var color: Color = .green
-
-    /// Finder's label numbers.
-    enum Color: Int, Codable, CaseIterable {
-        case none = 0, gray, green, purple, blue, yellow, red, orange
-        var title: String { "\(self)".capitalized }
-    }
-
-    /// Adds the tag, keeping the file's other tags. Files that are gone or read-only are left alone.
-    func apply(to url: URL) {
-        let key = "com.apple.metadata:_kMDItemUserTags"
-        var tags: [String] = []
-        let size = getxattr(url.path, key, nil, 0, 0, 0)
-        if size > 0 {
-            var data = Data(count: size)
-            _ = data.withUnsafeMutableBytes { getxattr(url.path, key, $0.baseAddress, size, 0, 0) }
-            tags = (try? PropertyListSerialization.propertyList(from: data, format: nil)) as? [String] ?? []
-        }
-        tags.removeAll { $0.split(separator: "\n").first.map(String.init) == name }
-        tags.append(color == .none ? name : "\(name)\n\(color.rawValue)")
-        guard let data = try? PropertyListSerialization.data(fromPropertyList: tags, format: .binary, options: 0) else { return }
-        _ = data.withUnsafeBytes { setxattr(url.path, key, $0.baseAddress, data.count, 0, 0) }
     }
 }

@@ -1,5 +1,6 @@
 import Foundation
 import MCP
+import LabelizeCore
 import XCTest
 @testable import LabelizeApp
 
@@ -153,7 +154,7 @@ final class APITests: XCTestCase {
         XCTAssertNotEqual(r.isError, true, text(r))
         XCTAssertEqual(config.rules.rules.count, 1)
         let id = config.rules.rules[0].id.uuidString
-        XCTAssertEqual(config.rules.rules[0].outcome.tag?.color, .red)
+        XCTAssertEqual(config.rules.rules[0].outcome.tag.custom?.color, .red)
         r = await tool("update_rule", ["id": .string(id), "rule": ["isEnabled": false]])
         XCTAssertNotEqual(r.isError, true, text(r))
         XCTAssertEqual(config.rules.rules[0].isEnabled, false)

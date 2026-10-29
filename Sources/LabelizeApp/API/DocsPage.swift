@@ -1,4 +1,5 @@
 import Foundation
+import PeelGoodShared
 
 /// The page at `GET /`: the OpenAPI description as plain HTML. Self-contained, no scripts from elsewhere.
 enum DocsPage {
@@ -23,7 +24,7 @@ enum DocsPage {
         <h1>Peel Good Inc. API</h1>
         <p>Version \(esc(OpenAPI.appVersion)). Listens on <code>\(OpenAPI.baseURL(port: port))</code> only.</p>
         <p>Every request except this page and <a href="/openapi.json">openapi.json</a> needs the token in
-        <code>~/Library/Application Support/Peel Good/token</code>:</p>
+        <code>\(AppIdentity.supportFolderDisplay)/token</code>:</p>
         <pre>curl -s \(esc(OpenAPI.authHeader)) \(OpenAPI.baseURL(port: port))/v1/health</pre>
         <p>Only files sent with a request print: up to \(APILimits.maxFiles) files of \(APILimits.maxFileBytes / 1_048_576) MB,
         \(APILimits.maxLabels) pages in all, and \(APILimits.printsPerMinute) prints or previews a minute.

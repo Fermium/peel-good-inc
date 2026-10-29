@@ -1,5 +1,6 @@
 import AppKit
 import LabelKit
+import LabelizeCore
 import SwiftUI
 
 /// `Labelize -screenshots <dir>` renders every surface of the app into PNGs, light and dark, then quits.
@@ -41,7 +42,7 @@ enum Screenshots {
             tabs.tabStyle = .toolbar
             tabs.transitionOptions = []
             tabs.addTabViewItem(tab("General", "gearshape", GeneralPane(store: store)))
-            tabs.addTabViewItem(tab("Printers", "printer", PrintersPane(store: store, testLabel: {})))
+            tabs.addTabViewItem(tab("Printers", "printer", PrintersPane(store: store, testLabel: { _ in })))
             tabs.addTabViewItem(tab("Rules", "list.bullet.rectangle",
                                     RulesSettingsView(engine: RulesPreviewData.engine(), store: store, previewPrinters: printers,
                                                       folders: .preview(sampleFolders()))))
@@ -330,13 +331,7 @@ enum Screenshots {
         }
         let size = LabelSize.fourBySix
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("Labelize Sample.pdf")
-        var box = CGRect(origin: .zero, size: size.points)
-        if let ctx = CGContext(url as CFURL, mediaBox: &box, nil) {
-            ctx.beginPDFPage(nil)
-            TestPattern.page(size: size, title: "Labelize · \(size.display)").draw(in: ctx)
-            ctx.endPDFPage()
-            ctx.closePDF()
-        }
+        try? TestLabel.pattern.writePDF(size: size, title: TestLabel.title(printer: nil, size: size), to: url)
         return url
     }
 

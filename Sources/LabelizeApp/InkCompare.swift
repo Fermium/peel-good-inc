@@ -1,5 +1,6 @@
 import AppKit
 import LabelKit
+import LabelizeCore
 import SwiftUI
 
 /// The round ? button Mac apps use for help.
@@ -108,24 +109,6 @@ struct Lightbox: View {
     }
 }
 
-/// A sample with text, a barcode, a QR code and a gray ramp, so each ink mode shows its character.
-enum InkSample {
-    static func page(size: LabelSize, title: String) -> SourcePage {
-        let s = size.points
-        return SourcePage(size: s) { ctx in
-            TestPattern.page(size: size, title: title).draw(in: ctx)
-            let ramp = CGRect(x: s.width * 0.55, y: 14, width: s.width * 0.4, height: s.height * 0.3)
-            if let g = CGGradient(colorsSpace: CGColorSpaceCreateDeviceGray(),
-                                  colors: [CGColor(gray: 0, alpha: 1), CGColor(gray: 1, alpha: 1)] as CFArray, locations: nil) {
-                ctx.saveGState()
-                ctx.clip(to: ramp)
-                ctx.drawLinearGradient(g, start: CGPoint(x: ramp.minX, y: 0), end: CGPoint(x: ramp.maxX, y: 0), options: [])
-                ctx.restoreGState()
-            }
-        }
-    }
-}
-
 // MARK: Ink comparison window
 
 @MainActor
@@ -193,7 +176,7 @@ struct InkCompareView: View {
                     }
                 }
                 if results.isEmpty {
-                    ProgressView().frame(width: 4 * 150)
+                    ProgressView().frame(width: CGFloat(InkMode.allCases.count) * 150)
                 }
             }
             .frame(height: 300)
@@ -251,7 +234,8 @@ struct InkCompareView: View {
 
     private func loadSample() {
         let size = store.size(for: printer)
-        pages = [InkSample.page(size: size, title: printer.displayName)]
+        // The ink sample, then the step wedge: page through both.
+        pages = [TestLabel.inkSample, .stepWedge].map { $0.page(size: size, title: TestLabel.title(printer: printer, size: size)) }
         pageIndex = 0
         render(pages[0], name: "Sample")
     }
@@ -277,7 +261,7 @@ struct InkCompareView: View {
         original = Self.colorImage(page)
         Task.detached {
             var out: [Result] = []
-            for mode in [InkMode.auto, .crisp, .photo, .halftone] {
+            for mode in InkMode.allCases {
                 var o = base
                 o.ink = mode
                 let label = LabelComposer.compose(page, o)

@@ -1,5 +1,6 @@
 import AppKit
 import LabelKit
+import LabelizeCore
 import SwiftUI
 
 /// Size lists as a table: "4 × 6 in" on the left, the other unit right-aligned and dimmed.

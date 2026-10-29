@@ -1,4 +1,6 @@
 import Foundation
+import LabelKit
+import LabelizeCore
 import MCP
 
 /// MCP over Streamable HTTP at `/mcp`: one `Server` + `StatefulHTTPServerTransport` per session.
@@ -180,9 +182,12 @@ enum MCPTools {
     private static let options: [String: Value] = [
         "printer": ["type": "string", "description": "Queue name or display name from list_printers. Defaults to the default printer set in Peel Good Inc."],
         "size": ["type": "string", "description": "Label size like 4x6, 2.25x1.25 or 100x150mm. Defaults to the printer's size."],
-        "fit": ["type": "string", "enum": ["fit", "fill"]],
-        "ink": ["type": "string", "enum": ["auto", "crisp", "photo", "halftone"], "description": "crisp for text and barcodes, photo for photos, halftone for flat grays."],
+        "fit": ["type": "string", "enum": .array(Limits.fits.map { .string($0) })],
+        "ink": ["type": "string", "enum": .array(Limits.inks.map { .string($0) }), "description": .string(inkDescription)],
     ]
+
+    /// "auto picks per page, crisp hard cutoff, sharp text and codes, …", from LabelKit.
+    static var inkDescription: String { InkMode.allCases.map { "\($0.rawValue): \($0.help)" }.joined(separator: "; ") + "." }
 
     private static let fileInput: [String: Value] = [
         "content_base64": ["type": "string", "description": "The file, base64. Up to 25 MB."],
@@ -190,7 +195,7 @@ enum MCPTools {
         "path": ["type": "string", "description": "Absolute path to a PDF, SVG or image on this Mac. Needs \"Let MCP print files from this Mac\"."],
     ]
 
-    private static let copies: [String: Value] = ["copies": ["type": "integer", "minimum": 1, "maximum": .int(AppLabelService.maxCopies)]]
+    private static let copies: [String: Value] = ["copies": ["type": "integer", "minimum": .int(Limits.copies.lowerBound), "maximum": .int(Limits.copies.upperBound)]]
 
     private static func schema(_ props: [String: Value]..., required: [String] = []) -> Value {
         var o: [String: Value] = ["type": "object", "properties": .object(props.reduce(into: [:]) { $0.merge($1) { a, _ in a } })]
@@ -200,19 +205,19 @@ enum MCPTools {
 
     private static let settingsProps: [String: Value] = [
         "defaultPrinter": ["type": "string", "description": "Queue name or display name."],
-        "countdownSeconds": ["type": "number", "minimum": 0, "maximum": 10, "description": "Wait before printing a dropped file. 0 prints right away."],
+        "countdownSeconds": ["type": "number", "minimum": .double(Limits.countdownSeconds.lowerBound), "maximum": .double(Limits.countdownSeconds.upperBound), "description": "Wait before printing a dropped file. 0 prints right away."],
         "alwaysPreview": ["type": "boolean", "description": "Before printing: Show preview instead of counting down."],
         "newFilesAction": ["type": "string", "enum": .array(RuleAction.allCases.map { .string($0.rawValue) }),
                            "description": "Rules > New files: what files in watched folders do when no rule says. ask sends a notification, review shows the preview."],
         "playSounds": ["type": "boolean"],
         "hiddenPrinters": ["type": "array", "items": ["type": "string"], "description": "Queue names hidden from the app's lists."],
         "tagAfterPrint": ["type": "boolean", "description": "Add Finder tag to printed files."],
-        "tagName": ["type": "string"],
-        "tagColor": ["type": "string", "enum": .array(FinderTag.Color.allCases.map { .string(AppConfigurator.colorName($0)) })],
+        "tagName": ["type": "string", "maxLength": .int(Limits.tagNameLength)],
+        "tagColor": ["type": "string", "enum": .array(FinderTag.Color.allCases.map { .string($0.name) })],
         "afterPrint": ["type": "string", "enum": .array(AfterPrintAction.allCases.map { .string($0.rawValue) }), "description": "What happens to the original file after printing."],
         "renameSuffix": ["type": "string", "description": "For afterPrint rename."],
         "moveFolder": ["type": ["string", "null"], "description": "Existing folder, for afterPrint move."],
-        "keepHistoryDays": ["type": "integer", "minimum": 0, "maximum": 3650, "description": "Days to keep printed labels for reprinting. 0 keeps them forever."],
+        "keepHistoryDays": ["type": "integer", "minimum": .int(Limits.historyDays.lowerBound), "maximum": .int(Limits.historyDays.upperBound), "description": "Days to keep printed labels for reprinting. 0 keeps them forever."],
         "httpEnabled": ["type": "boolean", "description": "The local HTTP API."],
         "port": ["type": "integer", "minimum": 1024, "maximum": 65535, "description": "Changes a second after the reply; reconnect on the new port."],
     ]
@@ -220,11 +225,12 @@ enum MCPTools {
     private static let printerProps: [String: Value] = [
         "printer": ["type": "string", "description": "Queue name or display name."],
         "size": ["type": "string", "description": "Label size, like 4x6."],
-        "fit": ["type": "string", "enum": ["fit", "fill"]],
-        "ink": ["type": "string", "enum": ["auto", "crisp", "photo", "halftone"]],
-        "cutoff": ["type": "number", "minimum": 0.2, "maximum": 0.8, "description": "Gray level below which a dot prints black."],
-        "nudgeXmm": ["type": "number", "minimum": -10, "maximum": 10, "description": "Alignment, + moves right."],
-        "nudgeYmm": ["type": "number", "minimum": -10, "maximum": 10, "description": "Alignment, + moves down."],
+        "fit": ["type": "string", "enum": .array(Limits.fits.map { .string($0) })],
+        "ink": ["type": "string", "enum": .array(Limits.inks.map { .string($0) })],
+        "cutoff": ["type": "number", "minimum": .double(Limits.cutoff.lowerBound), "maximum": .double(Limits.cutoff.upperBound), "description": "Gray level below which a dot prints black."],
+        "toneGamma": ["type": "number", "minimum": .double(Limits.toneGamma.lowerBound), "maximum": .double(Limits.toneGamma.upperBound), "description": "Dot gain for photo and halftone. 1 turns tone correction off."],
+        "nudgeXmm": ["type": "number", "minimum": .double(Limits.nudgeMM.lowerBound), "maximum": .double(Limits.nudgeMM.upperBound), "description": "Alignment, + moves right."],
+        "nudgeYmm": ["type": "number", "minimum": .double(Limits.nudgeMM.lowerBound), "maximum": .double(Limits.nudgeMM.upperBound), "description": "Alignment, + moves down."],
     ]
 
     /// The rule format, generated from the rule model so it can't drift.
@@ -235,8 +241,9 @@ enum MCPTools {
         }.joined(separator: "; ")
         return """
         A rule is {name, isEnabled, matchAll, conditions: [{field, op, values: [text], number}], \
-        outcome: {printer, size, fit, ink, action: print|review|ask, copies, tag: {name, color}}}. \
+        outcome: {printer, size, fit, ink, action: print|review|ask, copies, tag: default|none|{name, color}}}. \
         Outcome fields left out use the default printer and its settings; action review shows the preview. \
+        tag default uses the tag in General, none adds no tag; nothing is tagged while General's Finder tag is off. \
         Rules run top to bottom; the first match wins, else Everything else, which always uses the default printer and its settings. \
         Fields: \(fields).
         """

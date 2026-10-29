@@ -1,5 +1,6 @@
 import AppKit
 import LabelKit
+import LabelizeCore
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -84,14 +85,10 @@ struct JobView: View {
                     SizePopUp(selection: Binding(get: { job.options.size }, set: { s in job.update { $0.size = s } }), sizes: sizes)
                 }
                 Picker("Fit", selection: Binding(get: { job.options.fit }, set: { f in job.update { $0.fit = f } })) {
-                    Text("Fit").tag(FitMode.fit)
-                    Text("Fill").tag(FitMode.fill)
+                    ForEach(FitMode.allCases, id: \.self) { Text($0.title).tag($0) }
                 }.pickerStyle(.segmented)
                 Picker("Ink", selection: Binding(get: { job.options.ink }, set: { i in job.update { $0.ink = i } })) {
-                    Text("Auto").tag(InkMode.auto)
-                    Text("Crisp").tag(InkMode.crisp)
-                    Text("Photo").tag(InkMode.photo)
-                    Text("Halftone").tag(InkMode.halftone)
+                    ForEach(InkMode.allCases, id: \.self) { Text($0.title).tag($0) }
                 }.pickerStyle(.segmented)
                 HStack {
                     Button("Cancel", role: .cancel) { job.cancel() }.keyboardShortcut(.cancelAction)

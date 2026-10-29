@@ -3,6 +3,7 @@ import HTTPTypes
 import Hummingbird
 import Logging
 import os
+import PeelGoodShared
 
 /// What the server needs to know on every request, readable from any thread.
 final class APIServerState: Sendable {
@@ -137,8 +138,8 @@ struct APIResponder: HTTPResponder {
             reason = "wrong token"
         }
         Log.warning(.api, "auth failed for \(method) \(path): \(reason)")
-        return .error(APIError(status: 401, code: "unauthorized", message: "Send the token from ~/Library/Application Support/Peel Good/token as a bearer token."),
-                      headers: [("WWW-Authenticate", "Bearer realm=\"Peel Good Inc.\"")])
+        return .error(APIError(status: 401, code: "unauthorized", message: "Send the token from ~/Library/Application Support/\(AppIdentity.folderName)/token as a bearer token."),
+                      headers: [("WWW-Authenticate", "Bearer realm=\"\(AppIdentity.appName)\"")])
     }
 
     private func collect(_ request: Request, _ context: APIContext, path: String) async -> APIRequest? {
@@ -200,7 +201,7 @@ final class APIServer: Sendable {
         self.port = port
         let mcp = MCPSessions(port: port)
         self.mcp = mcp
-        var logger = Logger(label: "com.fermiumlabs.labelize.api")
+        var logger = Logger(label: AppIdentity.bundleID + ".api")
         logger.logLevel = .critical   // stopping cancels open keep-alive connections, which Hummingbird logs as errors
         let app = Application(
             responder: APIResponder(state: state, mcp: mcp),

@@ -1,5 +1,6 @@
 import AppKit
 import LabelKit
+import LabelizeCore
 
 /// Reads and changes the app's configuration for MCP: settings in `Store`, per-printer settings,
 /// rules and watched folders, and the HTTP API switch and port. Every change is logged with old and new values.
@@ -60,7 +61,7 @@ final class AppConfigurator {
                 return ["name": p.name, "displayName": p.displayName, "isLabelPrinter": p.isLabelPrinter,
                         "hidden": store.hiddenPrinters.contains(p.name), "size": store.size(for: p).description,
                         "fit": store.fit(for: p).rawValue, "ink": store.ink(for: p).rawValue,
-                        "cutoff": store.cutoff(for: p), "nudgeXmm": Double(n.x), "nudgeYmm": Double(n.y)]
+                        "cutoff": store.cutoff(for: p), "toneGamma": store.toneGamma(for: p), "nudgeXmm": Double(n.x), "nudgeYmm": Double(n.y)]
             },
             "watchedFolders": folders.get().map(\.path),
             "api": [
@@ -94,12 +95,12 @@ final class AppConfigurator {
             case "defaultPrinter":
                 let name = try Self.string(value, key)
                 store.refresh()
-                guard let p = store.eligiblePrinters.first(where: { $0.name == name || $0.displayName.caseInsensitiveCompare(name) == .orderedSame }) else {
+                guard let p = store.resolver.find(name, in: .eligible) else {
                     throw APIError.notFound("Printer \(name) not found.", code: "printer_not_found")
                 }
                 steps.append { self.change(key, self.store.printer?.name, p.name) { self.store.printer = p } }
             case "countdownSeconds":
-                let v = try Self.number(value, key, 0...10)
+                let v = try Self.number(value, key, Limits.countdownSeconds)
                 steps.append { self.change(key, self.store.countdown, v) { self.store.countdown = v } }
             case "alwaysPreview":
                 let v = try Self.bool(value, key)
@@ -120,7 +121,7 @@ final class AppConfigurator {
                 let v = try Self.bool(value, key)
                 steps.append { self.change(key, self.store.tagAfterPrint, v) { self.store.tagAfterPrint = v } }
             case "tagName":
-                let v = try Self.string(value, key, maxLength: 64)
+                let v = try Self.string(value, key, maxLength: Limits.tagNameLength)
                 guard !v.trimmingCharacters(in: .whitespaces).isEmpty else { throw APIError.badRequest("tagName can't be empty.", code: "invalid_tagName") }
                 steps.append { self.change(key, self.store.tagName, v) { self.store.tagName = v } }
             case "tagColor":
@@ -140,7 +141,7 @@ final class AppConfigurator {
                 let v = value is NSNull ? nil : try Self.folder(value, key)
                 steps.append { self.change(key, self.store.moveFolder?.path, v?.path) { self.store.moveFolder = v } }
             case "keepHistoryDays":
-                let v = try Self.int(value, key, 0...3650)
+                let v = try Self.int(value, key, Limits.historyDays)
                 steps.append {
                     self.change(key, self.store.historyDays, v) {
                         self.store.historyDays = v
@@ -170,7 +171,7 @@ final class AppConfigurator {
     func setPrinterSettings(_ args: [String: Any]) throws -> [String] {
         store.refresh()
         let name = try Self.string(args["printer"] ?? NSNull(), "printer")
-        guard let p = store.printers.first(where: { $0.name == name || $0.displayName.caseInsensitiveCompare(name) == .orderedSame }) else {
+        guard let p = store.resolver.find(name) else {
             throw APIError.notFound("Printer \(name) not found.", code: "printer_not_found")
         }
         var steps: [() -> String?] = []
@@ -178,21 +179,22 @@ final class AppConfigurator {
             let label = "\(p.name) \(key)"
             switch key {
             case "size":
-                let text = try Self.string(value, key)
-                guard let wanted = LabelSize(parsing: text) else { throw APIError.badRequest("Size \(text) isn't valid. Use a size like 4x6.", code: "invalid_size") }
-                guard let size = p.resolve(wanted) else { throw APIError.unprocessable("\(p.displayName) can't print \(wanted) labels.", code: "unsupported_size") }
+                let size = try Self.option { try OptionOverrides.size(try Self.string(value, key), on: p) }
                 steps.append { self.change(label, self.store.size(for: p).description, size.description) { self.store.setSize(size, for: p) } }
             case "fit":
-                guard let v = FitMode(rawValue: try Self.string(value, key)) else { throw APIError.badRequest("fit must be fit or fill.", code: "invalid_fit") }
+                let v = try Self.option { try OptionOverrides.fit(try Self.string(value, key)) }
                 steps.append { self.change(label, self.store.fit(for: p).rawValue, v.rawValue) { self.store.setFit(v, for: p) } }
             case "ink":
-                guard let v = InkMode(rawValue: try Self.string(value, key)) else { throw APIError.badRequest("ink must be auto, crisp, photo or halftone.", code: "invalid_ink") }
+                let v = try Self.option { try OptionOverrides.ink(try Self.string(value, key)) }
                 steps.append { self.change(label, self.store.ink(for: p).rawValue, v.rawValue) { self.store.setInk(v, for: p) } }
             case "cutoff":
-                let v = try Self.number(value, key, 0.2...0.8)
+                let v = try Self.number(value, key, Limits.cutoff)
                 steps.append { self.change(label, self.store.cutoff(for: p), v) { self.store.setCutoff(v, for: p) } }
+            case "toneGamma":
+                let v = try Self.number(value, key, Limits.toneGamma)
+                steps.append { self.change(label, self.store.toneGamma(for: p), v) { self.store.setToneGamma(v, for: p) } }
             case "nudgeXmm", "nudgeYmm":
-                let v = try Self.number(value, key, -10...10)
+                let v = try Self.number(value, key, Limits.nudgeMM)
                 steps.append {
                     var n = self.store.nudge(for: p)
                     let old = Double(key == "nudgeXmm" ? n.x : n.y)
@@ -295,8 +297,8 @@ final class AppConfigurator {
         if let size = rule.outcome.size, LabelSize(parsing: size) == nil {
             throw APIError.badRequest("Size \(size) isn't valid. Use a size like 4x6.", code: "invalid_rule")
         }
-        guard (1...AppLabelService.maxCopies).contains(rule.outcome.copies) else {
-            throw APIError.badRequest("copies must be 1 to \(AppLabelService.maxCopies).", code: "invalid_rule")
+        guard Limits.copies.contains(rule.outcome.copies) else {
+            throw APIError.badRequest("copies must be \(Limits.describe(Limits.copies)).", code: "invalid_rule")
         }
         return rule
     }
@@ -365,7 +367,12 @@ final class AppConfigurator {
         return "\(value)"
     }
 
-    nonisolated static func colorName(_ c: FinderTag.Color) -> String { "\(c)" }
+    nonisolated static func colorName(_ c: FinderTag.Color) -> String { c.name }
+
+    /// Runs a LabelizeCore check, as an API error.
+    static func option<T>(_ check: () throws -> T) throws -> T {
+        do { return try check() } catch let e as OptionError { throw APIError(e) }
+    }
 
     static func object<T: Encodable>(_ value: T) throws -> [String: Any] {
         let data = try JSONEncoder().encode(value)

@@ -161,4 +161,48 @@ final class RunTests: XCTestCase {
         XCTAssertEqual(rows.first?["name"] as? String, "order-1460-label")
         XCTAssertEqual(rows.first?["date"] as? String, "2026-10-29T20:03:09Z")
     }
+
+    /// `peelgood print` applies the app's rules.json like a drop (trigger "From the command line");
+    /// --no-rules turns them off. Dry runs never save to History.
+    func testPrintAppliesTheAppsRules() throws {
+        let svg = try sampleSVG()
+        let support = tmp.appendingPathComponent("support")
+        try FileManager.default.createDirectory(at: support, withIntermediateDirectories: true)
+        let rules = """
+        {"version": 1, "fallback": {"id": "00000000-0000-0000-0000-000000000000", "name": "Everything else", "isEnabled": true, "matchAll": true, "conditions": [], "outcome": {"copies": 1}},
+         "rules": [{"id": "11111111-1111-1111-1111-111111111111", "name": "Terminal labels", "isEnabled": true, "matchAll": true,
+                    "conditions": [{"id": "22222222-2222-2222-2222-222222222222", "field": "trigger", "op": "is", "values": ["cli"], "number": 1}],
+                    "outcome": {"ink": "photo", "copies": 2, "tag": "default"}}]}
+        """
+        try rules.write(to: support.appendingPathComponent("rules.json"), atomically: true, encoding: .utf8)
+
+        let r = try run(["print", svg.path, "--dry-run", "--json"])
+        if r.code == 3 { throw XCTSkip("no label printer: \(r.err)") }
+        XCTAssertEqual(r.code, 0, r.err)
+        var json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(r.out.utf8)) as? [String: Any])
+        XCTAssertEqual(json["rule"] as? String, "Terminal labels")
+        XCTAssertEqual(json["copies"] as? Int, 2)
+        XCTAssertEqual(json["ink"] as? String, "photo")
+        XCTAssertNil((json["files"] as? [[String: Any]])?.first?["history"], "dry runs aren't saved")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: support.appendingPathComponent("History").path))
+
+        let overridden = try run(["print", svg.path, "--dry-run", "--json", "--ink", "crisp", "-n", "1"])
+        json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(overridden.out.utf8)) as? [String: Any])
+        XCTAssertEqual(json["ink"] as? String, "crisp", "options you pass win over the rule")
+        XCTAssertEqual(json["copies"] as? Int, 1)
+
+        let off = try run(["print", svg.path, "--dry-run", "--json", "--no-rules"])
+        json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(off.out.utf8)) as? [String: Any])
+        XCTAssertNil(json["rule"])
+        XCTAssertEqual(json["copies"] as? Int, 1)
+    }
+
+    /// Metric sizes read "100 × 150 mm", not "100×150mm in".
+    func testMetricSizeInTheHeader() throws {
+        let svg = try sampleSVG()
+        let r = try run(["preview", svg.path, "--size", "100x150mm", "-o", tmp.appendingPathComponent("out").path])
+        XCTAssertEqual(r.code, 0, r.err)
+        XCTAssertTrue(r.out.contains("100 × 150 mm"), r.out)
+        XCTAssertFalse(r.out.contains("mm in"), r.out)
+    }
 }

@@ -1,5 +1,6 @@
 import AppKit
 import LabelKit
+import LabelizeCore
 import SwiftUI
 import UniformTypeIdentifiers
 

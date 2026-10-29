@@ -1,4 +1,5 @@
 import LabelKit
+import LabelizeCore
 @testable import LabelizeCLI
 import XCTest
 
@@ -171,15 +172,18 @@ final class ParserTests: XCTestCase {
 
     func testAppDefaultsArePerPrinter() {
         let values: [String: Any] = ["printer": "P", "size.P": "2x1", "ink": "photo", "cutoff.P": 0.3, "nudgeX.P": 1.5]
-        let d = AppDefaults(source: "test") { values[$0] }
-        let (o, from) = d.options(for: "P")
+        let d = AppSettings.memory(values, source: "test")
+        let p = PrinterInfo(name: "P", presets: [LabelSize(width: 2, height: 1), .fourBySix])
+        let r = d.options(for: p)
         XCTAssertEqual(d.printerName, "P")
-        XCTAssertEqual(o.size, LabelSize(width: 2, height: 1))
-        XCTAssertEqual(o.ink, .photo)
-        XCTAssertEqual(o.cutoff, 0.3)
-        XCTAssertEqual(o.nudgeMM, CGPoint(x: 1.5, y: 0))
-        XCTAssertEqual(from, ["size", "ink", "cutoff", "nudge"])
-        XCTAssertEqual(AppDefaults.system(environment: ["PEELGOOD_DEFAULTS_DOMAIN": "none"]).source, "none")
+        XCTAssertEqual(r.options.size, LabelSize(width: 2, height: 1))
+        XCTAssertEqual(r.options.ink, .photo)
+        XCTAssertEqual(r.options.cutoff, 0.3)
+        XCTAssertEqual(r.options.nudgeMM, CGPoint(x: 1.5, y: 0))
+        XCTAssertEqual(r.saved, ["size", "ink", "cutoff", "nudge"])
+        XCTAssertNil(r.note)
+        XCTAssertEqual(AppSettings.system(environment: ["PEELGOOD_DEFAULTS_DOMAIN": "none"]).source, "none")
+        XCTAssertFalse(AppSettings.system(environment: ["PEELGOOD_DEFAULTS_DOMAIN": "none"], writable: true).isWritable)
     }
 
     // MARK: Generated text

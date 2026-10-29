@@ -4,6 +4,7 @@
 import Foundation
 import LabelizeCLI
 import LabelKit
+import LabelizeCore
 
 let environment = ProcessInfo.processInfo.environment
 let tool = (CommandLine.arguments.first.map { ($0 as NSString).lastPathComponent }).flatMap { Manual.names.contains($0) ? $0 : nil } ?? Manual.tool
@@ -21,7 +22,7 @@ let inv: Invocation
 do { inv = try Parser.parse(rawArgs) } catch let e as CLIError { report(e, style: earlyErr) } catch { report(CLIError("\(error)"), style: earlyErr) }
 
 let ctx = Context(inv: inv, out: Style.detect(fd: 1, noColor: inv.global.noColor), err: Style.detect(fd: 2, noColor: inv.global.noColor),
-                  defaults: AppDefaults.system(), tool: tool, environment: environment)
+                  defaults: AppSettings.system(), tool: tool, environment: environment)
 
 func run() throws -> ExitCode {
     switch inv.command {

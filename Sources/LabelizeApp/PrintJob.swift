@@ -1,5 +1,6 @@
 import AppKit
 import LabelKit
+import LabelizeCore
 
 /// One drop: compose every page, optionally wait for review, count down, print.
 @MainActor
@@ -150,15 +151,11 @@ final class PrintJob: ObservableObject {
     func send() async {
         phase = .printing
         guard outcome == nil else { return }
-        let url = Store.historyFolder.appendingPathComponent(Self.historyName(for: files.first))
+        let url = History.folder.appendingPathComponent(History.fileName(for: files.first))
         let labels = labels, printer = printer, size = options.size, copies = copies, sender = sender
         do {
             let id = try await Task.detached {
-                if printer.isLabelPrinter {
-                    try LabelWriter.writePDF(labels, size: size, to: url)
-                } else {
-                    try LabelWriter.writeVectorPDF(labels, size: size, to: url)
-                }
+                try LabelWriter.write(labels, size: size, forLabelPrinter: printer.isLabelPrinter, to: url)
                 let id = try sender(url, printer.name, size, copies)
                 Log.notice(.print, "sent \(labels.count) label(s) to \(printer.name) (media \(size.cupsMedia)): \(id)")
                 return id
@@ -173,21 +170,5 @@ final class PrintJob: ObservableObject {
             phase = .failed("\(error)")
             finish(.failed("\(error)"))
         }
-    }
-
-    /// "<now> <name>.label.pdf". A reprint's source is already a history file, so its timestamps
-    /// and ".label" are taken off first: names don't pile up.
-    nonisolated static func historyName(for file: URL?, at date: Date = Date()) -> String {
-        let stamp = ISO8601DateFormatter().string(from: date).replacingOccurrences(of: ":", with: "-")
-        return "\(stamp) \(baseName(file)).label.pdf"
-    }
-
-    nonisolated static func baseName(_ file: URL?) -> String {
-        var name = file?.deletingPathExtension().lastPathComponent ?? "label"
-        let stamp = try! Regex(#"^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}(\.\d+)?Z\s+"#)
-        while let m = name.prefixMatch(of: stamp) { name.removeSubrange(m.range) }
-        while name.hasSuffix(".label") { name.removeLast(".label".count) }
-        name = name.trimmingCharacters(in: .whitespaces)
-        return name.isEmpty ? "label" : name
     }
 }

@@ -1,4 +1,5 @@
 import Foundation
+import LabelizeCore
 
 /// What the HTTP API and the MCP server can ask the app to do. The API layer only talks to this.
 /// `AppLabelService` is the real implementation; `MockLabelService` never prints.
@@ -8,7 +9,8 @@ protocol LabelService: AnyObject {
     /// Sizes for a printer, by queue name or display name.
     func sizes(printer: String) throws -> [APISize]
     /// Prints every page of every file. `request.path` is ignored here; the caller resolves files.
-    /// `source` is an `APIJob.Source`; only `localFile` jobs get the after-print tag or move.
+    /// `source` is an `APIJob.Source`. Only the user's own files (`AfterPrint.isUserFile`: not uploads,
+    /// the clipboard or History) get the after-print tag or move, which in practice means `localFile` jobs.
     func print(files: [URL], request: APIPrintRequest, source: String) async throws -> APIJob
     /// Composes every page of every file without printing.
     func preview(files: [URL], request: APIPrintRequest) async throws -> APIPreview
@@ -187,6 +189,18 @@ struct APIError: Error, CustomStringConvertible, Sendable {
     static func notFound(_ message: String, code: String = "not_found") -> APIError { .init(status: 404, code: code, message: message) }
     static func unprocessable(_ message: String, code: String = "unprocessable") -> APIError { .init(status: 422, code: code, message: message) }
     static func failed(_ message: String, code: String = "print_failed") -> APIError { .init(status: 500, code: code, message: message) }
+}
+
+extension APIError {
+    /// A rejected option: 422 when the printer can't do it, else 400.
+    init(_ e: OptionError) {
+        self.init(status: e.isUnsupported ? 422 : 400, code: e.code, message: e.message)
+    }
+}
+
+extension APIPrintRequest {
+    /// The size, fit and ink asked for, checked when applied.
+    var overrides: OptionOverrides { OptionOverrides(size: size, fit: fit, ink: ink) }
 }
 
 struct APIErrorBody: Codable, Sendable {

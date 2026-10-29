@@ -1,5 +1,6 @@
 import AppKit
 import LabelKit
+import LabelizeCore
 import ServiceManagement
 import SwiftUI
 
@@ -7,10 +8,10 @@ import SwiftUI
 @MainActor
 final class SettingsWindowController {
     private let store: Store
-    private let testLabel: () -> Void
+    private let testLabel: (PrinterInfo) -> Void
     private var window: NSWindow?
 
-    init(store: Store, testLabel: @escaping () -> Void) {
+    init(store: Store, testLabel: @escaping (PrinterInfo) -> Void) {
         self.store = store
         self.testLabel = testLabel
     }
@@ -80,7 +81,7 @@ enum AppWindows {
 struct GeneralPane: View {
     @ObservedObject var store: Store
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
-    @State private var historySummary = History.summary
+    @State private var historySummary = History.summary()
 
     var body: some View {
         Form {
@@ -95,9 +96,10 @@ struct GeneralPane: View {
                 }
                 Picker("Before printing", selection: Binding(get: { store.alwaysReview ? -1 : store.countdown },
                                                              set: { v in store.alwaysReview = v < 0; if v >= 0 { store.countdown = v } })) {
-                    Text("Immediately").tag(0.0)
-                    Text("After 1.5 s").tag(1.5)
-                    Text("After 3 s").tag(3.0)
+                    // Limits' choices, plus a value MCP set that isn't one of them.
+                    ForEach(Limits.choices(Limits.countdownChoices, including: store.countdown), id: \.self) { v in
+                        Text(Limits.countdownTitle(v)).tag(v)
+                    }
                     Text("Show preview").tag(-1.0)
                 }
             } footer: {
@@ -161,13 +163,10 @@ struct GeneralPane: View {
                 }
             }
             Section {
-                Picker("Keep printed labels", selection: Binding(get: { store.historyDays }, set: { store.historyDays = $0; History.prune(keepingDays: $0); historySummary = History.summary })) {
-                    Text("1 day").tag(1)
-                    Text("1 week").tag(7)
-                    Text("1 month").tag(30)
-                    Text("3 months").tag(90)
-                    Text("1 year").tag(365)
-                    Text("Forever").tag(0)
+                Picker("Keep printed labels", selection: Binding(get: { store.historyDays }, set: { store.historyDays = $0; History.prune(keepingDays: $0); historySummary = History.summary() })) {
+                    ForEach(Limits.choices(Limits.historyChoices, including: store.historyDays, keepLast: 0), id: \.self) { d in
+                        Text(Limits.historyTitle(d)).tag(d)
+                    }
                 }
                 LabeledContent("Saved", value: historySummary)
                 HStack {
@@ -184,7 +183,7 @@ struct GeneralPane: View {
         }
         .formStyle(.grouped)
         .frame(width: 560, height: 610)
-        .onAppear { historySummary = History.summary }
+        .onAppear { historySummary = History.summary() }
     }
 
     private func chooseFolder() {
@@ -205,7 +204,7 @@ struct GeneralPane: View {
         alert.buttons[0].hasDestructiveAction = true
         guard alert.runModal() == .alertFirstButtonReturn else { return }
         History.deleteAll()
-        historySummary = History.summary
+        historySummary = History.summary()
     }
 }
 
@@ -213,7 +212,7 @@ struct GeneralPane: View {
 
 struct PrintersPane: View {
     @ObservedObject var store: Store
-    let testLabel: () -> Void
+    let testLabel: (PrinterInfo) -> Void
     @State private var selection: String?
 
     var body: some View {
@@ -304,7 +303,7 @@ struct PrintersPane: View {
 struct PrinterDetail: View {
     @ObservedObject var store: Store
     let printer: PrinterInfo
-    let testLabel: () -> Void
+    let testLabel: (PrinterInfo) -> Void
     @State private var preview: NSImage?
     @State private var showAdvanced = false
 
@@ -316,8 +315,7 @@ struct PrinterDetail: View {
                               sizes: SizeCatalog.entries(for: printer).filter(\.isSupported).map(\.size))
                 }
                 Picker("Scaling", selection: Binding(get: { store.fit(for: printer) }, set: { store.setFit($0, for: printer) })) {
-                    Text("Fit").tag(FitMode.fit)
-                    Text("Fill").tag(FitMode.fill)
+                    ForEach(FitMode.allCases, id: \.self) { Text($0.title).tag($0) }
                 }
                 .pickerStyle(.segmented)
             }
@@ -326,10 +324,7 @@ struct PrinterDetail: View {
                     LabeledContent("Ink") {
                         HStack {
                             Picker("Ink", selection: Binding(get: { store.ink(for: printer) }, set: { store.setInk($0, for: printer); refreshPreview() })) {
-                                Text("Auto").tag(InkMode.auto)
-                                Text("Crisp").tag(InkMode.crisp)
-                                Text("Photo").tag(InkMode.photo)
-                                Text("Halftone").tag(InkMode.halftone)
+                                ForEach(InkMode.allCases, id: \.self) { Text($0.title).tag($0) }
                             }
                             .pickerStyle(.segmented)
                             .labelsHidden()
@@ -339,7 +334,7 @@ struct PrinterDetail: View {
                     LabeledContent("Threshold") {
                         HStack {
                             Slider(value: Binding(get: { store.cutoff(for: printer) }, set: { store.setCutoff($0, for: printer) }),
-                                   in: 0.2...0.8) { editing in if !editing { refreshPreview() } }
+                                   in: Limits.cutoff) { editing in if !editing { refreshPreview() } }
                             Text("\(Int(store.cutoff(for: printer) * 100))%").monospacedDigit().frame(width: 40, alignment: .trailing)
                         }
                     }
@@ -365,10 +360,7 @@ struct PrinterDetail: View {
                         Button("Use as Default") { store.printer = printer }
                     }
                     Spacer()
-                    Button("Print Test Label") {
-                        store.printer = printer
-                        testLabel()
-                    }
+                    Button("Print Test Label") { testLabel(printer) }
                 }
             }
         }
@@ -383,7 +375,7 @@ struct PrinterDetail: View {
         )
         return HStack(spacing: 4) {
             TextField("", value: binding, format: .number.precision(.fractionLength(1))).frame(width: 56).multilineTextAlignment(.trailing)
-            Stepper("", value: binding, in: -10...10, step: 0.1).labelsHidden()
+            Stepper("", value: binding, in: Limits.nudgeMM, step: 0.1).labelsHidden()
             Text("mm").foregroundStyle(.secondary)
         }
     }
@@ -394,7 +386,7 @@ struct PrinterDetail: View {
         var o = store.options(for: printer)
         o.crop = .none
         let size = o.size
-        let page = InkSample.page(size: size, title: printer.displayName)
+        let page = TestLabel.inkSample.page(size: size, title: printer.displayName)
         Task.detached {
             let label = LabelComposer.compose(page, o)
             let image = label.bitmap.cgImage().map { NSImage(cgImage: $0, size: size.points) }

@@ -80,7 +80,7 @@ slices=()
 for a in $ARCHS; do
   xcrun swiftc -O -parse-as-library -application-extension -module-name LabelizeShare \
     -target "$a-apple-macos$MIN_OS" -Xlinker -e -Xlinker _NSExtensionMain \
-    Extensions/Share/ShareViewController.swift -o "$TMP/LabelizeShare-$a"
+    Extensions/Share/ShareViewController.swift Sources/PeelGoodShared/AppIdentity.swift -o "$TMP/LabelizeShare-$a"
   slices+=("$TMP/LabelizeShare-$a")
 done
 xcrun lipo -create "${slices[@]}" -output "$APPEX/Contents/MacOS/LabelizeShare"

@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import PeelGoodShared
 
 /// Settings > API: MCP and its permissions, then the HTTP API; port, token and status under Advanced.
 /// Setup snippets and the endpoint reference open as sheets.
@@ -117,7 +118,7 @@ struct APIPane: View {
                 }
             }
         } footer: {
-            Text("Only apps on this Mac can connect. The token is in ~/Library/Application Support/Peel Good/token.")
+            Text("Only apps on this Mac can connect. The token is in \(AppIdentity.supportFolderDisplay)/token.")
                 .font(.callout).foregroundStyle(.secondary)
         }
     }

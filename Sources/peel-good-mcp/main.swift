@@ -2,9 +2,7 @@
 // JSON-RPC message to the app's local MCP endpoint (http://127.0.0.1:<port>/mcp).
 // Peel Good Inc. (Labelize.app internally) must be running with Settings > API > MCP server on.
 import Foundation
-
-let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-    .appendingPathComponent("Peel Good", isDirectory: true)
+import PeelGoodShared
 
 func log(_ message: String) {
     FileHandle.standardError.write(Data("peel-good-mcp: \(message)\n".utf8))
@@ -32,12 +30,8 @@ struct Endpoint {
 
     /// From server.json and the token file the app writes.
     static func load() -> Endpoint? {
-        guard let data = try? Data(contentsOf: support.appendingPathComponent("server.json")),
-              let info = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let port = info["port"] as? Int, info["mcp"] as? Bool == true,
-              let token = try? String(contentsOf: support.appendingPathComponent("token"), encoding: .utf8)
-        else { return nil }
-        return Endpoint(url: URL(string: "http://127.0.0.1:\(port)/mcp")!, token: token.trimmingCharacters(in: .whitespacesAndNewlines))
+        guard let info = ServerInfo.load(), info.mcp, let token = ServerInfo.token() else { return nil }
+        return Endpoint(url: URL(string: "http://127.0.0.1:\(info.port)/mcp")!, token: token)
     }
 }
 
@@ -52,7 +46,7 @@ actor Relay {
         return URLSession(configuration: config)
     }()
 
-    static let notRunning = "Peel Good Inc. isn't running, or its MCP server is off. Open Peel Good Inc. and turn on Settings > API > MCP server."
+    static let notRunning = "\(AppIdentity.appName) isn't running, or its MCP server is off. Open \(AppIdentity.appName) and turn on Settings > API > MCP server."
 
     func send(_ line: Data) async {
         let message = try? JSONSerialization.jsonObject(with: line) as? [String: Any]
@@ -95,7 +89,7 @@ actor Relay {
                         .flatMap { ($0["error"] as? [String: Any])?["message"] as? String } ?? String(decoding: body, as: UTF8.self)
                     log("HTTP \(http.statusCode): \(text)")
                     if http.statusCode == 404 { sessionID = nil }
-                    await output.error(id: id, code: -32000, "Peel Good Inc.: \(text)")
+                    await output.error(id: id, code: -32000, "\(AppIdentity.appName): \(text)")
                 } else if !body.isEmpty {
                     await output.write(body)
                 }
