@@ -206,7 +206,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
                 Notifier.shared.ask(first, detail: "Print on \(decision.printer.displayName) at \(decision.options.size.display)?")
                 return
             }
-            start(files, on: decision.printer, options: decision.options, review: review == true || action != .print, decision: decision)
+            start(files, on: decision.printer, options: decision.options,
+                  review: review == true || store.alwaysReview || action != .print, decision: decision)
         }
     }
 
@@ -231,8 +232,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             self.store.lastPrint = Store.LastPrint(file: url, printer: job.printer.name, size: job.options.size)
             Sounds.play(Sounds.sent, if: self.store.playSounds && (decision?.playSound ?? true))
             // The rule's tag replaces the general one, so files don't get two.
-            AfterPrint.apply(to: job.files, store: self.store, tag: decision?.tag == nil)
-            if let tag = decision?.tag {
+            // A rule's own tag replaces the general one; "Everything else" follows the Files setting.
+            let ruleTag = decision?.isFallback == false ? decision?.tag : nil
+            AfterPrint.apply(to: job.files, store: self.store, tag: ruleTag == nil)
+            if let tag = ruleTag {
                 for file in job.files where AfterPrint.isUserFile(file) { tag.apply(to: file) }
             }
             History.prune(keepingDays: self.store.historyDays)
