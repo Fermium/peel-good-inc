@@ -28,7 +28,7 @@ let package = Package(
         ]),
         .executableTarget(name: "labelize-mcp"),
         .testTarget(name: "LabelKitTests", dependencies: ["LabelKit"]),
-        .testTarget(name: "LabelizeAppTests", dependencies: ["LabelizeApp"]),
+        .testTarget(name: "LabelizeAppTests", dependencies: ["LabelizeApp", .product(name: "MCP", package: "swift-sdk")]),
     ],
     swiftLanguageModes: [.v5]
 )

@@ -81,7 +81,7 @@ final class AppLabelService: LabelService {
     func printClipboard(request: APIPrintRequest) async throws -> APIJob {
         let files = await Intake.files(from: .general, name: "Clipboard")
         guard !files.isEmpty else { throw APIError.unprocessable("Nothing printable on the clipboard.", code: "clipboard_empty") }
-        return try await print(files: files, request: request, source: "clipboard")
+        return try await print(files: files, request: request, source: APIJob.Source.clipboard)
     }
 
     /// The saved label PDF is already label-sized, so it prints 1:1 (same as Reprint Last Label).
@@ -95,7 +95,7 @@ final class AppLabelService: LabelService {
         options.size = printer.resolve(last.size) ?? last.size
         options.crop = .none
         options.nudgeMM = .zero
-        return try await send([last.file], printer: printer, options: options, copies: try Self.copies(copies), source: "reprint")
+        return try await send([last.file], printer: printer, options: options, copies: try Self.copies(copies), source: APIJob.Source.reprint)
     }
 
     func jobs() -> [APIJob] { recent }
@@ -142,7 +142,8 @@ final class AppLabelService: LabelService {
             record(job)
             store.lastPrint = Store.LastPrint(file: url, printer: printer.name, size: size)
             Sounds.play(Sounds.sent, if: store.playSounds)
-            AfterPrint.apply(to: files, store: store)
+            // Only files already on this Mac (MCP, with permission) get tagged or moved; uploads are temporary copies.
+            if source == APIJob.Source.localFile { AfterPrint.apply(to: files, store: store) }
             History.prune(keepingDays: store.historyDays)
             return job
         } catch {

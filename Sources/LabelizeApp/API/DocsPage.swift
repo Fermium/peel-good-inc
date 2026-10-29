@@ -25,6 +25,9 @@ enum DocsPage {
         <p>Every request except this page and <a href="/openapi.json">openapi.json</a> needs the token in
         <code>~/Library/Application Support/Labelize/token</code>:</p>
         <pre>curl -s \(esc(OpenAPI.authHeader)) \(OpenAPI.baseURL(port: port))/v1/health</pre>
+        <p>Only files sent with a request print: up to \(APILimits.maxFiles) files of \(APILimits.maxFileBytes / 1_048_576) MB,
+        \(APILimits.maxLabels) pages in all, and \(APILimits.printsPerMinute) prints or previews a minute.
+        Files on this Mac, the clipboard and reprinting aren't available over HTTP.</p>
         <p>Requests with an <code>Origin</code> header are refused, so web pages can't call the API.
         MCP clients connect to <code>\(OpenAPI.baseURL(port: port))/mcp</code> with the same token.</p>
         </header>

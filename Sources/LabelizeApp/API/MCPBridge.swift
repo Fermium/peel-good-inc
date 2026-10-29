@@ -124,11 +124,43 @@ actor MCPSessions {
 
 // MARK: Tools
 
+/// What a tool needs beyond MCP being on. Both permissions are off by default and only Settings can turn them on.
+enum MCPPermission: String, Sendable {
+    case none
+    /// Paths on this Mac, the clipboard, reprinting.
+    case localFiles
+    /// Settings, rules, watched folders, HTTP API switch and port.
+    case settings
+
+    var settingTitle: String {
+        switch self {
+        case .none: ""
+        case .localFiles: "Let MCP print files from this Mac"
+        case .settings: "Let MCP change settings"
+        }
+    }
+
+    var refusal: APIError {
+        APIError(status: 403, code: "permission_required",
+                 message: "Turn on \u{201C}\(settingTitle)\u{201D} in Peel Good Inc. Settings > API, then try again.")
+    }
+
+    @MainActor var isGranted: Bool {
+        switch self {
+        case .none: true
+        case .localFiles: APIController.shared.mcpCanUseLocalFiles
+        case .settings: APIController.shared.mcpCanChangeSettings
+        }
+    }
+}
+
 enum MCPTools {
     static let instructions = """
     Peel Good Inc. prints shipping labels on this Mac's label printer. Every page of every file becomes one label. \
     Use preview_label to check the result and whether barcodes still scan before printing. \
-    Paths must be absolute paths on this Mac.
+    Send files as content_base64. Paths on this Mac, the clipboard and reprinting need the user to turn on \
+    "Let MCP print files from this Mac"; changing settings and rules needs "Let MCP change settings". \
+    Both are in Peel Good Inc. Settings > API. Tools that need a permission say so in their error.
     """
 
     static func makeServer() async -> Server {
@@ -139,6 +171,8 @@ enum MCPTools {
         return server
     }
 
+    // MARK: Schemas
+
     private static let options: [String: Value] = [
         "printer": ["type": "string", "description": "Queue name or display name from list_printers. Defaults to the default printer set in Peel Good Inc."],
         "size": ["type": "string", "description": "Label size like 4x6, 2.25x1.25 or 100x150mm. Defaults to the printer's size."],
@@ -147,40 +181,116 @@ enum MCPTools {
     ]
 
     private static let fileInput: [String: Value] = [
-        "path": ["type": "string", "description": "Absolute path to a PDF, SVG or image on this Mac."],
-        "content_base64": ["type": "string", "description": "The file itself, base64, when there is no path."],
+        "content_base64": ["type": "string", "description": "The file, base64. Up to 25 MB."],
         "filename": ["type": "string", "description": "Name for content_base64, with extension, for example label.pdf."],
+        "path": ["type": "string", "description": "Absolute path to a PDF, SVG or image on this Mac. Needs \"Let MCP print files from this Mac\"."],
     ]
 
     private static let copies: [String: Value] = ["copies": ["type": "integer", "minimum": 1, "maximum": .int(AppLabelService.maxCopies)]]
 
-    private static func schema(_ props: [String: Value]...) -> Value {
-        .object(["type": "object", "properties": .object(props.reduce(into: [:]) { $0.merge($1) { a, _ in a } })])
+    private static func schema(_ props: [String: Value]..., required: [String] = []) -> Value {
+        var o: [String: Value] = ["type": "object", "properties": .object(props.reduce(into: [:]) { $0.merge($1) { a, _ in a } })]
+        if !required.isEmpty { o["required"] = .array(required.map { .string($0) }) }
+        return .object(o)
     }
 
-    static let tools: [Tool] = [
-        Tool(name: "list_printers", title: "List printers",
-             description: "Printers that can take a 4x6 label or smaller, with their current size and settings.",
-             inputSchema: schema(), annotations: .init(readOnlyHint: true, openWorldHint: false)),
-        Tool(name: "list_sizes", title: "List label sizes",
-             description: "Label sizes for a printer, each marked supported or not.",
-             inputSchema: schema(["printer": options["printer"]!]), annotations: .init(readOnlyHint: true, openWorldHint: false)),
-        Tool(name: "print_label", title: "Print label",
-             description: "Prints a PDF, SVG or image right away. Every page becomes a label. Returns the job, including how many codes still scan.",
-             inputSchema: schema(fileInput, options, copies), annotations: .init(readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true)),
-        Tool(name: "preview_label", title: "Preview label",
-             description: "Shows each label as it would print, and whether its barcodes and QR codes still scan. Nothing prints.",
-             inputSchema: schema(fileInput, options), annotations: .init(readOnlyHint: true, openWorldHint: false)),
-        Tool(name: "print_clipboard", title: "Print clipboard",
-             description: "Prints the PDF, image or files on the clipboard.",
-             inputSchema: schema(options, copies), annotations: .init(readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true)),
-        Tool(name: "reprint_last", title: "Reprint last label",
-             description: "Sends the last printed labels again to the same printer.",
-             inputSchema: schema(copies), annotations: .init(readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true)),
-        Tool(name: "list_jobs", title: "List recent jobs",
-             description: "Jobs sent through the API since Peel Good Inc. opened, newest first.",
-             inputSchema: schema(), annotations: .init(readOnlyHint: true, openWorldHint: false)),
+    private static let settingsProps: [String: Value] = [
+        "defaultPrinter": ["type": "string", "description": "Queue name or display name."],
+        "countdownSeconds": ["type": "number", "minimum": 0, "maximum": 10, "description": "Wait before printing a dropped file. 0 prints right away."],
+        "alwaysPreview": ["type": "boolean", "description": "Ask first instead of counting down."],
+        "playSounds": ["type": "boolean"],
+        "hiddenPrinters": ["type": "array", "items": ["type": "string"], "description": "Queue names hidden from the app's lists."],
+        "tagAfterPrint": ["type": "boolean", "description": "Add a Finder tag to printed files."],
+        "tagName": ["type": "string"],
+        "tagColor": ["type": "string", "enum": .array(FinderTag.Color.allCases.map { .string(AppConfigurator.colorName($0)) })],
+        "afterPrint": ["type": "string", "enum": .array(AfterPrintAction.allCases.map { .string($0.rawValue) }), "description": "What happens to the original file after printing."],
+        "renameSuffix": ["type": "string", "description": "For afterPrint rename."],
+        "moveFolder": ["type": ["string", "null"], "description": "Existing folder, for afterPrint move."],
+        "keepHistoryDays": ["type": "integer", "minimum": 0, "maximum": 3650, "description": "Days to keep printed labels for reprinting. 0 keeps them forever."],
+        "httpEnabled": ["type": "boolean", "description": "The local HTTP API."],
+        "port": ["type": "integer", "minimum": 1024, "maximum": 65535, "description": "Changes a second after the reply; reconnect on the new port."],
     ]
+
+    private static let printerProps: [String: Value] = [
+        "printer": ["type": "string", "description": "Queue name or display name."],
+        "size": ["type": "string", "description": "Loaded roll, like 4x6."],
+        "fit": ["type": "string", "enum": ["fit", "fill"]],
+        "ink": ["type": "string", "enum": ["auto", "crisp", "photo"]],
+        "cutoff": ["type": "number", "minimum": 0.2, "maximum": 0.8, "description": "Gray level below which a dot prints black."],
+        "nudgeXmm": ["type": "number", "minimum": -10, "maximum": 10, "description": "Alignment, + moves right."],
+        "nudgeYmm": ["type": "number", "minimum": -10, "maximum": 10, "description": "Alignment, + moves down."],
+    ]
+
+    /// The rule format, generated from the rule model so it can't drift.
+    static var ruleFormat: String {
+        let fields = RuleCondition.Field.allCases.map { f -> String in
+            let choices = f.choices.isEmpty ? "" : " values one of \(f.choices.map(\.0).joined(separator: "|"))"
+            return "\(f.rawValue) (ops \(f.ops.map(\.rawValue).joined(separator: "|"))\(choices))"
+        }.joined(separator: "; ")
+        return """
+        A rule is {name, isEnabled, matchAll, conditions: [{field, op, values: [text], number}], \
+        outcome: {printer, size, fit, ink, action: print|review|ask, copies, tag: {name, color}, playSound}}. \
+        Outcome fields left out use the printer's settings. Rules run top to bottom; the first match wins, else Everything else. \
+        Fields: \(fields).
+        """
+    }
+
+    private static let ruleInput: Value = ["type": "object", "description": "Fields to set. Fields left out keep their value."]
+
+    private static func readOnly() -> Tool.Annotations { .init(readOnlyHint: true, openWorldHint: false) }
+    private static func prints() -> Tool.Annotations { .init(readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true) }
+    private static func edits(destructive: Bool = false) -> Tool.Annotations { .init(readOnlyHint: false, destructiveHint: destructive, idempotentHint: !destructive, openWorldHint: false) }
+
+    private static let localNote = " Needs \"Let MCP print files from this Mac\" in Settings > API."
+    private static let settingsNote = " Needs \"Let MCP change settings\" in Settings > API."
+
+    /// Every tool, and the permission it needs. print_label and preview_label need localFiles only when given a path.
+    static let catalog: [(tool: Tool, permission: MCPPermission)] = [
+        (Tool(name: "list_printers", title: "List printers", description: "Printers that can take a 4x6 label or smaller, with their current size and settings.",
+              inputSchema: schema(), annotations: readOnly()), .none),
+        (Tool(name: "list_sizes", title: "List label sizes", description: "Label sizes for a printer, each marked supported or not.",
+              inputSchema: schema(["printer": options["printer"]!]), annotations: readOnly()), .none),
+        (Tool(name: "print_label", title: "Print label",
+              description: "Prints a PDF, SVG or image right away. Every page becomes a label. Returns the job, including how many codes still scan. A path" + localNote,
+              inputSchema: schema(fileInput, options, copies), annotations: prints()), .none),
+        (Tool(name: "preview_label", title: "Preview label",
+              description: "Shows each label as it would print, and whether its barcodes and QR codes still scan. Nothing prints. A path" + localNote,
+              inputSchema: schema(fileInput, options), annotations: readOnly()), .none),
+        (Tool(name: "print_clipboard", title: "Print clipboard", description: "Prints the PDF, image or files on the clipboard." + localNote,
+              inputSchema: schema(options, copies), annotations: prints()), .localFiles),
+        (Tool(name: "reprint_last", title: "Reprint last label", description: "Sends the last printed labels again to the same printer." + localNote,
+              inputSchema: schema(copies), annotations: prints()), .localFiles),
+        (Tool(name: "list_jobs", title: "List recent jobs", description: "Jobs sent through the API or MCP since Peel Good Inc. opened, newest first.",
+              inputSchema: schema(), annotations: readOnly()), .none),
+        (Tool(name: "get_settings", title: "Get settings",
+              description: "All settings: general, files, per printer, watched folders, and the API switches and permissions.",
+              inputSchema: schema(), annotations: readOnly()), .none),
+        (Tool(name: "update_settings", title: "Change settings",
+              description: "Changes app settings. Only the fields given change. MCP can't change the MCP switch, its permissions or the token." + settingsNote,
+              inputSchema: schema(settingsProps), annotations: edits()), .settings),
+        (Tool(name: "set_printer_settings", title: "Change printer settings",
+              description: "Changes one printer's label size, scaling, ink, threshold or alignment." + settingsNote,
+              inputSchema: schema(printerProps, required: ["printer"]), annotations: edits()), .settings),
+        (Tool(name: "set_watched_folders", title: "Set watched folders",
+              description: "Replaces the folders watched for new labels. Pass an empty list to stop watching." + settingsNote,
+              inputSchema: schema(["folders": ["type": "array", "items": ["type": "string"], "description": "Existing folders, absolute or starting with ~."]], required: ["folders"]),
+              annotations: edits()), .settings),
+        (Tool(name: "list_rules", title: "List rules", description: "Rules in order, and Everything else. " + ruleFormat,
+              inputSchema: schema(), annotations: readOnly()), .none),
+        (Tool(name: "add_rule", title: "Add rule", description: "Adds a rule at the end of the list." + settingsNote + " " + ruleFormat,
+              inputSchema: schema(["rule": ruleInput], required: ["rule"]), annotations: edits()), .settings),
+        (Tool(name: "update_rule", title: "Change rule",
+              description: "Changes a rule by id. Passing conditions replaces them all. Use id everything-else for Everything else (outcome only)." + settingsNote,
+              inputSchema: schema(["id": ["type": "string"], "rule": ruleInput], required: ["id", "rule"]), annotations: edits()), .settings),
+        (Tool(name: "delete_rule", title: "Delete rule", description: "Deletes a rule by id." + settingsNote,
+              inputSchema: schema(["id": ["type": "string"]], required: ["id"]), annotations: edits(destructive: true)), .settings),
+        (Tool(name: "reorder_rules", title: "Reorder rules", description: "Sets the rule order. List every rule id once." + settingsNote,
+              inputSchema: schema(["ids": ["type": "array", "items": ["type": "string"]]], required: ["ids"]), annotations: edits()), .settings),
+    ]
+
+    static var tools: [Tool] { catalog.map(\.tool) }
+
+    // MARK: Calling
 
     @MainActor
     static func call(_ params: CallTool.Parameters) async -> CallTool.Result {
@@ -188,6 +298,13 @@ enum MCPTools {
         let result: CallTool.Result
         do {
             guard let service = APIController.shared.service else { throw APIError.failed("Peel Good Inc. isn't ready.", code: "not_ready") }
+            guard let entry = catalog.first(where: { $0.tool.name == params.name }) else {
+                throw APIError.notFound("No tool named \(params.name).", code: "no_tool")
+            }
+            guard entry.permission.isGranted else {
+                Log.warning(.api, "MCP tool \(params.name) refused: needs \(entry.permission.settingTitle)")
+                throw entry.permission.refusal
+            }
             result = try await run(params.name, params.arguments ?? [:], service)
         } catch let e as APIError {
             result = CallTool.Result(content: [.text(text: "\(e.message) (\(e.code))", annotations: nil, _meta: nil)], isError: true)
@@ -201,6 +318,11 @@ enum MCPTools {
 
     @MainActor
     private static func run(_ name: String, _ args: [String: Value], _ service: LabelService) async throws -> CallTool.Result {
+        let api = APIController.shared
+        func config() throws -> AppConfigurator {
+            guard let c = api.configurator else { throw APIError.failed("Peel Good Inc. isn't ready.", code: "not_ready") }
+            return c
+        }
         switch name {
         case "list_printers":
             return try encoded(service.printers())
@@ -212,7 +334,8 @@ enum MCPTools {
         case "print_label":
             let input = try fileInput(args)
             defer { input.cleanUp() }
-            return try encoded(try await service.print(files: input.files, request: input.request, source: "file"))
+            let source = input.scratch == nil ? APIJob.Source.localFile : APIJob.Source.upload
+            return try encoded(try await service.print(files: input.files, request: input.request, source: source))
         case "preview_label":
             let input = try fileInput(args)
             defer { input.cleanUp() }
@@ -223,19 +346,60 @@ enum MCPTools {
             let images = preview.images.prefix(20).map { Tool.Content.image(data: $0.png.base64EncodedString(), mimeType: "image/png", annotations: nil, _meta: nil) }
             return CallTool.Result(content: [.text(text: text, annotations: nil, _meta: nil)] + images)
         case "print_clipboard":
-            return try encoded(try await service.printClipboard(request: try request(args)))
+            var request = try request(args)
+            request.path = nil
+            return try encoded(try await service.printClipboard(request: request))
         case "reprint_last":
             return try encoded(try await service.reprintLast(copies: try int(args["copies"], "copies")))
         case "list_jobs":
-            return try encoded(service.jobs())
+            let jobs = service.jobs()
+            return try encoded(api.mcpCanUseLocalFiles ? jobs : jobs.map { var j = $0; j.savedPDF = nil; return j })
+        case "get_settings":
+            return text(AppConfigurator.json(try config().settings()))
+        case "update_settings":
+            return text(try config().updateSettings(try plain(args)).joined(separator: "\n"))
+        case "set_printer_settings":
+            return text(try config().setPrinterSettings(try plain(args)).joined(separator: "\n"))
+        case "set_watched_folders":
+            return text(try config().setWatchedFolders(try plain(args)["folders"] ?? NSNull()).joined(separator: "\n"))
+        case "list_rules":
+            return text(AppConfigurator.json(try config().listRules()))
+        case "add_rule":
+            return text(AppConfigurator.json(try config().addRule(try ruleArg(args))))
+        case "update_rule":
+            return text(AppConfigurator.json(try config().updateRule(try idArg(args), try ruleArg(args))))
+        case "delete_rule":
+            return text(try config().deleteRule(try idArg(args)))
+        case "reorder_rules":
+            guard let ids = try plain(args)["ids"] as? [String] else { throw APIError.badRequest("ids must be a list of rule ids.", code: "invalid_ids") }
+            return text(try config().reorderRules(ids).joined(separator: "\n"))
         default:
             throw APIError.notFound("No tool named \(name).", code: "no_tool")
         }
     }
 
+    private static func text(_ s: String) -> CallTool.Result {
+        CallTool.Result(content: [.text(text: s, annotations: nil, _meta: nil)])
+    }
+
     private static func encoded<T: Encodable>(_ value: T) throws -> CallTool.Result {
-        let text = String(decoding: try APIJSON.encoder.encode(value), as: UTF8.self)
-        return CallTool.Result(content: [.text(text: text, annotations: nil, _meta: nil)])
+        text(String(decoding: try APIJSON.encoder.encode(value), as: UTF8.self))
+    }
+
+    /// Arguments as Foundation JSON objects, for the configuration tools.
+    private static func plain(_ args: [String: Value]) throws -> [String: Any] {
+        let data = try JSONEncoder().encode(args)
+        return try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
+    }
+
+    private static func ruleArg(_ args: [String: Value]) throws -> [String: Any] {
+        guard let rule = try plain(args)["rule"] as? [String: Any] else { throw APIError.badRequest("rule must be an object.", code: "invalid_rule") }
+        return rule
+    }
+
+    private static func idArg(_ args: [String: Value]) throws -> String {
+        guard let id = args["id"]?.stringValue, !id.isEmpty else { throw APIError.badRequest("id is required.", code: "invalid_id") }
+        return id == "everything-else" ? "everything else" : id
     }
 
     private static func request(_ args: [String: Value]) throws -> APIPrintRequest {
@@ -251,23 +415,30 @@ enum MCPTools {
         throw APIError.badRequest("\(name) must be a whole number.", code: "invalid_\(name)")
     }
 
+    /// Uploads (content_base64) always; a path only with the local files permission.
+    @MainActor
     private static func fileInput(_ args: [String: Value]) throws -> APIRoutes.PrintInput {
-        let r = try request(args)
-        var files: [URL] = []
-        var scratch: URL?
-        if let path = r.path, !path.isEmpty { files.append(try APIRoutes.resolvePath(path)) }
+        var r = try request(args)
+        var local: [URL] = []
+        if let path = r.path, !path.isEmpty {
+            guard MCPPermission.localFiles.isGranted else {
+                Log.warning(.api, "MCP path refused: needs \(MCPPermission.localFiles.settingTitle)")
+                throw MCPPermission.localFiles.refusal
+            }
+            local.append(try APIRoutes.resolvePath(path))
+        }
+        r.path = nil
+        var uploads: [(name: String, data: Data)] = []
         if let b64 = args["content_base64"]?.stringValue {
             guard let data = Data(base64Encoded: b64, options: .ignoreUnknownCharacters) else {
                 throw APIError.badRequest("content_base64 isn't valid base64.", code: "bad_base64")
             }
-            let folder = Intake.scratchFolder()
-            scratch = folder
-            let url = folder.appendingPathComponent(try APIRoutes.uploadName(args["filename"]?.stringValue, contentType: Self.sniff(data), index: 0))
-            try data.write(to: url)
-            files.append(url)
+            uploads.append((try APIRoutes.uploadName(args["filename"]?.stringValue, contentType: Self.sniff(data), index: 0), data))
         }
-        guard !files.isEmpty else { throw APIError.badRequest("Pass path, or content_base64 with filename.", code: "no_file") }
-        return APIRoutes.PrintInput(files: files, request: r, scratch: scratch)
+        guard !uploads.isEmpty || !local.isEmpty else {
+            throw APIError.badRequest("Pass content_base64 with filename, or a path.", code: "no_file")
+        }
+        return try APIRoutes.save(uploads, request: r, local: local)
     }
 
     /// Content type from the first bytes, for uploads without a usable file name.

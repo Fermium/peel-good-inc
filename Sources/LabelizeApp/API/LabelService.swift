@@ -8,6 +8,7 @@ protocol LabelService: AnyObject {
     /// Sizes for a printer, by queue name or display name.
     func sizes(printer: String) throws -> [APISize]
     /// Prints every page of every file. `request.path` is ignored here; the caller resolves files.
+    /// `source` is an `APIJob.Source`; only `localFile` jobs get the after-print tag or move.
     func print(files: [URL], request: APIPrintRequest, source: String) async throws -> APIJob
     /// Composes every page of every file without printing.
     func preview(files: [URL], request: APIPrintRequest) async throws -> APIPreview
@@ -50,7 +51,7 @@ struct APISize: Codable, Sendable, Equatable {
 
 /// Options for print and preview. Everything is optional; missing values use the printer's settings.
 struct APIPrintRequest: Codable, Sendable, Equatable {
-    /// Absolute path to a PDF, SVG or image on this Mac (JSON requests only).
+    /// Absolute path to a PDF, SVG or image on this Mac. MCP only, with permission; the HTTP API refuses it.
     var path: String?
     var printer: String?
     var size: String?
@@ -85,8 +86,20 @@ struct APIJob: Codable, Sendable, Equatable, Identifiable {
 
     var id: String
     var created: Date
-    /// file, clipboard or reprint.
+    /// upload (sent with the request), file (a path on this Mac), clipboard or reprint.
     var source: String
+
+    enum Source {
+        static let upload = "upload", localFile = "file", clipboard = "clipboard", reprint = "reprint"
+    }
+
+    /// For the HTTP API: no local paths, and a generic message for print-system failures.
+    var redacted: APIJob {
+        var job = self
+        job.savedPDF = nil
+        if job.error != nil { job.error = "Printing failed." }
+        return job
+    }
     var status: Status
     var files: [String]
     var printer: String
@@ -134,9 +147,6 @@ struct APIHealth: Codable, Sendable {
     var port: Int
 }
 
-struct APIReprintRequest: Codable, Sendable {
-    var copies: Int?
-}
 
 // MARK: Errors
 

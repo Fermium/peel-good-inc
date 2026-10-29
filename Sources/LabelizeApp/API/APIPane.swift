@@ -26,7 +26,7 @@ struct APIPane: View {
             } header: {
                 Text("HTTP API")
             } footer: {
-                Text("Every request needs the token as a bearer token. Requests from web pages are refused.")
+                Text("Prints only files sent with each request. Every request needs the token. Requests from web pages are refused.")
                     .font(.callout).foregroundStyle(.secondary)
             }
             ForEach(OpenAPI.tags, id: \.self) { tag in
@@ -123,13 +123,21 @@ struct APIPane: View {
                     CopyButton(nil, text: base + "/mcp")
                 }
             }
+            Toggle(isOn: Binding(get: { api.mcpCanUseLocalFiles }, set: { api.mcpCanUseLocalFiles = $0 })) {
+                Text(MCPPermission.localFiles.settingTitle)
+                Text("Files by path, the clipboard, and reprinting.")
+            }
+            Toggle(isOn: Binding(get: { api.mcpCanChangeSettings }, set: { api.mcpCanChangeSettings = $0 })) {
+                Text(MCPPermission.settings.settingTitle)
+                Text("Settings, printers, rules, watched folders, and the HTTP API. Never the MCP switch, these permissions or the token.")
+            }
             SnippetView(title: "Claude Code", text: Snippets.claudeCodeHTTP(port: port))
             SnippetView(title: "Claude Code (stdio)", text: Snippets.claudeCodeStdio)
             SnippetView(title: "Claude Desktop: claude_desktop_config.json", text: Snippets.claudeDesktop)
         } header: {
             Text("MCP")
         } footer: {
-            Text(api.mcpEnabled ? "Tools: list_printers, list_sizes, print_label, preview_label, print_clipboard, reprint_last, list_jobs."
+            Text(api.mcpEnabled ? "MCP can always print files it sends and read settings. Tools that need a permission explain how to turn it on."
                                 : "Turn on MCP server to use these.")
                 .font(.callout).foregroundStyle(.secondary)
         }

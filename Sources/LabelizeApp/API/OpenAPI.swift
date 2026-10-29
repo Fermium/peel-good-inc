@@ -175,14 +175,6 @@ enum OpenAPI {
             Field("reason", .string("Why the size isn't supported.")),
             Field("current", .boolean("The size set for this printer."), required: true),
         ])),
-        ("PrintRequest", .object([
-            Field("path", .string("Absolute path to a PDF, SVG or image on this Mac.")),
-            Field("printer", .string("Queue name or display name. Defaults to the default printer set in Peel Good Inc.")),
-            Field("size", .string("Label size like 4x6, 2.25x1.25 or 100x150mm. Defaults to the printer's size.")),
-            Field("fit", .string(values: ["fit", "fill"])),
-            Field("ink", .string(values: ["auto", "crisp", "photo"])),
-            Field("copies", .integer(min: 1, max: AppLabelService.maxCopies)),
-        ], "Options for printing or previewing. Missing values use the printer's settings.")),
         ("PrintUpload", .object([
             Field("file", .array(.string(format: "binary")), required: true),
             Field("printer", .string()),
@@ -190,10 +182,7 @@ enum OpenAPI {
             Field("fit", .string(values: ["fit", "fill"])),
             Field("ink", .string(values: ["auto", "crisp", "photo"])),
             Field("copies", .integer(min: 1, max: AppLabelService.maxCopies)),
-        ], "One or more files, each sent as a part named file. Every page of every file prints.")),
-        ("ReprintRequest", .object([
-            Field("copies", .integer(min: 1, max: AppLabelService.maxCopies)),
-        ])),
+        ], "Up to \(APILimits.maxFiles) files, each sent as a part named file, up to \(APILimits.maxFileBytes / 1_048_576) MB each and \(APILimits.maxLabels) pages in all. Every page of every file prints.")),
         ("Code", .object([
             Field("symbology", .string("QR, Code128, DataMatrix, and so on."), required: true),
             Field("payload", .string(), required: true),
@@ -204,7 +193,7 @@ enum OpenAPI {
         ("Job", .object([
             Field("id", .string(format: "uuid"), required: true),
             Field("created", .string(format: "date-time"), required: true),
-            Field("source", .string(values: ["file", "clipboard", "reprint"]), required: true),
+            Field("source", .string("Files sent with the request.", values: ["upload"]), required: true),
             Field("status", .string(values: ["printed", "failed"]), required: true),
             Field("files", .array(.string()), required: true),
             Field("printer", .string(), required: true),
@@ -215,7 +204,6 @@ enum OpenAPI {
             Field("codesVerified", .integer("Codes that still scan on the label."), required: true),
             Field("codesMissing", .array(.string(), "Payloads of codes that won't scan."), required: true),
             Field("warnings", .array(.string()), required: true),
-            Field("savedPDF", .string("Copy of the printed labels, used for reprinting.")),
             Field("printerJobID", .string("Job id from the print system.")),
             Field("error", .string()),
         ])),
@@ -255,18 +243,15 @@ enum OpenAPI {
         static let size = APISize(size: "4x6", display: "4 × 6 in", widthInches: 4, heightInches: 6, source: "printer",
                                   supported: true, reason: nil, current: true)
         static let job = APIJob(id: "6F1C2A8E-3B7D-4E51-9C0A-2D4E5F6A7B8C", created: Date(timeIntervalSince1970: 1_793_300_000),
-                                source: "file", status: .printed, files: ["order-1459-label.pdf"], printer: "MUNBYN_ITPP941AP",
+                                source: "upload", status: .printed, files: ["order-1459-label.pdf"], printer: "MUNBYN_ITPP941AP",
                                 size: "4x6", copies: 1, labels: 2, codesFound: 2, codesVerified: 2, codesMissing: [], warnings: [],
-                                savedPDF: "~/Library/Application Support/Labelize/History/2026-10-29T18-00-00Z order-1459-label.label.pdf",
+                                savedPDF: nil,
                                 printerJobID: "MUNBYN_ITPP941AP-42", error: nil)
         static let code = APICode(symbology: "QR", payload: "1Z999AA10123456784", scannable: true, severity: "ok", message: nil)
         static let preview = APIPreview(printer: "MUNBYN_ITPP941AP", size: "4x6", labels: 1, codesFound: 1, codesVerified: 1,
                                         codesMissing: [], warnings: [],
                                         images: [APILabelPreview(index: 0, width: 812, height: 1218, png: Data("PNG…".utf8), codes: [code], warnings: [])])
         static let health = APIHealth(status: "ok", version: "0.1", http: true, mcp: true, port: APISettings.defaultPort)
-        static let printRequest = APIPrintRequest(path: "/Users/me/Downloads/order-1459-label.pdf", size: "4x6", copies: 1)
-        static let clipboardRequest = APIPrintRequest(printer: "MUNBYN_ITPP941AP")
-        static let reprint = APIReprintRequest(copies: 2)
         static let error = APIErrorBody(error: .init(code: "printer_not_found", message: "Printer Zebra not found."))
     }
 
@@ -286,8 +271,23 @@ enum OpenAPI {
 
     private static let printBody: [Content] = [
         Content(mediaType: "multipart/form-data", schema: .ref("PrintUpload"), example: nil),
-        json(.ref("PrintRequest"), .encoding(Example.printRequest)),
+        Content(mediaType: "application/pdf", schema: .string("The file itself. Options go in the query.", format: "binary"), example: nil),
+        Content(mediaType: "image/*", schema: .string("PNG, JPEG, SVG, TIFF, GIF or HEIC. Options go in the query.", format: "binary"), example: nil),
     ]
+
+    /// Options as query parameters, for raw bodies (multipart can send them as fields instead).
+    private static let optionParameters: [Parameter] = [
+        Parameter(name: "printer", location: .query, required: false, schema: .string("Queue name or display name. Defaults to the default printer set in Peel Good Inc."), example: "MUNBYN_ITPP941AP"),
+        Parameter(name: "size", location: .query, required: false, schema: .string("Label size like 4x6, 2.25x1.25 or 100x150mm. Defaults to the printer's size."), example: "4x6"),
+        Parameter(name: "fit", location: .query, required: false, schema: .string(values: ["fit", "fill"]), example: "fit"),
+        Parameter(name: "ink", location: .query, required: false, schema: .string(values: ["auto", "crisp", "photo"]), example: "auto"),
+        Parameter(name: "copies", location: .query, required: false, schema: .integer(min: 1, max: AppLabelService.maxCopies), example: "1"),
+        Parameter(name: "filename", location: .query, required: false, schema: .string("Name for a raw body, shown in jobs."), example: "label.pdf"),
+    ]
+
+    private static let uploadErrors = [error(400, "Bad options, no file, or a path instead of a file."), error(404, "No such printer."),
+                                       error(413, "Too many files or pages, or a file is too large."), error(415, "Not a PDF, SVG or image."),
+                                       error(422, "Unreadable file or unsupported size."), error(429, "Too many requests. Wait for Retry-After seconds.")]
 
     private static let common = [error(401, "Missing or wrong token."), error(403, "Request from a browser or another host.")]
 
@@ -304,11 +304,11 @@ enum OpenAPI {
                                         schema: .string("Queue name or display name."), example: Example.printer.name)],
                  responses: [ok("Sizes.", .array(.ref("Size")), [Example.size]), error(404, "No such printer.")] + common),
         Endpoint(verb: .post, path: "/v1/print", operationID: "print", tag: "Printing", summary: "Print a file",
-                 detail: "Upload files as multipart form data, or send JSON with a path on this Mac. Every page of every file prints, right away.",
+                 detail: "Prints files sent with the request, as multipart form data or as the raw body. Every page of every file prints, right away. Files on this Mac, the clipboard and reprinting aren't available over HTTP.",
+                 parameters: optionParameters,
                  body: printBody, bodyRequired: true,
-                 responses: [ok("Sent to the printer.", .ref("Job"), Example.job), error(400, "Bad options or no file."),
-                             error(404, "No such printer."), error(422, "Unreadable file or unsupported size."),
-                             error(500, "The print system refused the job.")] + common),
+                 responses: [ok("Sent to the printer.", .ref("Job"), Example.job)] + uploadErrors
+                     + [error(500, "The print system refused the job.")] + common),
         Endpoint(verb: .post, path: "/v1/preview", operationID: "preview", tag: "Printing", summary: "Preview labels",
                  detail: "Same input as print. Returns each label as it would print, with the codes found and whether they still scan. Nothing prints.",
                  parameters: [
@@ -316,22 +316,14 @@ enum OpenAPI {
                                schema: .string("json returns every label as base64; png returns one image.", values: ["json", "png"]), example: "png"),
                      Parameter(name: "index", location: .query, required: false,
                                schema: .integer("Label to return as PNG, from 0.", min: 0), example: "0"),
-                 ],
+                 ] + optionParameters,
                  body: printBody, bodyRequired: true,
                  responses: [Response(status: 200, description: "Preview.", content: [
                      json(.ref("Preview"), .encoding(Example.preview)),
                      Content(mediaType: "image/png", schema: .string(format: "binary"), example: nil),
-                 ]), error(400, "Bad options or no file."), error(422, "Unreadable file or unsupported size.")] + common),
-        Endpoint(verb: .post, path: "/v1/print/clipboard", operationID: "printClipboard", tag: "Printing", summary: "Print the clipboard",
-                 detail: "Prints the PDF, image or files on the clipboard. The body is optional; path is ignored.",
-                 body: [json(.ref("PrintRequest"), .encoding(Example.clipboardRequest))],
-                 responses: [ok("Sent to the printer.", .ref("Job"), Example.job), error(422, "Nothing printable on the clipboard.")] + common),
-        Endpoint(verb: .post, path: "/v1/reprint", operationID: "reprint", tag: "Printing", summary: "Reprint the last label",
-                 detail: "Sends the last printed labels again, 1:1, to the same printer.",
-                 body: [json(.ref("ReprintRequest"), .encoding(Example.reprint))],
-                 responses: [ok("Sent to the printer.", .ref("Job"), Example.job), error(404, "Nothing printed yet.")] + common),
+                 ])] + uploadErrors + common),
         Endpoint(verb: .get, path: "/v1/jobs", operationID: "listJobs", tag: "Printing", summary: "List recent jobs",
-                 detail: "Jobs sent through the API since Peel Good Inc. opened, newest first.",
+                 detail: "Jobs printed from HTTP uploads since Peel Good Inc. opened, newest first.",
                  responses: [ok("Jobs.", .array(.ref("Job")), [Example.job])] + common),
         Endpoint(verb: .get, path: "/openapi.json", operationID: "openAPI", tag: "Docs", summary: "Get this document",
                  detail: "The OpenAPI 3.1 description of this API. No token needed.",
@@ -357,7 +349,7 @@ enum OpenAPI {
             "info": [
                 "title": "Peel Good Inc.",
                 "version": .string(appVersion),
-                "description": "Print shipping labels from other apps on this Mac. The server only listens on 127.0.0.1. Send the token from ~/Library/Application Support/Labelize/token as a bearer token. Requests with an Origin header are refused.",
+                "description": "Print shipping labels from other apps on this Mac. The server only listens on 127.0.0.1. Send the token from ~/Library/Application Support/Labelize/token as a bearer token. Requests with an Origin header are refused. Only files sent with a request can print.",
             ],
             "servers": [["url": .string("http://127.0.0.1:\(port)")]],
             "security": [["bearer": []]],
@@ -426,17 +418,13 @@ enum OpenAPI {
         case "print":
             return [
                 ("Upload", "curl -s\(auth) -F file=@label.pdf -F size=4x6 \(url)"),
-                ("Path", "curl -s\(auth) -H 'Content-Type: application/json' -d '{\"path\": \"'\"$PWD\"'/label.pdf\"}' \(url)"),
+                ("Raw body", "curl -s\(auth) -H 'Content-Type: application/pdf' --data-binary @label.pdf '\(url)?size=4x6&filename=label.pdf'"),
             ]
         case "preview":
             return [
                 ("PNG", "curl -s\(auth) -F file=@label.pdf -o preview.png '\(url)?format=png&index=0'"),
                 ("JSON", "curl -s\(auth) -F file=@label.pdf \(url)"),
             ]
-        case "printClipboard":
-            return [("Default printer", "curl -s\(auth) -X POST \(url)")]
-        case "reprint":
-            return [("Two copies", "curl -s\(auth) -H 'Content-Type: application/json' -d '{\"copies\": 2}' \(url)")]
         default:
             return [("", "curl -s\(auth) \(url)")]
         }
