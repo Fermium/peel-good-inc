@@ -82,19 +82,24 @@ final class AppDelegate: NSObject, JobPresenter, NSApplicationDelegate, NSWindow
 
     /// The printer glyph drawn by scripts/make-menubar-icon.swift, outline normally and solid while a
     /// file hovers. Falls back to an SF Symbol when the PDFs are missing (e.g. `swift run`).
-    private lazy var menuBarIcons: (outline: NSImage?, filled: NSImage?) = {
-        func load(_ name: String, fallback: String) -> NSImage? {
-            let image = Bundle.main.url(forResource: name, withExtension: "pdf").flatMap(NSImage.init(contentsOf:))
-                ?? NSImage(systemSymbolName: fallback, accessibilityDescription: nil)
-            image?.isTemplate = true
-            image?.accessibilityDescription = "Peel Good Inc."
-            return image
+    /// The app's own printer artwork, in color, at menu bar height (vector, so sharp at any scale).
+    private lazy var menuBarIcon: NSImage? = {
+        guard let image = Bundle.main.url(forResource: "icon", withExtension: "svg").flatMap(NSImage.init(contentsOf:)) else {
+            let symbol = NSImage(systemSymbolName: "printer", accessibilityDescription: "Peel Good Inc.")
+            symbol?.isTemplate = true
+            return symbol
         }
-        return (load("menubar", fallback: "shippingbox"), load("menubar-filled", fallback: "shippingbox.fill"))
+        let height: CGFloat = 18
+        image.size = NSSize(width: height * image.size.width / image.size.height, height: height)
+        image.isTemplate = false
+        image.accessibilityDescription = "Peel Good Inc."
+        return image
     }()
 
+    /// Hover is shown with the bounce and a slight dim, so the icon itself stays the same.
     private func setIcon(filled: Bool) {
-        statusItem.button?.image = filled ? menuBarIcons.filled : menuBarIcons.outline
+        statusItem.button?.image = menuBarIcon
+        statusItem.button?.alphaValue = filled ? 0.75 : 1
     }
 
     /// A small lift-and-settle when a file hovers over the icon.
