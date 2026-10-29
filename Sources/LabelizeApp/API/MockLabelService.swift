@@ -43,11 +43,11 @@ final class MockLabelService: LabelService {
         guard !files.isEmpty else { throw APIError.badRequest("No file to preview.", code: "no_file") }
         let p = try printer(for: request)
         let images = files.indices.map { i in
-            APILabelPreview(index: i, width: 200, height: 300, png: Self.placeholderPNG(), codes: [
+            APILabelPreview(index: i, width: 200, height: 300, png: Self.placeholderPNG(), ink: "crisp", scalePercent: 100, rotated: false, codes: [
                 APICode(symbology: "QR", payload: "MOCK-\(i + 1)", scannable: true, severity: "ok", message: nil),
             ], warnings: [])
         }
-        return APIPreview(printer: p.name, size: request.size ?? p.size, labels: images.count, codesFound: images.count,
+        return APIPreview(printer: p.name, size: request.size ?? p.size, rule: "Everything else", copies: 1, action: "countdown", labels: images.count, codesFound: images.count,
                           codesVerified: images.count, codesMissing: [], warnings: [], images: images)
     }
 

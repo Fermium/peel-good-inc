@@ -165,6 +165,8 @@ final class APIController: ObservableObject {
         let store = (service as? AppLabelService)?.store ?? Store()
         configurator = custom ?? (dev ? AppConfigurator(store: store, rules: RuleEngine(fileURL: nil), folders: .inMemory())
                            : AppConfigurator(store: store, rules: .shared, folders: .live))
+        // Prints follow the same rules the configuration tools edit.
+        (self.service as? AppLabelService)?.rules = configurator!.rules
         apply()
     }
 

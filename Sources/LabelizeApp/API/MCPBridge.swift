@@ -158,6 +158,9 @@ enum MCPTools {
     static let instructions = """
     Peel Good Inc. prints shipping labels on this Mac's label printer. Every page of every file becomes one label. \
     Use preview_label to check the result and whether barcodes still scan before printing. \
+    Prints go through the app's rules and show on screen like a dropped file: a short countdown the user can cancel, \
+    or a preview that waits for Print when the user asked for that. A print call returns when the job ends \
+    (printed, cancelled or failed) or after 120 seconds with status waiting; list_jobs shows how it ended. \
     Send files as content_base64. Paths on this Mac, the clipboard and reprinting need the user to turn on \
     "Let MCP print files from this Mac"; changing settings and rules needs "Let MCP change settings". \
     Both are in Peel Good Inc. Settings > API. Tools that need a permission say so in their error.
@@ -251,16 +254,16 @@ enum MCPTools {
         (Tool(name: "list_sizes", title: "List label sizes", description: "Label sizes for a printer, each marked supported or not.",
               inputSchema: schema(["printer": options["printer"]!]), annotations: readOnly()), .none),
         (Tool(name: "print_label", title: "Print label",
-              description: "Prints a PDF, SVG or image right away. Every page becomes a label. Returns the job, including how many codes still scan. A path" + localNote,
+              description: "Prints a PDF, SVG or image. Every page becomes a label. Goes through the rules and the on-screen countdown, or waits for Print when the user set Ask first or the rule previews or asks. Returns when the job ends, or after 120 seconds with status waiting (see list_jobs). The reply names the matching rule and, per label, the ink used, scale, rotation and codes. A path" + localNote,
               inputSchema: schema(fileInput, options, copies), annotations: prints()), .none),
         (Tool(name: "preview_label", title: "Preview label",
-              description: "Shows each label as it would print, and whether its barcodes and QR codes still scan. Nothing prints. A path" + localNote,
+              description: "Shows each label as it would print, with the matching rule, the ink used, scale, rotation, and whether its barcodes and QR codes still scan. Nothing prints. A path" + localNote,
               inputSchema: schema(fileInput, options), annotations: readOnly()), .none),
-        (Tool(name: "print_clipboard", title: "Print clipboard", description: "Prints the PDF, image or files on the clipboard." + localNote,
+        (Tool(name: "print_clipboard", title: "Print clipboard", description: "Prints the PDF, image or files on the clipboard. Goes through the rules and the on-screen countdown, or waits for Print when the user set Ask first or the rule previews or asks. Returns when the job ends, or after 120 seconds with status waiting (see list_jobs). The reply names the matching rule and, per label, the ink used, scale, rotation and codes." + localNote,
               inputSchema: schema(options, copies), annotations: prints()), .localFiles),
-        (Tool(name: "reprint_last", title: "Reprint last label", description: "Sends the last printed labels again to the same printer." + localNote,
+        (Tool(name: "reprint_last", title: "Reprint last label", description: "Sends the last printed labels again to the same printer, 1:1, with the on-screen countdown (or Print, with Ask first). Returns when the job ends, or after 120 seconds with status waiting." + localNote,
               inputSchema: schema(copies), annotations: prints()), .localFiles),
-        (Tool(name: "list_jobs", title: "List recent jobs", description: "Jobs sent through the API or MCP since Peel Good Inc. opened, newest first.",
+        (Tool(name: "list_jobs", title: "List recent jobs", description: "Jobs sent through the API or MCP since Peel Good Inc. opened, newest first, with how each ended: printed, cancelled, failed or still waiting.",
               inputSchema: schema(), annotations: readOnly()), .none),
         (Tool(name: "get_settings", title: "Get settings",
               description: "All settings: general, files, per printer, watched folders, and the API switches and permissions.",
@@ -333,17 +336,19 @@ enum MCPTools {
             return try encoded(try service.sizes(printer: printer))
         case "print_label":
             let input = try fileInput(args)
-            defer { input.cleanUp() }
+            var job: APIJob?
+            defer { input.cleanUp(after: job) }
             let source = input.scratch == nil ? APIJob.Source.localFile : APIJob.Source.upload
-            return try encoded(try await service.print(files: input.files, request: input.request, source: source))
+            job = try await service.print(files: input.files, request: input.request, source: source)
+            return try encoded(job!)
         case "preview_label":
             let input = try fileInput(args)
             defer { input.cleanUp() }
             let preview = try await service.preview(files: input.files, request: input.request)
             var summary = preview
-            summary.images = summary.images.map { var i = $0; i.png = Data(); return i }
+            summary.images = summary.images.map { var i = $0; i.png = nil; return i }   // the images follow as image content
             let text = String(decoding: try APIJSON.encoder.encode(summary), as: UTF8.self)
-            let images = preview.images.prefix(20).map { Tool.Content.image(data: $0.png.base64EncodedString(), mimeType: "image/png", annotations: nil, _meta: nil) }
+            let images = preview.images.prefix(20).map { Tool.Content.image(data: ($0.png ?? Data()).base64EncodedString(), mimeType: "image/png", annotations: nil, _meta: nil) }
             return CallTool.Result(content: [.text(text: text, annotations: nil, _meta: nil)] + images)
         case "print_clipboard":
             var request = try request(args)

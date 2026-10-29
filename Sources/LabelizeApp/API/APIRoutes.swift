@@ -85,8 +85,10 @@ enum APIRoutes {
                 return .json(try service.sizes(printer: p[2]))
             case ("POST", ["v1", "print"]):
                 let input = try await parse(r)
-                defer { input.cleanUp() }
-                return .json(try await service.print(files: input.files, request: input.request, source: APIJob.Source.upload).redacted)
+                var job: APIJob?
+                defer { input.cleanUp(after: job) }
+                job = try await service.print(files: input.files, request: input.request, source: APIJob.Source.upload)
+                return .json(job!.redacted, status: job!.status == .waiting ? 202 : 200)
             case ("POST", ["v1", "preview"]):
                 let input = try await parse(r)
                 defer { input.cleanUp() }
@@ -125,7 +127,7 @@ enum APIRoutes {
             ("X-Label-Count", String(preview.images.count)),
             ("X-Codes-Found", String(preview.codesFound)),
             ("X-Codes-Verified", String(preview.codesVerified)),
-        ], body: .data(image.png))
+        ], body: .data(image.png ?? Data()))
     }
 
     // MARK: Parsing input
@@ -138,6 +140,12 @@ enum APIRoutes {
 
         func cleanUp() {
             if let scratch { try? FileManager.default.removeItem(at: scratch) }
+        }
+
+        /// A job still waiting for Print may re-read its files (a size change in the preview), so keep them a while.
+        func cleanUp(after job: APIJob?) {
+            guard job?.status == .waiting, let scratch else { return cleanUp() }
+            DispatchQueue.global().asyncAfter(deadline: .now() + 3600) { try? FileManager.default.removeItem(at: scratch) }
         }
     }
 
