@@ -15,7 +15,10 @@ final class CommandInstaller: ObservableObject {
     }
 
     @Published private(set) var links: [String: Link] = [:]
+    /// Homebrew linked peelgood itself, so it owns the command.
     @Published private(set) var homebrew = false
+    /// The Homebrew cask is installed (an older one may not link peelgood yet).
+    @Published private(set) var caskInstalled = false
     @Published var message: String?
     @Published var failed = false
 
@@ -50,8 +53,10 @@ final class CommandInstaller: ObservableObject {
     var installedDir: String? { links[Manual.tool].map { ($0.path as NSString).deletingLastPathComponent } }
 
     /// Where Install links to: the first writable system folder, else ~/.local/bin.
+    /// With the cask installed, stay out of Homebrew's bin so a later `brew upgrade` can link peelgood itself.
     var targetDir: String {
-        Self.systemDirs.first { FileManager.default.isWritableFile(atPath: $0) } ?? Self.userDir
+        if caskInstalled { return Self.userDir }
+        return Self.systemDirs.first { FileManager.default.isWritableFile(atPath: $0) } ?? Self.userDir
     }
 
     var needsAdmin: Bool { targetDir == Self.userDir }
@@ -78,7 +83,9 @@ final class CommandInstaller: ObservableObject {
             }
         }
         links = found
-        homebrew = Self.systemDirs.contains { fm.fileExists(atPath: ($0 as NSString).deletingLastPathComponent + "/Caskroom/peel-good-inc") }
+        caskInstalled = Self.systemDirs.contains { fm.fileExists(atPath: ($0 as NSString).deletingLastPathComponent + "/Caskroom/peel-good-inc") }
+        let linkedDir = links[Manual.tool].map { ($0.path as NSString).deletingLastPathComponent }
+        homebrew = caskInstalled && linkedDir.map(Self.systemDirs.contains) == true
     }
 
     func install() {
@@ -226,6 +233,7 @@ struct CLIPane: View {
     private var footer: String {
         if installer.helper == nil { return "This build doesn't include the command. Build the app with scripts/make-app.sh." }
         if installer.homebrew { return "Installed with Homebrew, with the man page and completions. Updates with the cask." }
+        if installer.caskInstalled { return "The Homebrew version installed doesn't include peelgood yet. Install links it in ~/.local/bin; brew upgrade takes over later." }
         return "Use peelgood in Terminal. It uses the printer and settings chosen here."
     }
 
