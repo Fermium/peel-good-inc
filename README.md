@@ -1,6 +1,6 @@
 # Peel Good Inc.
 
-A small menu bar app for the Mac that prints shipping labels, return codes and anything else you drop on it, straight to a thermal label printer.
+A small Mac menu bar app that prints whatever you drop on it to a thermal label printer: shipping labels, return codes, logos.
 
 <p align="center">
   <picture>
@@ -9,13 +9,13 @@ A small menu bar app for the Mac that prints shipping labels, return codes and a
   </picture>
 </p>
 
-Drop a PDF, screenshot, image or SVG on the parcel icon in the menu bar. Peel Good Inc. finds the label on the page, turns it the right way round, fits it to the roll in your printer and prints it. There's no print dialog, and a short countdown lets you cancel.
+Drop a PDF, screenshot, image or SVG on the parcel icon in the menu bar. Peel Good Inc. finds the label on the page, turns it the right way round, fits it to the roll in your printer and prints it. There's no print dialog; you get a second and a half to cancel.
 
-It's built for the labels small sellers deal with every day: Royal Mail Click & Drop PDFs, USPS and UPS labels on Letter pages, Amazon return QR codes saved as screenshots. It also prints logos, SVGs and photos.
+We made it for the labels a small shop prints: Royal Mail Click & Drop PDFs, USPS and UPS labels on Letter pages, and Amazon return QR codes saved as screenshots. Photos and SVGs work too.
 
 ## What it does
 
-- Reads every barcode, QR code and DataMatrix on the page, lines them up with the printer's dots so the bars come out even, and checks they still scan before printing.
+- Reads every barcode, QR code and DataMatrix on the page and lines the bars up with the printer's dots so they come out even. It checks each code still scans before printing.
 - Prints every page, in order. A packing slip next to a label prints too.
 - Supports every roll your printer reports, from 2 × 1.25 in to 4 × 8 in, plus custom sizes. Hold a file over the icon to send it to another printer.
 - Rules, written like Mail rules, pick the printer, size and ink for each kind of file. It can also watch a folder such as Downloads and offer to print new labels.
@@ -29,7 +29,7 @@ It's built for the labels small sellers deal with every day: Royal Mail Click & 
   </picture>
 </p>
 
-Thermal printers only print black dots, so each label is turned into pure black and white. Crisp gives sharp text and barcodes, Photo dithers gray areas into dot patterns, and Auto picks one for each page.
+Thermal printers only print black dots, so every label ends up pure black and white. Crisp keeps text and barcodes sharp. Photo turns grays into dot patterns. Auto chooses per page.
 
 <p align="center">
   <picture>
@@ -52,7 +52,7 @@ It needs macOS 15 or later. It's tested with a MUNBYN ITPP941AP and should work 
 
 ## Privacy
 
-Everything happens on your Mac and nothing is uploaded. The HTTP API and the MCP server for AI assistants are off by default. When they're on, they only accept connections from this Mac and need a token.
+Nothing leaves your Mac. The HTTP API and the MCP server for AI assistants are off by default, and when you turn them on they only accept connections from this Mac, with a token.
 
 ## Build from source
 
