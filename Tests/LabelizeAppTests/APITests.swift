@@ -214,6 +214,31 @@ final class APITests: XCTestCase {
         return ((response as! HTTPURLResponse).statusCode, data)
     }
 
+    func testSettingsPermissionTurnsOffAfter45Minutes() {
+        let api = APIController.shared
+        let saved = (api.mcpCanChangeSettings, api.mcpSettingsAutoOff)
+        defer { api.mcpSettingsAutoOff = saved.1; api.mcpCanChangeSettings = saved.0 }
+
+        api.mcpSettingsAutoOff = true
+        api.mcpCanChangeSettings = true
+        XCTAssertTrue(api.mcpCanChangeSettings)
+        let left = api.mcpSettingsUntil?.timeIntervalSinceNow ?? 0
+        XCTAssertEqual(left, APIController.settingsGrant, accuracy: 5)
+
+        // Turning the timer off makes it permanent.
+        api.mcpSettingsAutoOff = false
+        XCTAssertNil(api.mcpSettingsUntil)
+        XCTAssertTrue(api.mcpCanChangeSettings)
+
+        // An expired grant reads as off, even before the timer fires.
+        api.mcpSettingsAutoOff = true
+        UserDefaults.standard.set(Date().addingTimeInterval(-1), forKey: "apiMCPSettingsUntil")
+        XCTAssertFalse(api.mcpCanChangeSettings)
+
+        api.mcpCanChangeSettings = false
+        XCTAssertNil(api.mcpSettingsUntil)
+    }
+
     private func waitFor(_ condition: @escaping @MainActor () -> Bool, timeout: TimeInterval = 5) async throws {
         let deadline = Date().addingTimeInterval(timeout)
         while !condition() {

@@ -131,6 +131,15 @@ struct APIPane: View {
                 Text(MCPPermission.settings.settingTitle)
                 Text("Settings, printers, rules, watched folders, and the HTTP API. Never the MCP switch, these permissions or the token.")
             }
+            Toggle(isOn: Binding(get: { api.mcpSettingsAutoOff }, set: { api.mcpSettingsAutoOff = $0 })) {
+                Text("Turn off after 45 minutes")
+                if api.mcpCanChangeSettings, let until = api.mcpSettingsUntil {
+                    Text("Turns off at \(until.formatted(date: .omitted, time: .shortened)).")
+                } else if api.mcpCanChangeSettings {
+                    Text("Stays on until you turn it off.")
+                }
+            }
+            .padding(.leading, 20)
             SnippetView(title: "Claude Code", text: Snippets.claudeCodeHTTP(port: port))
             SnippetView(title: "Claude Code (stdio)", text: Snippets.claudeCodeStdio)
             SnippetView(title: "Claude Desktop: claude_desktop_config.json", text: Snippets.claudeDesktop)
