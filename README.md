@@ -60,6 +60,41 @@ The app requires macOS 15 or later. It has been tested on a MUNBYN ITPP941AP pri
 
 This app doesn't send any user data. The HTTP API and the MCP server for AI assistants are off by default, and when you turn them on they only accept connections from your own Mac, authenticated with a token. There are no ads, no tracking, nothing of the sort.
 
+## HTTP API and MCP
+
+If you want other apps or an AI assistant to print labels, Peel Good Inc. has a local HTTP API and an MCP server. Both are off by default, and you turn each one on separately in Settings → API. They listen only on 127.0.0.1:47311, every request needs the token in `~/Library/Application Support/Peel Good/token`, and requests from web pages (anything with an Origin header) are refused. Anything they print goes through the same rules, countdown and preview as a file you drop on the menu bar.
+
+The HTTP API only prints or previews files you send with the request. It can't open paths on your Mac, read the clipboard or reprint. Each request takes up to 10 files, 25 MB each and 50 pages in total.
+
+```sh
+curl -s -H "Authorization: Bearer $(cat ~/Library/Application\ Support/Peel\ Good/token)" \
+  -F file=@label.pdf -F size=4x6 http://127.0.0.1:47311/v1/print
+```
+
+The docs are at http://127.0.0.1:47311/ and the OpenAPI spec at http://127.0.0.1:47311/openapi.json while the API is on.
+
+The MCP server has these tools: `list_printers`, `list_sizes`, `print_label`, `preview_label`, `list_jobs`, `get_settings` and `list_rules` work right away with files sent by the assistant. Printing a file by its path, `print_clipboard` and `reprint_last` need "Let MCP print files from this Mac". `update_settings`, `set_printer_settings`, `set_watched_folders`, `add_rule`, `update_rule`, `delete_rule` and `reorder_rules` need "Let MCP change settings", which you can set to Off, For 45 Minutes or Always. MCP can never change its own switch, its permissions or the token.
+
+To add it to Claude Code:
+
+```sh
+claude mcp add --transport http peel-good http://127.0.0.1:47311/mcp --header "Authorization: Bearer $(cat ~/Library/Application\ Support/Peel\ Good/token)"
+```
+
+For Claude Desktop, add this to its config. It uses a small helper inside the app that reads the token for you:
+
+```json
+{
+  "mcpServers": {
+    "peel-good": {
+      "command": "/Applications/Peel Good Inc.app/Contents/MacOS/peel-good-mcp"
+    }
+  }
+}
+```
+
+Settings → API has these snippets ready to copy, with the right path and port.
+
 ## Build from source
 
 ```sh
