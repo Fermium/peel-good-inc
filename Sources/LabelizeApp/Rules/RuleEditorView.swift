@@ -211,13 +211,10 @@ struct OutcomeSections: View {
                 }
             }
 
-            Picker("Label size", selection: $outcome.size) {
-                Text(inherited { $0.size.display }).tag(String?.none)
-                Divider()
-                ForEach(sizes, id: \.self) { Text($0.display).tag(Optional($0.description)) }
-                if let s = outcome.labelSize, !sizes.contains(s) {
-                    Text("\(s.display) (not supported by this printer)").tag(Optional(s.description))
-                }
+            LabeledContent("Label size") {
+                SizePopUp(selection: Binding(get: { outcome.labelSize }, set: { outcome.size = $0?.description }), sizes: sizes,
+                          defaultTitle: inherited { $0.size.primary },
+                          unsupported: outcome.labelSize.flatMap { sizes.contains($0) ? nil : ($0, "Not supported by this printer") })
             }
 
             Picker("Scaling", selection: $outcome.fit) {

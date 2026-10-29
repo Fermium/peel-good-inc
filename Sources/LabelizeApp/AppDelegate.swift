@@ -287,10 +287,11 @@ final class AppDelegate: NSObject, JobPresenter, NSApplicationDelegate, NSWindow
 
         if let current {
             let sizes = NSMenu()
-            for e in SizeCatalog.entries(for: current) where e.isSupported {
-                let item = item(e.size.display, #selector(chooseSize(_:)), "")
-                item.representedObject = e.size.description
-                item.state = e.size == store.size(for: current) ? .on : .off
+            let supported = SizeCatalog.entries(for: current).filter(\.isSupported).map(\.size)
+            for (s, title) in zip(supported, SizeMenu.titles(supported, fontSize: NSFont.menuFont(ofSize: 0).pointSize)) {
+                let item = SizeMenu.item(s, title, action: #selector(chooseSize(_:)))
+                item.target = self
+                item.state = s == store.size(for: current) ? .on : .off
                 sizes.addItem(item)
             }
             let size = item("Label Size", #selector(noop), "")
@@ -342,7 +343,7 @@ final class AppDelegate: NSObject, JobPresenter, NSApplicationDelegate, NSWindow
     }
 
     @objc private func chooseSize(_ sender: NSMenuItem) {
-        guard let p = store.printer, let s = (sender.representedObject as? String).flatMap(LabelSize.init(parsing:)) else { return }
+        guard let p = store.printer, let s = sender.representedObject as? LabelSize else { return }
         store.setSize(s, for: p)
     }
 

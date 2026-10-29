@@ -311,8 +311,9 @@ struct PrinterDetail: View {
     var body: some View {
         Form {
             Section {
-                Picker("Label size", selection: Binding(get: { store.size(for: printer) }, set: { store.setSize($0, for: printer); refreshPreview() })) {
-                    ForEach(SizeCatalog.entries(for: printer).filter(\.isSupported).map(\.size), id: \.self) { Text($0.display).tag($0) }
+                LabeledContent("Label size") {
+                    SizePopUp(selection: Binding(get: { store.size(for: printer) }, set: { store.setSize($0, for: printer); refreshPreview() }),
+                              sizes: SizeCatalog.entries(for: printer).filter(\.isSupported).map(\.size))
                 }
                 Picker("Scaling", selection: Binding(get: { store.fit(for: printer) }, set: { store.setFit($0, for: printer) })) {
                     Text("Fit").tag(FitMode.fit)
