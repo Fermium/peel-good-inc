@@ -46,6 +46,7 @@ enum Screenshots {
                                     RulesSettingsView(engine: RulesPreviewData.engine(), store: store, previewPrinters: printers,
                                                       folders: .preview(sampleFolders()))))
             tabs.addTabViewItem(tab("API", "point.3.connected.trianglepath.dotted", APIPane(api: .shared)))
+            tabs.addTabViewItem(tab("CLI", "terminal", CLIPane(installer: .preview(), expanded: ["print"])))
             tabs.addTabViewItem(tab("About", "info.circle", AboutView()))
             let settings = window(tabs, style: [.titled, .closable], appearance: appearance)
             settings.toolbarStyle = .preference

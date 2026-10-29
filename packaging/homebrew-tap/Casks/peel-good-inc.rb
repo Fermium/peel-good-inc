@@ -17,6 +17,12 @@ cask "peel-good-inc" do
   app "Peel Good Inc.app"
   # The CLI lives in Contents/Helpers: "labelize" and the app's "Labelize" executable clash on APFS.
   binary "#{appdir}/Peel Good Inc.app/Contents/Helpers/labelize"
+  # The same command under a short name.
+  binary "#{appdir}/Peel Good Inc.app/Contents/Helpers/labelize", target: "peel"
+  manpage "#{appdir}/Peel Good Inc.app/Contents/Resources/labelize.1"
+  bash_completion "#{appdir}/Peel Good Inc.app/Contents/Resources/completions/labelize.bash"
+  zsh_completion "#{appdir}/Peel Good Inc.app/Contents/Resources/completions/_labelize"
+  fish_completion "#{appdir}/Peel Good Inc.app/Contents/Resources/completions/labelize.fish"
 
   # Not notarized yet: clear the quarantine flag so Gatekeeper lets the ad hoc signed app open.
   postflight_steps do
