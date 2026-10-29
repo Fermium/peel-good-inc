@@ -62,25 +62,23 @@ This app doesn't send any user data. The HTTP API and the MCP server for AI assi
 
 ## HTTP API and MCP
 
-Other apps, scripts and AI assistants can print labels too. Turn on the HTTP API, the MCP server, or both in Settings → API. They're off until you do, they only answer on your own Mac, and they need the token saved in `~/Library/Application Support/Peel Good/token`. Labels they send are printed the same way as a file you drop on the icon.
+Both off by default; Settings → API toggles each. They bind 127.0.0.1:47311, need the bearer token from `~/Library/Application Support/Peel Good/token`, and reject requests from browsers. Jobs go through the same rules, countdown and preview as a drop.
 
-The HTTP API prints files you send to it:
+HTTP takes uploads only: no local paths, clipboard or reprint. Docs at http://127.0.0.1:47311/, spec at `/openapi.json`.
 
 ```sh
 curl -H "Authorization: Bearer $(cat ~/Library/Application\ Support/Peel\ Good/token)" \
   -F file=@label.pdf http://127.0.0.1:47311/v1/print
 ```
 
-Its docs are at http://127.0.0.1:47311/ while it's on.
-
-The MCP server lets an assistant like Claude list printers, preview labels and print them. If you want it to print files from your Mac or change settings and rules, there are two extra switches for that in Settings → API. To add it to Claude Code:
+MCP: printers, sizes, preview, print, jobs, settings, rules. Local files and settings changes are separate switches (settings: off, 45 minutes or always). It can't change its own switches or the token.
 
 ```sh
 claude mcp add --transport http peel-good http://127.0.0.1:47311/mcp \
   --header "Authorization: Bearer $(cat ~/Library/Application\ Support/Peel\ Good/token)"
 ```
 
-Settings → API also has the setup for Claude Desktop, ready to copy.
+Claude Desktop config: copy it from Settings → API.
 
 ## Build from source
 

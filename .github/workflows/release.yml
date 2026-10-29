@@ -184,13 +184,20 @@ jobs:
     needs: [build, release]
     if: github.ref_type == 'tag'
     runs-on: ubuntu-latest
+    env:
+      TAP_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
     steps:
+      - name: Check for the tap token
+        if: env.TAP_TOKEN == ''
+        run: echo "::warning::TAP_GITHUB_TOKEN isn't set, so the Homebrew tap wasn't updated. Bump it by hand."
       - uses: actions/checkout@v7
+        if: env.TAP_TOKEN != ''
         with:
           repository: ${{ env.TAP_REPO }}
-          token: ${{ secrets.TAP_GITHUB_TOKEN }}   # fine-grained PAT: Contents read/write on the tap only
+          token: ${{ env.TAP_TOKEN }}   # fine-grained PAT: Contents read/write on the tap only
           path: tap
       - name: Update cask (and formula, if present)
+        if: env.TAP_TOKEN != ''
         env:
           VERSION: ${{ needs.build.outputs.version }}
           DMG_SHA: ${{ needs.build.outputs.dmg_sha256 }}
