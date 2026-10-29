@@ -1,6 +1,6 @@
 # Peel Good Inc.
 
-A small Mac menu bar app that prints whatever you drop on it to a thermal label printer: shipping labels, return codes, logos.
+A small, simple, delightful Mac menu bar app that prints your labels instantly. Drop a PDF, PNG or any other image on it and it prints, with advanced features for automation when you need them.
 
 <p align="center">
   <picture>
@@ -9,18 +9,18 @@ A small Mac menu bar app that prints whatever you drop on it to a thermal label 
   </picture>
 </p>
 
-Drop a PDF, screenshot, image or SVG on the parcel icon in the menu bar. Peel Good Inc. finds the label on the page, turns it the right way round, fits it to the roll in your printer and prints it. There's no print dialog; you get a second and a half to cancel.
+Drop a PDF, screenshot, image or SVG on the parcel icon in the menu bar. Peel Good Inc. centers it, rotates it, scales it and prints it just the way you want.
 
-We made it for the labels a small shop prints: Royal Mail Click & Drop PDFs, USPS and UPS labels on Letter pages, and Amazon return QR codes saved as screenshots. Photos and SVGs work too.
+We're a small family-run business. We got tired of printing all our shipping labels by hand and getting confused about which ones we'd already printed, so we made this.
 
-## What it does
+## Features
 
-- Reads every barcode, QR code and DataMatrix on the page and lines the bars up with the printer's dots so they come out even. It checks each code still scans before printing.
-- Prints every page, in order. A packing slip next to a label prints too.
-- Supports every roll your printer reports, from 2 × 1.25 in to 4 × 8 in, plus custom sizes. Hold a file over the icon to send it to another printer.
-- Rules, written like Mail rules, pick the printer, size and ink for each kind of file. It can also watch a folder such as Downloads and offer to print new labels.
-- After printing it can tag the file in Finder, rename it, move it or put it in the Trash. Printed labels are kept for reprinting.
-- Also works from the Share menu, Services, Open With and the clipboard.
+- Automatically identifies barcodes, QR codes and DataMatrix codes, and lines them up with the exact dots your printer can print.
+- Supports common label sizes such as 4 × 6, 4 × 8, 4 × 4, 4 × 3, 4 × 2, 3 × 5, 3 × 3, 3 × 2, 2.5 × 1.5, 2.25 × 2.25, 2.25 × 1.25 and 2 × 2 in, plus custom sizes.
+- Watches a folder for new files.
+- Supports advanced rules to identify each label and route it to the right printer with the right settings.
+- After printing, it can tag the file in Finder, rename it, move it or put it in the Trash, so there's no confusion about which labels have been printed and which haven't.
+- A native Mac app: it works from the Share menu, Services, Open With, the clipboard and, of course, the menu bar.
 
 <p align="center">
   <picture>
@@ -29,7 +29,7 @@ We made it for the labels a small shop prints: Royal Mail Click & Drop PDFs, USP
   </picture>
 </p>
 
-Thermal printers only print black dots, so every label ends up pure black and white. Crisp keeps text and barcodes sharp. Photo turns grays into dot patterns. Auto chooses per page.
+Thermal label printers can only print in black and white. Unfortunately, documents often aren't formatted for thermal labels, so Peel Good Inc. automatically converts them to black and white, using either a sharp conversion or dithering.
 
 <p align="center">
   <picture>
@@ -46,13 +46,13 @@ brew install --cask fermium/tap/peel-good-inc
 
 Or download the DMG from [Releases](https://github.com/fermium/peel-good-inc/releases).
 
-The app isn't notarized by Apple yet. The Homebrew cask clears the quarantine flag for you. If you use the DMG, Control-click the app and choose Open the first time.
+Please note the app is not signed by Apple (yet). The Homebrew cask clears the quarantine flag for you automatically. If you use the DMG, Control-click the app and choose Open the first time.
 
-It needs macOS 15 or later. It's tested with a MUNBYN ITPP941AP and should work with any label printer that macOS can print to, over AirPrint or a CUPS driver.
+The app requires macOS 15 or later. It has been tested on a MUNBYN ITPP941AP printer, and it should work with any label printer that macOS can print to over AirPrint or a CUPS driver. Keep in mind, though, that CUPS drivers for thermal printers are utterly broken on the Mac.
 
 ## Privacy
 
-Nothing leaves your Mac. The HTTP API and the MCP server for AI assistants are off by default, and when you turn them on they only accept connections from this Mac, with a token.
+This app doesn't send any user data. The HTTP API and the MCP server for AI assistants are off by default, and when you turn them on they only accept connections from your own Mac, authenticated with a token. There are no ads, no tracking, nothing of the sort.
 
 ## Build from source
 
