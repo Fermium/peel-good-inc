@@ -25,6 +25,7 @@ final class SettingsWindowController {
             tabs.addTabViewItem(tab("Rules", "list.bullet.rectangle", RulesSettingsView(store: store)))
             tabs.addTabViewItem(tab("Files", "doc", FilesPane(store: store)))
             tabs.addTabViewItem(tab("API", "point.3.connected.trianglepath.dotted", APIPane(api: .shared)))
+            tabs.addTabViewItem(tab("About", "info.circle", AboutView()))
             let window = NSWindow(contentViewController: tabs)
             window.styleMask = [.titled, .closable]
             window.toolbarStyle = .preference

@@ -2,32 +2,12 @@ import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
-@MainActor
-enum AboutWindow {
-    private static var window: NSWindow?
-
-    static func show() {
-        if window == nil {
-            let w = NSWindow(contentViewController: NSHostingController(rootView: AboutView()))
-            w.title = "About Peel Good Inc."
-            w.styleMask = [.titled, .closable]
-            w.isReleasedWhenClosed = false
-            w.center()
-            NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: w, queue: .main) { _ in
-                MainActor.assumeIsolated { AppWindows.settingsClosed() }
-            }
-            window = w
-        }
-        AppWindows.bringToFront(window)
-    }
-}
-
 struct AboutView: View {
     @Environment(\.colorScheme) private var scheme
     @State private var showLicense = false
     @State private var showComponents = false
 
-    static let companyURL = URL(string: "https://find-and-update.company-information.service.gov.uk/company/12425065/filing-history")!
+    static let companyURL = URL(string: "https://find-and-update.company-information.service.gov.uk/company/12425065")!
     static let issuesURL = URL(string: "https://github.com/Fermium/peel-good-inc/issues/new")!
 
     private var version: String {
@@ -42,39 +22,46 @@ struct AboutView: View {
     }
 
     var body: some View {
-        VStack(spacing: 14) {
-            if let logo {
-                Image(nsImage: logo).resizable().aspectRatio(contentMode: .fit).frame(width: 240)
-                    .accessibilityLabel("Peel Good Inc.")
-            } else {
-                Text("Peel Good Inc.").font(.largeTitle.weight(.semibold))
+        VStack(spacing: 0) {
+            Spacer(minLength: 0)
+            Group {
+                if let logo {
+                    Image(nsImage: logo).resizable().aspectRatio(contentMode: .fit).frame(height: 150)
+                        .accessibilityLabel("Peel Good Inc.")
+                } else {
+                    Text("Peel Good Inc.").font(.largeTitle.weight(.semibold))
+                }
             }
-            Text(version).foregroundStyle(.secondary).textSelection(.enabled)
+            Text(version).font(.callout).foregroundStyle(.secondary).textSelection(.enabled).padding(.top, 10)
 
-            VStack(spacing: 3) {
+            VStack(spacing: 2) {
                 Text("© 2026 FERMIUM LTD")
                 Link("Company number 12425065", destination: Self.companyURL).font(.callout)
             }
+            .padding(.top, 18)
 
             HStack(spacing: 10) {
                 Button("MIT License") { showLicense = true }
-                Button("Open Source Components") { showComponents = true }
+                Button("SBOM") { showComponents = true }
             }
+            .padding(.top, 14)
 
-            Divider().padding(.horizontal, 30)
+            Divider().frame(width: 260).padding(.vertical, 20)
 
-            VStack(spacing: 8) {
-                Text("Questions or problems?").font(.headline)
-                Button {
-                    NSWorkspace.shared.open(Self.issuesURL)
-                } label: {
-                    Label("Open an Issue on GitHub", systemImage: "exclamationmark.bubble")
-                }
-                .buttonStyle(.borderedProminent)
+            Text("Questions or problems?").font(.headline)
+            Button {
+                NSWorkspace.shared.open(Self.issuesURL)
+            } label: {
+                Label("Open an Issue on GitHub", systemImage: "exclamationmark.bubble")
             }
+            .buttonStyle(.borderedProminent)
+            .padding(.top, 8)
+            Spacer(minLength: 0)
         }
-        .padding(.horizontal, 36).padding(.vertical, 26)
-        .frame(width: 420)
+        .multilineTextAlignment(.center)
+        .frame(maxWidth: .infinity)
+        .padding(30)
+        .frame(width: 560, height: 470)
         .sheet(isPresented: $showLicense) { LicenseSheet() }
         .sheet(isPresented: $showComponents) { ComponentsSheet() }
     }

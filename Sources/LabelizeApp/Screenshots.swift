@@ -46,6 +46,7 @@ enum Screenshots {
                                     RulesSettingsView(engine: RulesPreviewData.engine(), store: store, previewPrinters: printers)))
             tabs.addTabViewItem(tab("Files", "doc", FilesPane(store: store)))
             tabs.addTabViewItem(tab("API", "point.3.connected.trianglepath.dotted", APIPane(api: .shared)))
+            tabs.addTabViewItem(tab("About", "info.circle", AboutView()))
             let settings = window(tabs, style: [.titled, .closable], appearance: appearance)
             settings.toolbarStyle = .preference
             // Visit every tab once first, so lazily built content (the Printers preview) is ready.
@@ -86,11 +87,6 @@ enum Screenshots {
             await settle(ink, 1.5)
             save(windowImage(ink), file("ink-modes"))
 
-            let about = window(NSHostingController(rootView: active(AboutView())), style: [.titled, .closable], appearance: appearance)
-            about.title = "About Peel Good Inc."
-            await settle(about, 0.8)
-            save(windowImage(about), file("about"))
-            about.close()
             ink.close()
 
             // Logs: only the seeded sample, never the real log.
