@@ -156,6 +156,7 @@ public enum Manual {
     public static let out = CLIOption("out", short: "o", value: "DIR", help: "Folder for the label PDF and PNG previews.", completion: .directory)
     public static let ink = CLIOption("ink", value: "MODE", help: inkSummary, choices: choices(InkMode.self))
     public static let cutoff = CLIOption("cutoff", value: "0-100", help: "Black and white cutoff in percent. Default 50.")
+    public static let toneGamma = CLIOption("tone-gamma", value: "G", help: "Printer dot gain for photo and halftone: coverage c prints as c^G. Default 0.65, 1 turns it off.")
     public static let nudge = CLIOption("nudge", value: "X,Y", help: "Shift in mm, +x right, +y down. Default: the app's calibration.")
 
     public static let layout: [CLIOption] = [
@@ -165,7 +166,7 @@ public enum Manual {
                   choices: choices(CropMode.self)),
         CLIOption("pad", value: "MM", help: "Padding around the crop in mm. Default 2."),
         CLIOption("rotate", value: "MODE", help: "Turn the page to match the label: auto, none, cw or ccw. Default auto.", choices: choices(RotationMode.self)),
-        ink, cutoff, nudge,
+        ink, cutoff, toneGamma, nudge,
         CLIOption("no-snap", help: "Don't fit barcodes to the printer's dot grid."),
     ]
 
@@ -211,7 +212,7 @@ public enum Manual {
                    ]),
         CLICommand("step-wedge", aliases: ["wedge"], group: .labels, summary: "Print a gray ramp to compare ink modes",
                    discussion: "Steps from white to black in 10% stops, plus a smooth gradient. Print it once per ink mode to pick one for photos.",
-                   options: [printer, size, ink, cutoff, nudge, copies, dryRun, out],
+                   options: [printer, size, ink, cutoff, toneGamma, nudge, copies, dryRun, out],
                    examples: [
                        CLIExample("labelize step-wedge --ink photo", "See how dithering renders grays"),
                        CLIExample("labelize step-wedge --ink crisp --cutoff 40 --dry-run", "Try a lower cutoff without printing"),

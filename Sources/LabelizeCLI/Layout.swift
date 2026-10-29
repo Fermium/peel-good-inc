@@ -68,6 +68,10 @@ public enum Layout {
             }
             o.cutoff = pct / 100
         }
+        if let v = inv["tone-gamma"] {
+            guard let g = Double(v), g > 0, g <= 2 else { throw CLIError.usage("--tone-gamma needs a number above 0, like 0.65", hint: "1 turns tone correction off.") }
+            o.toneGamma = g
+        }
         if let v = inv["nudge"] {
             let parts = v.split(separator: ",").map { Double($0.trimmingCharacters(in: .whitespaces)) }
             guard parts.count == 2, let x = parts[0], let y = parts[1] else {

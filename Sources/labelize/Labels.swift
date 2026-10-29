@@ -90,13 +90,18 @@ struct LabelRun {
             let name = kind == .testLabel ? "test-label-\(options.size)" : "step-wedge-\(options.size)"
             let page = kind == .testLabel
                 ? TestPattern.page(size: options.size, title: "\(model) · \(options.size) in")
-                : StepWedge.page(size: options.size, title: "\(model) · \(options.size) in · ink \(options.ink.rawValue)")
+                : TestPattern.stepWedge(size: options.size, title: "\(model) · \(options.size) in")
             let url = outDir.appendingPathComponent("\(name).pdf")
             try writeSource(page, size: options.size, to: url)
             inputs = [url]
             options.crop = .none
             options.rotation = .none
             if kind == .testLabel { options.ink = .crisp; fromAppKeys.remove("ink"); fromAppKeys.remove("cutoff") }
+            // The wedge shows the printer's raw response: photo ink, no tone correction unless asked.
+            if kind == .stepWedge {
+                if inv["ink"] == nil { options.ink = .photo; fromAppKeys.remove("ink") }
+                if inv["tone-gamma"] == nil { options.toneGamma = 1 }
+            }
         }
         for url in inputs where !FileManager.default.fileExists(atPath: url.path) {
             let nearby = (try? FileManager.default.contentsOfDirectory(atPath: url.deletingLastPathComponent().path)) ?? []
