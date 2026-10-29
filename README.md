@@ -46,6 +46,7 @@ Thermal label printers can only print in black and white. Unfortunately, documen
 ## Install
 
 ```sh
+brew trust fermium/tap
 brew install --cask fermium/tap/peel-good-inc
 ```
 
