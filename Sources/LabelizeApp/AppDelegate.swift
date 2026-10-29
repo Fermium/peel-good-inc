@@ -17,6 +17,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     static let holdForPrinterChoice: TimeInterval = 0.8
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        if Screenshots.runIfRequested(store: store) { return }
         Log.notice(.app, "Peel Good Inc. \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?") started, \(store.printers.count) printers, default \(store.printer?.name ?? "none")")
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         statusItem.button?.wantsLayer = true
@@ -52,11 +53,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         FolderWatcher.shared.start()
         NSApp.servicesProvider = self
         NSUpdateDynamicServices()
+        APIController.shared.attach(AppLabelService(store: store))
 
         if CommandLine.arguments.contains("-previewTestLabel") {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { MainActor.assumeIsolated { self.startTestLabel(review: true) } }
         }
-        if CommandLine.arguments.contains("-showSettings") { settings.show() }
+        if let i = CommandLine.arguments.firstIndex(of: "-showSettings") {
+            let tab = CommandLine.arguments.dropFirst(i + 1).first.flatMap { $0.hasPrefix("-") ? nil : $0 }
+            settings.show(tab: tab)
+        }
         if CommandLine.arguments.contains("-showLogs") { LogWindow.show() }
     }
 

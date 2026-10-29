@@ -15,7 +15,8 @@ final class SettingsWindowController {
         self.testLabel = testLabel
     }
 
-    func show() {
+    /// Opens Settings, optionally on a tab by its title ("API").
+    func show(tab title: String? = nil) {
         if window == nil {
             let tabs = NSTabViewController()
             tabs.tabStyle = .toolbar
@@ -23,6 +24,7 @@ final class SettingsWindowController {
             tabs.addTabViewItem(tab("Printers", "printer", PrintersPane(store: store, testLabel: testLabel)))
             tabs.addTabViewItem(tab("Rules", "list.bullet.rectangle", RulesSettingsView(store: store)))
             tabs.addTabViewItem(tab("Files", "doc", FilesPane(store: store)))
+            tabs.addTabViewItem(tab("API", "point.3.connected.trianglepath.dotted", APIPane(api: .shared)))
             let window = NSWindow(contentViewController: tabs)
             window.styleMask = [.titled, .closable]
             window.toolbarStyle = .preference
@@ -34,6 +36,10 @@ final class SettingsWindowController {
             self.window = window
         }
         store.refresh()
+        if let title, let tabs = window?.contentViewController as? NSTabViewController,
+           let index = tabs.tabViewItems.firstIndex(where: { $0.label == title }) {
+            tabs.selectedTabViewItemIndex = index
+        }
         AppWindows.bringToFront(window)
     }
 

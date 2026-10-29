@@ -4,10 +4,12 @@ set -euo pipefail
 cd "${0:A:h}/.."
 
 swift build -c release --product LabelizeApp
+swift build -c release --product labelize-mcp
 app="build/Peel Good Inc.app"
 rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 cp .build/release/LabelizeApp "$app/Contents/MacOS/Labelize"
+cp .build/release/labelize-mcp "$app/Contents/MacOS/labelize-mcp"
 cp Resources/*.wav Resources/Labelize.icns "$app/Contents/Resources/"
 
 # Share extension ("Peel Good Inc." in Share menus), built directly: SwiftPM can't make .appex bundles.
@@ -90,6 +92,7 @@ cat > "$app/Contents/Info.plist" <<'PLIST'
 PLIST
 
 codesign --force --sign - --entitlements Extensions/Share/Share.entitlements "$appex"
+codesign --force --sign - "$app/Contents/MacOS/labelize-mcp"
 codesign --force --sign - "$app"
 pluginkit -a "$appex" || true
 # Register Open With, the "Print as Label" service and the document types.

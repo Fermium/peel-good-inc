@@ -22,7 +22,7 @@ enum Log {
     }
 
     enum Category: String, CaseIterable, Sendable {
-        case app, drop, intake, job, print, files, rules
+        case app, drop, intake, job, print, files, rules, api
     }
 
     static let subsystem = "com.fermiumlabs.labelize"
