@@ -1,4 +1,5 @@
 import Foundation
+import MCP
 import XCTest
 @testable import LabelizeApp
 
@@ -6,7 +7,7 @@ import XCTest
 @MainActor
 final class APITests: XCTestCase {
     let port = 47_377
-    let keys = ["apiHTTPEnabled", "apiMCPEnabled", "apiPort"]
+    let keys = ["apiHTTPEnabled", "apiMCPEnabled", "apiPort", "apiMCPLocalFiles", "apiMCPSettings", "playSounds", "tagColor"]
 
     override func tearDown() async throws {
         let api = APIController.shared
@@ -36,7 +37,7 @@ final class APITests: XCTestCase {
         let api = APIController.shared
         let mock = MockLabelService()
         UserDefaults.standard.set(port, forKey: "apiPort")
-        api.attach(mock)
+        api.attach(mock, configurator: memoryConfigurator())
         XCTAssertEqual(api.status, .off, "both switches are off by default")
 
         api.httpEnabled = true
@@ -69,10 +70,25 @@ final class APITests: XCTestCase {
         // Print through the API reaches only the mock.
         let file = FileManager.default.temporaryDirectory.appendingPathComponent("api-test.pdf")
         try Data("%PDF-1.4\n".utf8).write(to: file)
-        (status, _) = try await post("/v1/print", "{\"path\": \"\(file.path)\", \"copies\": 2}", json: true, port: port + 1)
+        // A path on this Mac is refused over HTTP; only files sent with the request print.
+        (status, _) = try await post("/v1/print", "{\"path\": \"\(file.path)\", \"copies\": 2}", port: port + 1)
+        XCTAssertEqual(status, 415)
+        (status, _) = try await post("/v1/print?path=\(file.path)", "%PDF-1.4\n", type: "application/pdf", port: port + 1)
+        XCTAssertEqual(status, 400)
+        (status, _) = try await post("/v1/print/clipboard", "", port: port + 1)
+        XCTAssertEqual(status, 404)
+        (status, _) = try await post("/v1/reprint", "", port: port + 1)
+        XCTAssertEqual(status, 404)
+        XCTAssertEqual(mock.printed.count, 0)
+        let data: Data
+        (status, data) = try await post("/v1/print?copies=2&filename=label.pdf", "%PDF-1.4\n", type: "application/pdf", port: port + 1)
         XCTAssertEqual(status, 200)
         XCTAssertEqual(mock.printed.count, 1)
         XCTAssertEqual(mock.printed.first?.request.copies, 2)
+        XCTAssertFalse(String(decoding: data, as: UTF8.self).contains("savedPDF"))
+        let big = String(repeating: "x", count: APILimits.maxFileBytes + 1)
+        (status, _) = try await post("/v1/print?filename=big.pdf", big, type: "application/pdf", port: port + 1)
+        XCTAssertEqual(status, 413)
 
         api.httpEnabled = false
         api.mcpEnabled = false
@@ -84,7 +100,90 @@ final class APITests: XCTestCase {
         } catch {}
     }
 
+    // MARK: MCP permissions
+
+    func testMCPPermissions() async throws {
+        let api = APIController.shared
+        let mock = MockLabelService()
+        let config = memoryConfigurator()
+        api.attach(mock, configurator: config)
+        api.mcpCanUseLocalFiles = false
+        api.mcpCanChangeSettings = false
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("mcp-test.pdf")
+        try Data("%PDF-1.4\n".utf8).write(to: file)
+
+        // Off: uploads and reading work; paths, clipboard, reprint and changes are refused, naming the setting.
+        var r = await tool("print_label", ["content_base64": .string(Data("%PDF-1.4\n".utf8).base64EncodedString()), "filename": "a.pdf"])
+        XCTAssertNotEqual(r.isError, true)
+        for (name, args) in [("print_label", ["path": Value.string(file.path)]), ("preview_label", ["path": .string(file.path)]),
+                             ("print_clipboard", [:]), ("reprint_last", [:])] as [(String, [String: Value])] {
+            r = await tool(name, args)
+            XCTAssertEqual(r.isError, true, name)
+            XCTAssertTrue(text(r).contains("Let MCP print files from this Mac"), name)
+        }
+        r = await tool("update_settings", ["playSounds": false])
+        XCTAssertTrue(text(r).contains("Let MCP change settings"))
+        r = await tool("get_settings")
+        XCTAssertNotEqual(r.isError, true)
+        XCTAssertFalse(text(r).contains(api.token))
+        XCTAssertEqual(mock.printed.count, 1)
+
+        // On.
+        api.mcpCanUseLocalFiles = true
+        api.mcpCanChangeSettings = true
+        r = await tool("print_label", ["path": .string(file.path)])
+        XCTAssertNotEqual(r.isError, true, text(r))
+        XCTAssertEqual(mock.printed.count, 2)
+        r = await tool("update_settings", ["playSounds": false, "tagColor": "blue"])
+        XCTAssertNotEqual(r.isError, true, text(r))
+        XCTAssertFalse(config.store.playSounds)
+        XCTAssertEqual(config.store.tagColor, .blue)
+
+        // Never: its own switch, its permissions, the token.
+        for key in ["mcpEnabled", "mcpCanUseLocalFiles", "mcpCanChangeSettings", "token"] {
+            r = await tool("update_settings", [key: true])
+            XCTAssertEqual(r.isError, true, key)
+            XCTAssertTrue(text(r).contains("protected_setting"), key)
+        }
+        XCTAssertTrue(api.mcpCanUseLocalFiles && api.mcpCanChangeSettings)
+
+        // Rules, in memory.
+        r = await tool("add_rule", ["rule": ["name": "Amazon", "conditions": [["field": "source", "op": "is", "values": ["amazon.com"]]],
+                                             "outcome": ["size": "4x6", "tag": ["name": "Done", "color": "red"]]]])
+        XCTAssertNotEqual(r.isError, true, text(r))
+        XCTAssertEqual(config.rules.rules.count, 1)
+        let id = config.rules.rules[0].id.uuidString
+        XCTAssertEqual(config.rules.rules[0].outcome.tag?.color, .red)
+        r = await tool("update_rule", ["id": .string(id), "rule": ["isEnabled": false]])
+        XCTAssertNotEqual(r.isError, true, text(r))
+        XCTAssertEqual(config.rules.rules[0].isEnabled, false)
+        XCTAssertEqual(config.rules.rules[0].conditions.first?.values, ["amazon.com"])
+        r = await tool("add_rule", ["rule": ["name": "Bad", "conditions": [["field": "kind", "op": "contains", "values": ["pdf"]]]]])
+        XCTAssertEqual(r.isError, true)
+        r = await tool("update_rule", ["id": "everything-else", "rule": ["outcome": ["copies": 2]]])
+        XCTAssertNotEqual(r.isError, true, text(r))
+        XCTAssertEqual(config.rules.fallback.outcome.copies, 2)
+        r = await tool("delete_rule", ["id": .string(id)])
+        XCTAssertNotEqual(r.isError, true)
+        XCTAssertTrue(config.rules.rules.isEmpty)
+        r = await tool("set_watched_folders", ["folders": [.string(FileManager.default.temporaryDirectory.path)]])
+        XCTAssertNotEqual(r.isError, true, text(r))
+        XCTAssertEqual(config.folders.get().count, 1)
+    }
+
     // MARK: Helpers
+
+    private func memoryConfigurator() -> AppConfigurator {
+        AppConfigurator(store: Store(), rules: RuleEngine(fileURL: nil), folders: .inMemory())
+    }
+
+    private func tool(_ name: String, _ args: [String: Value] = [:]) async -> CallTool.Result {
+        await MCPTools.call(CallTool.Parameters(name: name, arguments: args))
+    }
+
+    private func text(_ r: CallTool.Result) -> String {
+        r.content.compactMap { if case .text(let t, _, _) = $0 { t } else { nil } }.joined()
+    }
 
     let initialize = #"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"test","version":"1"}}}"#
 
@@ -100,11 +199,11 @@ final class APITests: XCTestCase {
         return ((response as! HTTPURLResponse).statusCode, data)
     }
 
-    private func post(_ path: String, _ body: String, json: Bool = true, port: Int? = nil) async throws -> (Int, Data) {
+    private func post(_ path: String, _ body: String, type: String = "application/json", port: Int? = nil) async throws -> (Int, Data) {
         var r = request(path, port: port)
         r.httpMethod = "POST"
         r.httpBody = Data(body.utf8)
-        r.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        r.setValue(type, forHTTPHeaderField: "Content-Type")
         r.setValue("application/json, text/event-stream", forHTTPHeaderField: "Accept")
         let (bytes, response) = try await URLSession.shared.bytes(for: r)
         var data = Data()

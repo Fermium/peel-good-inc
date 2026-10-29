@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 
 /// A request as the routes see it, independent of the HTTP server.
@@ -49,7 +50,21 @@ struct APIReply: Sendable {
     }
 }
 
+/// Limits for anything that arrives over the API.
+enum APILimits {
+    static let maxFileBytes = 25 * 1024 * 1024
+    static let maxFiles = 10
+    /// Labels per request: pages across all files.
+    static let maxLabels = 50
+    /// Whole request body; base64 MCP uploads are a third larger than the file.
+    static let maxBodyBytes = 64 * 1024 * 1024
+    /// Per minute, for all `/v1` requests and for print or preview.
+    static let requestsPerMinute = 120
+    static let printsPerMinute = 30
+}
+
 /// The `/v1` endpoints. Authentication and origin checks happen before this, in `APIServer`.
+/// The HTTP API only prints or previews files sent with the request: no paths, clipboard, reprint or history.
 enum APIRoutes {
     struct ServerFlags: Sendable {
         var http: Bool
@@ -71,21 +86,14 @@ enum APIRoutes {
             case ("POST", ["v1", "print"]):
                 let input = try await parse(r)
                 defer { input.cleanUp() }
-                return .json(try await service.print(files: input.files, request: input.request, source: "file"))
+                return .json(try await service.print(files: input.files, request: input.request, source: APIJob.Source.upload).redacted)
             case ("POST", ["v1", "preview"]):
                 let input = try await parse(r)
                 defer { input.cleanUp() }
                 let preview = try await service.preview(files: input.files, request: input.request)
                 return try previewReply(preview, r)
-            case ("POST", ["v1", "print", "clipboard"]):
-                let request = try decodeJSON(APIPrintRequest.self, r) ?? APIPrintRequest()
-                return .json(try await service.printClipboard(request: merge(request, query: r.query)))
-            case ("POST", ["v1", "reprint"]):
-                let body = try decodeJSON(APIReprintRequest.self, r)
-                let copies = try body?.copies ?? r.query["copies"].map { try int($0, "copies") }
-                return .json(try await service.reprintLast(copies: copies))
             case ("GET", ["v1", "jobs"]):
-                return .json(service.jobs())
+                return .json(service.jobs().filter { $0.source == APIJob.Source.upload }.map(\.redacted))
             default:
                 let known = OpenAPI.endpoints.contains { e in
                     e.path.split(separator: "/").count == parts.count
@@ -95,9 +103,10 @@ enum APIRoutes {
                 return .error(.notFound("No endpoint at \(r.path).", code: "no_endpoint"))
             }
         } catch let e as APIError {
-            return .error(e)
+            // Print-system errors can name files in the history folder; keep them out of HTTP replies.
+            return .error(e.status >= 500 ? APIError(status: e.status, code: e.code, message: "Printing failed. See the Peel Good Inc. log for details.") : e)
         } catch {
-            return .error(.failed("\(error)", code: "internal"))
+            return .error(.failed("Printing failed. See the Peel Good Inc. log for details.", code: "internal"))
         }
     }
 
@@ -132,7 +141,8 @@ enum APIRoutes {
         }
     }
 
-    /// Multipart upload, JSON with a path, or a raw PDF or image body. Options can also come as query parameters.
+    /// Files sent with the request: multipart form data (parts named file) or a raw PDF or image body.
+    /// Options come as form fields or query parameters. Paths on this Mac are refused.
     static func parse(_ r: APIRequest) async throws -> PrintInput {
         try await Task.detached(priority: .userInitiated) { try parseSync(r) }.value
     }
@@ -144,7 +154,7 @@ enum APIRoutes {
 
         if let boundary = Multipart.boundary(from: type) {
             let form = try Multipart(data: r.body, boundary: boundary)
-            request.path = form.field("path")
+            if form.field("path") != nil { throw pathRefused }
             request.printer = form.field("printer")
             request.size = form.field("size")
             request.fit = form.field("fit")
@@ -153,31 +163,56 @@ enum APIRoutes {
             for (i, part) in form.files.enumerated() {
                 uploads.append((try uploadName(part.filename, contentType: part.contentType, index: i), part.data))
             }
-        } else if type.lowercased().hasPrefix("application/json") || (type.isEmpty && r.body.first == UInt8(ascii: "{")) {
-            request = try decodeJSON(APIPrintRequest.self, r) ?? APIPrintRequest()
+        } else if type.lowercased().hasPrefix("application/json") || type.lowercased().hasPrefix("application/x-www-form-urlencoded") {
+            throw APIError(status: 415, code: "upload_required", message: "Send the file as multipart form data (field file) or as the request body.")
         } else if !r.body.isEmpty {
             uploads.append((try uploadName(r.query["filename"], contentType: type, index: 0), r.body))
         }
+        if r.query["path"] != nil { throw pathRefused }
         request = try merge(request, query: r.query)
+        request.path = nil
 
-        var files: [URL] = []
-        var scratch: URL?
-        if !uploads.isEmpty {
-            let folder = Intake.scratchFolder()
-            scratch = folder
+        guard !uploads.isEmpty else {
+            throw APIError.badRequest("Send a file as multipart form data (field file) or as the request body.", code: "no_file")
+        }
+        return try save(uploads, request: request)
+    }
+
+    nonisolated static let pathRefused = APIError(status: 400, code: "path_not_allowed",
+                                                  message: "The HTTP API only prints files sent with the request.")
+
+    /// Checks the limits, then writes uploads to a temporary folder.
+    nonisolated static func save(_ uploads: [(name: String, data: Data)], request: APIPrintRequest, local: [URL] = []) throws -> PrintInput {
+        guard uploads.count + local.count <= APILimits.maxFiles else {
+            throw APIError(status: 413, code: "too_many_files", message: "Send at most \(APILimits.maxFiles) files at a time.")
+        }
+        for u in uploads where u.data.count > APILimits.maxFileBytes {
+            throw APIError(status: 413, code: "file_too_large", message: "\(u.name) is larger than \(APILimits.maxFileBytes / 1_048_576) MB.")
+        }
+        let folder = uploads.isEmpty ? nil : Intake.scratchFolder()
+        var files = local
+        do {
             for (name, data) in uploads {
-                let url = folder.appendingPathComponent(name)
+                var url = folder!.appendingPathComponent(name)
+                if files.contains(url) { url = folder!.appendingPathComponent("\(files.count + 1) \(name)") }
                 try data.write(to: url)
                 files.append(url)
             }
+            let pages = files.reduce(0) { $0 + pageCount($1) }
+            guard pages <= APILimits.maxLabels else {
+                throw APIError(status: 413, code: "too_many_pages", message: "That's \(pages) labels. Send at most \(APILimits.maxLabels) pages at a time.")
+            }
+        } catch {
+            if let folder { try? FileManager.default.removeItem(at: folder) }
+            throw error
         }
-        if let path = request.path, !path.isEmpty {
-            files.insert(try resolvePath(path), at: 0)
-        }
-        guard !files.isEmpty else {
-            throw APIError.badRequest("Send a file as multipart form data (field file), or JSON with a path.", code: "no_file")
-        }
-        return PrintInput(files: files, request: request, scratch: scratch)
+        return PrintInput(files: files, request: request, scratch: folder)
+    }
+
+    /// Pages in a PDF; 1 for images (unreadable files fail later, when composing).
+    nonisolated static func pageCount(_ url: URL) -> Int {
+        guard url.pathExtension.lowercased() == "pdf" else { return 1 }
+        return CGPDFDocument(url as CFURL)?.numberOfPages ?? 1
     }
 
     nonisolated static func resolvePath(_ path: String) throws -> URL {

@@ -19,6 +19,30 @@ final class APIServerState: Sendable {
     func update(_ change: @Sendable (inout Snapshot) -> Void) { lock.withLock { change(&$0) } }
 }
 
+/// Sliding one-minute windows: one for every `/v1` request, one for print and preview.
+final class RateLimiter: Sendable {
+    private let lock = OSAllocatedUnfairLock(initialState: (all: [ContinuousClock.Instant](), prints: [ContinuousClock.Instant]()))
+
+    /// Seconds to wait, or nil if the request may go ahead (and is counted).
+    func admit(isPrint: Bool) -> Int? {
+        let now = ContinuousClock.now
+        return lock.withLock { s in
+            s.all.removeAll { now - $0 > .seconds(60) }
+            s.prints.removeAll { now - $0 > .seconds(60) }
+            if s.all.count >= APILimits.requestsPerMinute { return Self.wait(s.all, now) }
+            if isPrint && s.prints.count >= APILimits.printsPerMinute { return Self.wait(s.prints, now) }
+            s.all.append(now)
+            if isPrint { s.prints.append(now) }
+            return nil
+        }
+    }
+
+    private static func wait(_ window: [ContinuousClock.Instant], _ now: ContinuousClock.Instant) -> Int {
+        guard let oldest = window.first else { return 1 }
+        return max(1, Int(((oldest + .seconds(60)) - now).components.seconds) + 1)
+    }
+}
+
 struct APIContext: RequestContext {
     var coreContext: CoreRequestContextStorage
     let remoteIP: String?
@@ -28,13 +52,14 @@ struct APIContext: RequestContext {
         remoteIP = source.channel.remoteAddress?.ipAddress
     }
 
-    var maxUploadSize: Int { 64 * 1024 * 1024 }
+    var maxUploadSize: Int { APILimits.maxBodyBytes }
 }
 
 /// Every request: loopback peer, Host header, then per path the switch, Origin and token checks.
 struct APIResponder: HTTPResponder {
     let state: APIServerState
     let mcp: MCPSessions
+    let limiter = RateLimiter()
 
     func respond(to request: Request, context: APIContext) async throws -> Response {
         let started = ContinuousClock.now
@@ -70,7 +95,7 @@ struct APIResponder: HTTPResponder {
         case "/mcp":
             guard s.mcp else { return .error(.notFound("MCP server is off.", code: "mcp_off")) }
             if let denied = authenticate(request, s, method: method, path: path) { return denied }
-            guard let r = await collect(request, context, path: path) else { return .error(APIError(status: 413, code: "too_large", message: "Body is too large.")) }
+            guard let r = await collect(request, context, path: path) else { return .error(Self.tooLarge) }
             return await mcp.handle(r)
 
         case _ where path == "/v1" || path.hasPrefix("/v1/"):
@@ -80,13 +105,19 @@ struct APIResponder: HTTPResponder {
                 return .error(APIError(status: 403, code: "origin_not_allowed", message: "Requests from web pages aren't allowed."))
             }
             if let denied = authenticate(request, s, method: method, path: path) { return denied }
-            guard let r = await collect(request, context, path: path) else { return .error(APIError(status: 413, code: "too_large", message: "Body is too large.")) }
+            if let wait = limiter.admit(isPrint: method == "POST") {
+                return .error(APIError(status: 429, code: "rate_limited", message: "Too many requests. Try again in \(wait) seconds."),
+                              headers: [("Retry-After", String(wait))])
+            }
+            guard let r = await collect(request, context, path: path) else { return .error(Self.tooLarge) }
             return await Self.dispatch(r, APIRoutes.ServerFlags(http: s.http, mcp: s.mcp, port: s.port))
 
         default:
             return .error(.notFound("No endpoint at \(path).", code: "no_endpoint"))
         }
     }
+
+    static let tooLarge = APIError(status: 413, code: "too_large", message: "Requests can be at most \(APILimits.maxBodyBytes / 1_048_576) MB.")
 
     @MainActor
     private static func dispatch(_ r: APIRequest, _ flags: APIRoutes.ServerFlags) async -> APIReply {

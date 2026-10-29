@@ -19,6 +19,7 @@ final class APIController: ObservableObject {
 
     private enum Key {
         static let http = "apiHTTPEnabled", mcp = "apiMCPEnabled", port = "apiPort"
+        static let mcpLocalFiles = "apiMCPLocalFiles", mcpSettings = "apiMCPSettings"
     }
 
     @Published private(set) var status: Status = .off
@@ -40,6 +41,21 @@ final class APIController: ObservableObject {
         get { defaults.bool(forKey: Key.mcp) }
         set { objectWillChange.send(); defaults.set(newValue, forKey: Key.mcp); Log.notice(.api, "MCP server \(newValue ? "on" : "off")"); apply() }
     }
+
+    /// MCP may print paths on this Mac, the clipboard, and reprint. Off by default; only Settings can change it.
+    var mcpCanUseLocalFiles: Bool {
+        get { defaults.bool(forKey: Key.mcpLocalFiles) }
+        set { objectWillChange.send(); defaults.set(newValue, forKey: Key.mcpLocalFiles); Log.notice(.api, "MCP local files \(newValue ? "allowed" : "not allowed")") }
+    }
+
+    /// MCP may change settings, rules and watched folders. Off by default; only Settings can change it.
+    var mcpCanChangeSettings: Bool {
+        get { defaults.bool(forKey: Key.mcpSettings) }
+        set { objectWillChange.send(); defaults.set(newValue, forKey: Key.mcpSettings); Log.notice(.api, "MCP settings changes \(newValue ? "allowed" : "not allowed")") }
+    }
+
+    /// What MCP's configuration tools edit. Set by `attach`.
+    private(set) var configurator: AppConfigurator?
 
     var port: Int {
         get {
@@ -73,8 +89,10 @@ final class APIController: ObservableObject {
     }
 
     /// Call once at launch with the app's service. Starts the server if a switch is on.
-    func attach(_ service: LabelService) {
+    /// `configurator` defaults to the live settings, rules and watched folders (in memory for `-apiMock` and `-apiDryRun`).
+    func attach(_ service: LabelService, configurator custom: AppConfigurator? = nil) {
         let args = ProcessInfo.processInfo.arguments
+        let dev = args.contains("-apiMock") || args.contains("-apiDryRun")
         if args.contains("-apiMock") {
             Log.notice(.api, "using the mock label service (-apiMock)")
             self.service = MockLabelService()
@@ -85,6 +103,10 @@ final class APIController: ObservableObject {
             }
             self.service = service
         }
+        // Development runs edit rules and watched folders in memory, never the real rules.json.
+        let store = (service as? AppLabelService)?.store ?? Store()
+        configurator = custom ?? (dev ? AppConfigurator(store: store, rules: RuleEngine(fileURL: nil), folders: .inMemory())
+                           : AppConfigurator(store: store, rules: .shared, folders: .live))
         apply()
     }
 
