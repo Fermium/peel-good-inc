@@ -144,6 +144,8 @@ struct GeneralPane: View {
                         Text("Play sounds")
                     }
                 }
+                Toggle("Look for Zebra printers when Peel Good starts",
+                       isOn: Binding(get: { store.scanForZebras }, set: { store.scanForZebras = $0 }))
                 Toggle("Open at login", isOn: $launchAtLogin)
                     .onChange(of: launchAtLogin) { _, on in
                         do {
@@ -241,6 +243,7 @@ struct PrintersPane: View {
     @ObservedObject var store: Store
     let testLabel: (PrinterInfo) -> Void
     @State private var selection: String?
+    @State private var addingZebra = false
 
     var body: some View {
         HStack(spacing: 0) {
@@ -250,7 +253,7 @@ struct PrintersPane: View {
                         Image(systemName: p.isLabelPrinter ? "printer.dotmatrix" : "photo").frame(width: 20)
                         VStack(alignment: .leading, spacing: 1) {
                             Text(p.displayName).lineLimit(1)
-                            Text(p.name == store.printer?.name ? "Default · \(stateText(p))" : stateText(p))
+                            Text(p.name == store.printer?.name ? "Default · \(p.statusText)" : p.statusText)
                                 .font(.caption).foregroundStyle(.secondary)
                         }
                     }
@@ -258,10 +261,18 @@ struct PrintersPane: View {
                 }
                 Divider()
                 HStack(spacing: 0) {
-                    Button { NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.Print-Scan-Settings.extension")!) } label: {
+                    Menu {
+                        Button("Add Zebra Printer…") { addingZebra = true }
+                        Button("Add Printer in System Settings…") {
+                            NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.Print-Scan-Settings.extension")!)
+                        }
+                    } label: {
                         Image(systemName: "plus").frame(width: 24, height: 20)
                     }
-                    .help("Add a printer in System Settings")
+                    .menuStyle(.borderlessButton)
+                    .menuIndicator(.hidden)
+                    .fixedSize()
+                    .help("Add a printer")
                     Button { removeSelected() } label: { Image(systemName: "minus").frame(width: 24, height: 20) }
                         .disabled(selection == nil)
                         .help("Remove printer")
@@ -283,20 +294,28 @@ struct PrintersPane: View {
         }
         .frame(width: 680, height: 500)
         .onAppear { selection = selection ?? store.printer?.name }
-    }
-
-    private func stateText(_ p: PrinterInfo) -> String {
-        switch p.state {
-        case .idle: "Ready"
-        case .printing: "Printing"
-        case .stopped: "Offline"
-        case .unknown: "Unknown"
+        .sheet(isPresented: $addingZebra) {
+            AddZebraSheet(store: store) { added in
+                addingZebra = false
+                if let added { selection = added.name }
+            }
         }
     }
 
     /// Hide it from Peel Good Inc., or delete the print queue from the Mac.
     private func removeSelected() {
         guard let name = selection, let p = store.printers.first(where: { $0.name == name }) else { return }
+        if p.zebraHost != nil {
+            let alert = NSAlert()
+            alert.messageText = "Forget \(p.displayName)?"
+            alert.informativeText = "Peel Good Inc. stops printing to it and forgets its settings here. The printer isn't changed."
+            alert.addButton(withTitle: "Forget")
+            alert.addButton(withTitle: "Cancel")
+            guard alert.runModal() == .alertFirstButtonReturn else { return }
+            store.forgetZebra(named: name)
+            selection = store.printer?.name
+            return
+        }
         let alert = NSAlert()
         alert.messageText = "Remove \(p.displayName)?"
         alert.informativeText = "Hiding keeps the printer on your Mac. Removing deletes it from every app."
@@ -375,10 +394,29 @@ struct PrinterDetail: View {
                     }
                 }
             }
+            if let host = printer.zebraHost {
+                Section("Zebra") {
+                    LabeledContent("Address") {
+                        // The printer's own web page: its settings, status and configuration label.
+                        if let url = URL(string: "http://\(host)") { Link(host, destination: url) } else { Text(host) }
+                    }
+                    if let dpi = printer.dpi { LabeledContent("Resolution", value: "\(Int(dpi.rounded())) dpi (\(Int((dpi / 25.4).rounded())) dots/mm)") }
+                    LabeledContent("Status", value: printer.statusText)
+                }
+            }
             Section {
                 DisclosureGroup("Advanced", isExpanded: $showAdvanced) {
                     LabeledContent("Horizontal offset") { mmField(\.x) }
                     LabeledContent("Vertical offset") { mmField(\.y) }
+                    if printer.zebraHost != nil {
+                        HStack {
+                            Text("The offset applies to Peel Good's labels. The printer can store it for every app.")
+                                .font(.callout).foregroundStyle(.secondary)
+                            Spacer()
+                            Button("Move to Printer…") { ZebraSetup.moveCalibrationToPrinter(printer, store: store) }
+                                .disabled(store.nudge(for: printer) == .zero)
+                        }
+                    }
                 }
             }
             Section {
@@ -392,7 +430,11 @@ struct PrinterDetail: View {
             }
         }
         .formStyle(.grouped)
-        .onAppear(perform: refreshPreview)
+        .onAppear {
+            // A calibrated printer shows its offset (and, for a Zebra, the move to the printer).
+            if store.nudge(for: printer) != .zero { showAdvanced = true }
+            refreshPreview()
+        }
     }
 
     private func mmField(_ axis: WritableKeyPath<CGPoint, CGFloat>) -> some View {
@@ -418,6 +460,80 @@ struct PrinterDetail: View {
             let label = LabelComposer.compose(page, o)
             let image = label.bitmap.cgImage().map { NSImage(cgImage: $0, size: size.points) }
             await MainActor.run { preview = image }
+        }
+    }
+}
+
+/// Settings > Printers > + > Add Zebra Printer: the Zebras on the network, or one typed by address.
+struct AddZebraSheet: View {
+    @ObservedObject var store: Store
+    let done: (PrinterInfo?) -> Void
+    @State private var found: [ZebraCandidate] = []
+    @State private var scanning = true
+    @State private var host = ""
+    @State private var adding = false
+    @State private var error: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Add Zebra Printer").font(.headline)
+            Text("Peel Good Inc. prints to Zebras on your network directly, in ZPL.")
+                .font(.callout).foregroundStyle(.secondary)
+            GroupBox {
+                VStack(alignment: .leading, spacing: 6) {
+                    if scanning {
+                        HStack { ProgressView().controlSize(.small); Text("Looking on your network…").foregroundStyle(.secondary) }
+                    } else if found.isEmpty {
+                        Text("No Zebras answered. Type the printer's address below.").foregroundStyle(.secondary)
+                    }
+                    ForEach(found, id: \.found.host) { c in
+                        let f = c.found, known = store.settings.knownZebra(for: f) != nil
+                        HStack {
+                            Image(systemName: "printer.dotmatrix")
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(c.displayName)
+                                Text("\(f.host) · \(f.systemName)").font(.caption).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Button(known ? "Added" : "Add") { add(f.host, discoveryID: f.serial) }.disabled(known || adding)
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, minHeight: 60, alignment: .topLeading)
+                .padding(4)
+            }
+            HStack {
+                TextField("Address, e.g. 192.168.1.50", text: $host).onSubmit { add(host) }
+                Button("Add") { add(host) }.disabled(host.trimmingCharacters(in: .whitespaces).isEmpty || adding)
+            }
+            if let error { Text(error).font(.callout).foregroundStyle(.red) }
+            HStack {
+                if adding { ProgressView().controlSize(.small) }
+                Spacer()
+                Button("Done") { done(nil) }.keyboardShortcut(.cancelAction)
+            }
+        }
+        .padding(20)
+        .frame(width: 440)
+        .task { await scan() }
+    }
+
+    private func scan() async {
+        let settings = store.settings
+        found = await Task.detached(priority: .userInitiated) { settings.scanZebras() }.value
+        scanning = false
+    }
+
+    private func add(_ host: String, discoveryID: String? = nil) {
+        adding = true
+        error = nil
+        Task {
+            do {
+                done(try await ZebraSetup.add(host: host, discoveryID: discoveryID, store: store))
+            } catch {
+                self.error = "\(error)"
+            }
+            adding = false
         }
     }
 }

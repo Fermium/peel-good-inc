@@ -18,7 +18,7 @@ struct PrinterRow: Encodable {
 }
 
 func listPrinters(_ ctx: Context) throws -> ExitCode {
-    let printers = Printers.all()
+    let printers = ctx.defaults.printers()
     if ctx.inv.has("names") {
         printers.forEach { print($0.name) }
         return .ok
@@ -42,7 +42,7 @@ func listPrinters(_ ctx: Context) throws -> ExitCode {
         let state: String = switch p.state {
         case .idle: s.green("idle")
         case .printing: s.cyan("printing")
-        case .stopped: s.red("paused")
+        case .stopped: s.red(p.problem ?? "paused")
         case .unknown: s.dim("unknown")
         }
         var tags: [String] = []
@@ -70,7 +70,7 @@ struct SizeRow: Encodable {
 }
 
 func listSizes(_ ctx: Context) throws -> ExitCode {
-    let printers = Printers.all()
+    let printers = ctx.defaults.printers()
     var inv = ctx.inv
     if let name = inv.arguments.first { inv.values["printer"] = name }
     let scoped = Context(inv: inv, out: ctx.out, err: ctx.err, defaults: ctx.defaults, tool: ctx.tool, environment: ctx.environment)

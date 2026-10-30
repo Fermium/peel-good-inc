@@ -8,6 +8,7 @@ public enum SettingsKey: String, CaseIterable, Sendable {
     case printer, countdown, alwaysReview, newFilesAction, playSounds, hiddenPrinters
     case historyDays, tagAfterPrint, tagName, tagColor, afterPrintAction, renameSuffix, moveFolder
     case watchedFolders, watchedSeen
+    case zebraPrinters, ignoredZebras, scanForZebras
     case lastFile = "last.file", lastPrinter = "last.printer", lastSize = "last.size"
     /// Older versions saved fit and ink once for every printer; still read as a fallback.
     case legacyFit = "fit", legacyInk = "ink"
@@ -251,6 +252,7 @@ public struct AppSettings: @unchecked Sendable {
     /// (A size asked for explicitly, by `--size` or the API, is an error instead: see `OptionOverrides`.)
     public func options(for p: PrinterInfo) -> PrinterOptions {
         var o = LabelOptions(), saved: Set<String> = [], note: String?
+        if let dpi = p.dpi { o.dpi = dpi }
         let wanted = savedSize(p.name)
         if wanted != nil { saved.insert("size") }
         let size = wanted ?? .fourBySix

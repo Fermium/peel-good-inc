@@ -17,7 +17,7 @@ final class Store: ObservableObject {
     /// The first list is read synchronously so the app starts with printers.
     init(settings: AppSettings = .userDefaults(.standard)) {
         self.settings = settings
-        printers = Printers.all()
+        printers = settings.printers()
     }
 
     /// Asking CUPS can take seconds (it contacts each printer), so refresh in the background
@@ -26,10 +26,12 @@ final class Store: ObservableObject {
         guard !refreshing else { return }
         refreshing = true
         Task {
-            let fresh = await Task.detached(priority: .userInitiated) { Printers.all() }.value
+            let settings = settings
+            let fresh = await Task.detached(priority: .userInitiated) { settings.printers(zebraStatus: settings.zebraStatus()) }.value
             refreshing = false
             if fresh.map(\.name) != printers.map(\.name) || fresh.map(\.state) != printers.map(\.state)
-                || fresh.map(\.presets.count) != printers.map(\.presets.count) {
+                || fresh.map(\.presets.count) != printers.map(\.presets.count) || fresh.map(\.problem) != printers.map(\.problem)
+                || fresh.map(\.zebraHost) != printers.map(\.zebraHost) {
                 printers = fresh
             }
         }
@@ -71,6 +73,29 @@ final class Store: ObservableObject {
     var playSounds: Bool {
         get { settings.playSounds }
         set { change { settings.playSounds = newValue } }
+    }
+
+    // MARK: Zebras
+
+    /// Settings > General: look for Zebras on the network at launch.
+    var scanForZebras: Bool {
+        get { settings.scanForZebras }
+        set { change { settings.scanForZebras = newValue } }
+    }
+
+    func addZebra(_ profile: Zebra.Profile) {
+        change { settings.remember(profile) }
+        printers = settings.printers(cups: printers.filter { $0.zebraHost == nil })
+        refresh()
+    }
+
+    func forgetZebra(named name: String) {
+        change { settings.forgetZebra(named: name) }
+        printers.removeAll { $0.name == name }
+    }
+
+    func ignoreZebra(_ discoveryID: String) {
+        change { settings.ignoredZebras.append(discoveryID) }
     }
 
     /// Printers removed from the app's lists (they stay installed on the Mac).

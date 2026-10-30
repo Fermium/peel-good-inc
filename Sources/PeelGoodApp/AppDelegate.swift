@@ -49,6 +49,7 @@ final class AppDelegate: NSObject, JobPresenter, NSApplicationDelegate, NSWindow
 
         History.prune(keepingDays: store.historyDays)
         Notifier.shared.setUp()
+        ZebraSetup.scanAtLaunch(store: store)
         Notifier.shared.onAction = { [weak self] url, print in
             self?.printOnDefault([url], trigger: .watchedFolder, override: print ? .print : .review)
         }
@@ -353,7 +354,7 @@ final class AppDelegate: NSObject, JobPresenter, NSApplicationDelegate, NSWindow
 
 
         for p in store.eligiblePrinters {
-            let state = p.state == .stopped ? " (offline)" : ""
+            let state = p.problem != nil || p.state == .stopped ? " (\(p.statusText.lowercased()))" : ""
             let item = item("\(p.displayName)\(state)", #selector(choosePrinter(_:)), "")
             item.representedObject = p.name
             item.state = p.name == current?.name ? .on : .off

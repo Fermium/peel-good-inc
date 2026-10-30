@@ -14,7 +14,7 @@ final class PrintJob: ObservableObject {
         case failed(String)
     }
 
-    typealias Sender = @Sendable (_ file: URL, _ printer: String, _ size: LabelSize, _ copies: Int) throws -> String
+    typealias Sender = @Sendable (_ file: URL, _ printer: PrinterInfo, _ size: LabelSize, _ copies: Int) throws -> String
 
     @Published var phase: Phase = .composing
     @Published var labels: [ComposedLabel] = []
@@ -152,7 +152,7 @@ final class PrintJob: ObservableObject {
         do {
             let id = try await Task.detached {
                 try LabelWriter.write(labels, size: size, forLabelPrinter: printer.isLabelPrinter, to: url)
-                let id = try sender(url, printer.name, size, copies)
+                let id = try sender(url, printer, size, copies)
                 Log.notice(.print, "sent \(labels.count) label(s) to \(printer.name) (media \(size.cupsMedia)): \(id)")
                 return id
             }.value
