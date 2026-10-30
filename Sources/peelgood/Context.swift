@@ -32,7 +32,7 @@ struct Context {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
         encoder.dateEncodingStrategy = .iso8601
-        if let data = try? encoder.encode(value) { print(String(decoding: data, as: UTF8.self)) }
+        if let data = try? encoder.encode(value) { JSONStdout.write(data + Data("\n".utf8)) }
     }
 
     // MARK: Paths
@@ -93,3 +93,27 @@ func tilde(_ path: String) -> String {
 }
 
 func inches(_ v: CGFloat) -> String { String(format: "%.2f", v / 72) }
+
+/// Keeps the real stdout for the JSON result and points fd 1 at stderr in the meantime.
+enum JSONStdout {
+    nonisolated(unsafe) private static var saved: Int32 = -1
+
+    static func capture() {
+        fflush(stdout)
+        saved = dup(STDOUT_FILENO)
+        dup2(STDERR_FILENO, STDOUT_FILENO)
+    }
+
+    static func write(_ data: Data) {
+        fflush(stdout)
+        let fd = saved >= 0 ? saved : STDOUT_FILENO
+        data.withUnsafeBytes { buf in
+            var off = 0
+            while off < buf.count {
+                let n = Foundation.write(fd, buf.baseAddress! + off, buf.count - off)
+                if n <= 0 { break }
+                off += n
+            }
+        }
+    }
+}

@@ -21,6 +21,10 @@ func report(_ error: CLIError, style: Style) -> Never {
 let inv: Invocation
 do { inv = try Parser.parse(rawArgs) } catch let e as CLIError { report(e, style: earlyErr) } catch { report(CLIError("\(error)"), style: earlyErr) }
 
+// With --json, stdout carries only the JSON: anything else written to fd 1 while we work (system
+// frameworks print there, e.g. GPU driver notices on virtual Macs) is sent to stderr instead.
+if inv.global.json { JSONStdout.capture() }
+
 let ctx = Context(inv: inv, out: Style.detect(fd: 1, noColor: inv.global.noColor), err: Style.detect(fd: 2, noColor: inv.global.noColor),
                   defaults: AppSettings.system(), tool: tool, environment: environment)
 
