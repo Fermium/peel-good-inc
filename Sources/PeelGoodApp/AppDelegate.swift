@@ -84,17 +84,46 @@ final class AppDelegate: NSObject, JobPresenter, NSApplicationDelegate, NSWindow
     /// The printer glyph drawn by scripts/make-menubar-icon.swift, outline normally and solid while a
     /// file hovers. Falls back to an SF Symbol when the PDFs are missing (e.g. `swift run`).
     /// The app's own printer artwork, in color, at menu bar height (vector, so sharp at any scale).
+    /// The app's printer artwork as a black template glyph: dark parts (body, side, label marks) are ink,
+    /// the cream lid and label are see-through, so macOS tints it like any other menu bar icon.
     private lazy var menuBarIcon: NSImage? = {
-        guard let image = Bundle.main.url(forResource: "icon", withExtension: "svg").flatMap(NSImage.init(contentsOf:)) else {
+        guard let art = Bundle.main.url(forResource: "icon", withExtension: "svg").flatMap(NSImage.init(contentsOf:)) else {
             let symbol = NSImage(systemSymbolName: "printer", accessibilityDescription: "Peel Good Inc.")
             symbol?.isTemplate = true
             return symbol
         }
         let height: CGFloat = 18
-        image.size = NSSize(width: height * image.size.width / image.size.height, height: height)
-        image.isTemplate = false
-        image.accessibilityDescription = "Peel Good Inc."
-        return image
+        let size = NSSize(width: (height * art.size.width / art.size.height).rounded(), height: height)
+        let icon = NSImage(size: size)
+        for scale in [1, 2, 3] {
+            let w = Int(size.width) * scale, h = Int(size.height) * scale
+            guard let rgba = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: w, pixelsHigh: h, bitsPerSample: 8, samplesPerPixel: 4,
+                                              hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)
+            else { continue }
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rgba)
+            art.draw(in: NSRect(x: 0, y: 0, width: w, height: h))
+            NSGraphicsContext.restoreGraphicsState()
+            guard let data = rgba.bitmapData else { continue }
+            let rowBytes = rgba.bytesPerRow
+            for y in 0..<h {
+                for x in 0..<w {
+                    let i = y * rowBytes + x * 4
+                    let a = Double(data[i + 3]) / 255
+                    guard a > 0 else { continue }
+                    // Un-premultiply, then keep dark pixels as ink and drop light ones.
+                    let lum = (0.299 * Double(data[i]) + 0.587 * Double(data[i + 1]) + 0.114 * Double(data[i + 2])) / 255 / a
+                    let ink = max(0, min(1, (0.82 - lum) / 0.12)) * a
+                    data[i] = 0; data[i + 1] = 0; data[i + 2] = 0
+                    data[i + 3] = UInt8((ink * 255).rounded())
+                }
+            }
+            rgba.size = size
+            icon.addRepresentation(rgba)
+        }
+        icon.isTemplate = true
+        icon.accessibilityDescription = "Peel Good Inc."
+        return icon
     }()
 
     /// Hover is shown with the bounce and a slight dim, so the icon itself stays the same.
