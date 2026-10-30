@@ -132,6 +132,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>NSHumanReadableCopyright</key><string>© $(date +%Y) Fermium LABS</string>
     <key>LSUIElement</key><true/>
     <key>NSHighResolutionCapable</key><true/>
+    <key>NSLocalNetworkUsageDescription</key><string>Peel Good Inc. looks for Zebra label printers on your network and prints to them directly.</string>
     <key>CFBundleIconFile</key><string>PeelGood</string>
     <key>CFBundleDocumentTypes</key>
     <array>
