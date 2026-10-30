@@ -155,47 +155,95 @@ final class AppDelegate: NSObject, JobPresenter, NSApplicationDelegate, NSWindow
 
     /// A plain drop prints on the default printer. Holding over the icon, or pressing ⌘,
     /// brings up a tile per printer to drop on instead.
-    func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+    /// The operation to accept a drag with. It must be one the source allows, or AppKit treats the drop
+    /// as refused and sends "exited" instead of "perform" on mouse-up. Finder allows copy; a Dock stack
+    /// (e.g. Downloads) allows only move/generic, so a hard-coded `.copy` silently refused those drops.
+    /// The file is only read, never moved, whichever operation is reported.
+    private static func operation(for sender: NSDraggingInfo) -> NSDragOperation {
+        let mask = sender.draggingSourceOperationMask
+        return [NSDragOperation.copy, .generic, .link, .move].first { mask.contains($0) } ?? []
+    }
+
+    private static func describe(_ sender: NSDraggingInfo) -> String {
         let types = sender.draggingPasteboard.types?.map(\.rawValue).joined(separator: ", ") ?? "none"
+        let items = sender.draggingPasteboard.pasteboardItems?.count ?? 0
+        return "\(items) item(s), source ops 0x\(String(sender.draggingSourceOperationMask.rawValue, radix: 16)), seq \(sender.draggingSequenceNumber): \(types)"
+    }
+
+    /// Last answer `draggingUpdated` gave, so a refusal is logged once per change instead of every frame.
+    private var lastUpdateOperation: NSDragOperation?
+
+    func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
         guard Intake.canRead(sender.draggingPasteboard) else {
-            Log.warning(.drop, "drag entered, nothing printable: \(types)")
+            Log.warning(.drop, "drag entered, nothing printable: \(Self.describe(sender))")
+            shake()
+            return []
+        }
+        let operation = Self.operation(for: sender)
+        guard !operation.isEmpty else {
+            Log.warning(.drop, "drag entered, source allows no operation we accept: \(Self.describe(sender))")
             shake()
             return []
         }
         // Both targets report the same drag; bounce once.
         if dragEnteredAt == nil, Date().timeIntervalSince(lastBounce) > 0.6 {
-            Log.info(.drop, "drag entered: \(types)")
+            Log.info(.drop, "drag entered (op 0x\(String(operation.rawValue, radix: 16))): \(Self.describe(sender))")
             bounceIcon()
             lastBounce = Date()
+        } else {
+            Log.debug(.drop, "drag entered again (op 0x\(String(operation.rawValue, radix: 16)))")
         }
+        lastUpdateOperation = operation
         setIcon(filled: true)
         dragEnteredAt = dragEnteredAt ?? Date()
         if NSEvent.modifierFlags.contains(.command) { showDropZones() }
-        return .copy
+        return operation
     }
 
     /// Accepts for as long as the drag holds something printable; hover state only drives the hold timer.
     func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
-        guard Intake.canRead(sender.draggingPasteboard) else { return [] }
+        let operation = Intake.canRead(sender.draggingPasteboard) ? Self.operation(for: sender) : []
+        if operation != lastUpdateOperation {
+            if operation.isEmpty {
+                Log.warning(.drop, "drag updated, refusing: \(Self.describe(sender))")
+            } else {
+                Log.debug(.drop, "drag updated, accepting (op 0x\(String(operation.rawValue, radix: 16)))")
+            }
+            lastUpdateOperation = operation
+        }
+        guard !operation.isEmpty else { return [] }
         let enteredAt = dragEnteredAt ?? Date()
         dragEnteredAt = enteredAt
         if NSEvent.modifierFlags.contains(.command) || Date().timeIntervalSince(enteredAt) >= Self.holdForPrinterChoice {
             showDropZones()
         }
-        return .copy
+        return operation
     }
 
     func draggingExited(_ sender: NSDraggingInfo?) {
-        if dragEnteredAt != nil { Log.debug(.drop, "drag exited") }
+        Log.debug(.drop, "drag exited\(dragEnteredAt == nil ? " (not hovering)" : "")")
         dragEnteredAt = nil
+        lastUpdateOperation = nil
         setIcon(filled: false)
+    }
+
+    func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        Log.debug(.drop, "prepare for drop: \(Self.describe(sender))")
+        return true
+    }
+
+    func draggingEnded(_ sender: NSDraggingInfo) {
+        Log.debug(.drop, "drag ended")
+        dragEnteredAt = nil
+        lastUpdateOperation = nil
     }
 
     func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
         dragEnteredAt = nil
+        lastUpdateOperation = nil
         setIcon(filled: false)
         let review = NSEvent.modifierFlags.contains(.option)
-        Log.info(.drop, "dropped\(review ? " with ⌥" : "")")
+        Log.info(.drop, "dropped\(review ? " with ⌥" : ""): \(Self.describe(sender))")
         Task {
             let files = await Intake.files(from: sender.draggingPasteboard, name: "Dropped")
             Log.info(.drop, "drop gave \(files.count) file(s): \(files.map(\.lastPathComponent).joined(separator: ", "))")
@@ -416,5 +464,7 @@ final class StatusDropView: NSView {
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation { delegate?.draggingEntered?(sender) ?? [] }
     override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation { delegate?.draggingUpdated?(sender) ?? [] }
     override func draggingExited(_ sender: NSDraggingInfo?) { delegate?.draggingExited?(sender) }
+    override func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool { delegate?.prepareForDragOperation?(sender) ?? true }
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool { delegate?.performDragOperation?(sender) ?? false }
+    override func draggingEnded(_ sender: NSDraggingInfo) { delegate?.draggingEnded?(sender) }
 }
