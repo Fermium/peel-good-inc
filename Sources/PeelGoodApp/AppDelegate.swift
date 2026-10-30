@@ -12,6 +12,7 @@ final class AppDelegate: NSObject, JobPresenter, NSApplicationDelegate, NSWindow
     private var job: PrintJob?
     private var dropZoneWatch: Timer?
     private var dragEnteredAt: Date?
+    private var lastBounce = Date.distantPast
     private lazy var settings = SettingsWindowController(store: store, testLabel: { [weak self] printer in self?.startTestLabel(on: printer, review: false) })
 
     /// Hovering this long over the icon with a file brings up the printer choice.
@@ -27,8 +28,9 @@ final class AppDelegate: NSObject, JobPresenter, NSApplicationDelegate, NSWindow
         menu.delegate = self
         statusItem.menu = menu
 
-        // Two drop targets: a view over the icon (the usual way), and the status bar window,
-        // which forwards drags to its delegate. Whichever AppKit picks calls the same methods.
+        // Two drop targets, a view over the icon and the status bar window (which forwards drags to
+        // its delegate), because AppKit may route a drag to either. Accepting is stateless (see
+        // draggingUpdated), so one target's "exited" can't make the other refuse the drop.
         if let button = statusItem.button {
             let target = StatusDropView(frame: button.bounds)
             target.autoresizingMask = [.width, .height]
@@ -160,18 +162,23 @@ final class AppDelegate: NSObject, JobPresenter, NSApplicationDelegate, NSWindow
             shake()
             return []
         }
-        // Both drop targets see the same drag; react once.
-        if let entered = dragEnteredAt, Date().timeIntervalSince(entered) < 0.5 { return .copy }
-        Log.info(.drop, "drag entered: \(types)")
+        // Both targets report the same drag; bounce once.
+        if dragEnteredAt == nil, Date().timeIntervalSince(lastBounce) > 0.6 {
+            Log.info(.drop, "drag entered: \(types)")
+            bounceIcon()
+            lastBounce = Date()
+        }
         setIcon(filled: true)
-        bounceIcon()
-        dragEnteredAt = Date()
+        dragEnteredAt = dragEnteredAt ?? Date()
         if NSEvent.modifierFlags.contains(.command) { showDropZones() }
         return .copy
     }
 
+    /// Accepts for as long as the drag holds something printable; hover state only drives the hold timer.
     func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
-        guard let enteredAt = dragEnteredAt else { return [] }
+        guard Intake.canRead(sender.draggingPasteboard) else { return [] }
+        let enteredAt = dragEnteredAt ?? Date()
+        dragEnteredAt = enteredAt
         if NSEvent.modifierFlags.contains(.command) || Date().timeIntervalSince(enteredAt) >= Self.holdForPrinterChoice {
             showDropZones()
         }
@@ -179,15 +186,9 @@ final class AppDelegate: NSObject, JobPresenter, NSApplicationDelegate, NSWindow
     }
 
     func draggingExited(_ sender: NSDraggingInfo?) {
-        // The second target's "entered" can follow the first one's "exited" immediately;
-        // keep the hover state briefly so the pair reads as one hover.
-        let entered = dragEnteredAt
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
-            guard let self, self.dragEnteredAt == entered, entered != nil else { return }
-            Log.debug(.drop, "drag exited")
-            self.dragEnteredAt = nil
-            self.setIcon(filled: false)
-        }
+        if dragEnteredAt != nil { Log.debug(.drop, "drag exited") }
+        dragEnteredAt = nil
+        setIcon(filled: false)
     }
 
     func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
