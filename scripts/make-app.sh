@@ -72,6 +72,7 @@ cat > "$app/Contents/Info.plist" <<'PLIST'
     <key>LSMinimumSystemVersion</key><string>15.0</string>
     <key>LSUIElement</key><true/>
     <key>NSHighResolutionCapable</key><true/>
+    <key>NSLocalNetworkUsageDescription</key><string>Peel Good Inc. looks for Zebra label printers on your network and prints to them directly.</string>
     <key>CFBundleIconFile</key><string>PeelGood</string>
     <key>CFBundleDocumentTypes</key>
     <array>

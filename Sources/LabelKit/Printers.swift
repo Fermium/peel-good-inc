@@ -13,9 +13,19 @@ public struct PrinterInfo: Sendable {
     /// Custom size range, when the printer accepts custom sizes.
     public var customMin: LabelSize?
     public var customMax: LabelSize?
+    /// Dots per inch, when the printer says. Labels are composed at this resolution.
+    public var dpi: Double?
+    /// A Zebra reached directly on the network, printed to over TCP 9100.
+    public var zebraHost: String?
+    /// Why the printer can't print right now ("the print head is open"), when it says.
+    public var problem: String?
+
+    /// Takes ZPL: the label is sent as the printer's own dots, not as a PDF for a driver.
+    public var speaksZPL: Bool { zebraHost != nil }
 
     public init(name: String, makeAndModel: String = "", isDefault: Bool = false, state: State = .unknown,
-                presets: [LabelSize], customMin: LabelSize? = nil, customMax: LabelSize? = nil) {
+                presets: [LabelSize], customMin: LabelSize? = nil, customMax: LabelSize? = nil,
+                dpi: Double? = nil, zebraHost: String? = nil, problem: String? = nil) {
         self.name = name
         self.makeAndModel = makeAndModel
         self.isDefault = isDefault
@@ -23,10 +33,14 @@ public struct PrinterInfo: Sendable {
         self.presets = presets
         self.customMin = customMin
         self.customMax = customMax
+        self.dpi = dpi
+        self.zebraHost = zebraHost
+        self.problem = problem
     }
 
-    /// A printer whose widest media is about 4 inches and that can print 4x6.
+    /// A ZPL printer, or one whose widest media is about 4 inches and that can print 4x6.
     public var isLabelPrinter: Bool {
+        if speaksZPL { return resolve(.fourBySix) != nil }
         let widest = presets.map(\.width).max() ?? 0
         return widest > 0 && widest <= 4.3 && resolve(.fourBySix) != nil
     }
@@ -51,6 +65,21 @@ public struct PrinterInfo: Sendable {
 }
 
 public enum Printers {
+    /// "zebra://192.168.1.216" names a Zebra on the network that isn't remembered, for the command line.
+    public static let zebraScheme = "zebra://"
+
+    public static func zebraHost(_ name: String) -> String? {
+        guard name.lowercased().hasPrefix(zebraScheme) else { return nil }
+        let host = name.dropFirst(zebraScheme.count).trimmingCharacters(in: CharacterSet(charactersIn: "/ "))
+        return host.isEmpty ? nil : host
+    }
+
+    /// Asks a Zebra on the network what it is, for a printer named by its address ("zebra://host").
+    public static func zebra(host: String) throws -> PrinterInfo {
+        let d = try Zebra.describe(host)
+        return d.profile.printer(name: zebraScheme + host, status: d.status)
+    }
+
     public static func all() -> [PrinterInfo] {
         var dests: UnsafeMutablePointer<cups_dest_t>?
         let count = cupsGetDests2(nil, &dests)

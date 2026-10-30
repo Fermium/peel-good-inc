@@ -27,6 +27,8 @@ struct LabelRun {
         var pages: [Page]
         /// This file's labels on their own.
         var pdf: String
+        /// The same labels as the ZPL a Zebra gets, for previews on ZPL printers.
+        var zpl: String?
     }
 
     struct Report: Encodable {
@@ -51,6 +53,8 @@ struct LabelRun {
         /// Every label of every file, in order: the one PDF that is sent (or would be), as the app sends a drop.
         var pdf: String?
         var lp: [String]?
+        /// The ZPL sent (or that would be) to a Zebra, instead of `lp`.
+        var zpl: String?
         var job: String?
         /// The copy saved to History, when it was sent.
         var history: String?
@@ -63,7 +67,7 @@ struct LabelRun {
 
     func run() throws -> ExitCode {
         let inv = ctx.inv
-        let printers = Printers.all()
+        let printers = ctx.defaults.printers()
         let sends = kind != .preview && !inv.has("dry-run")
         let needsPrinter = kind != .preview
         var chosen = try ctx.choosePrinter(printers, required: needsPrinter)
@@ -285,9 +289,15 @@ struct LabelRun {
             try LabelWriter.write(labels, size: options.size, forLabelPrinter: printer?.isLabelPrinter != false, to: pdf)
         } catch { throw CLIError("\(error)") }
         file.pdf = pdf.path
+        if kind == .preview, let printer, printer.speaksZPL {
+            let zpl = outDir.appendingPathComponent("\(base).label.zpl")
+            do { try LabelPrint.zplJob(file: pdf, printer: printer, copies: 1).data.write(to: zpl) } catch { throw CLIError("\(error)") }
+            file.zpl = zpl.path
+        }
 
         if kind == .preview || (ctx.inv["out"] != nil && !sends && !ctx.inv.has("dry-run")) {
             ctx.say("  \(s.arrow) \(tilde(pdf.path))")
+            if let zpl = file.zpl { ctx.say("    \(s.dim(tilde(zpl)))") }
             for p in file.pages.compactMap(\.png) { ctx.say("    \(s.dim(tilde(p)))") }
         }
         return (file, labels)
@@ -311,11 +321,23 @@ struct LabelRun {
         }
         report.pdf = pdf.path
         let args = LabelPrint.lpArguments(file: pdf, printer: printer.name, size: options.size, copies: copies)
-        report.lp = ["lp"] + args
+        // A Zebra gets ZPL, built once: the file written is exactly what is (or would be) sent.
+        var zpl: LabelPrint.ZPLJob?
+        if printer.speaksZPL {
+            let url = pdf.deletingPathExtension().appendingPathExtension("zpl")
+            do {
+                zpl = try LabelPrint.zplJob(file: pdf, printer: printer, copies: copies)
+                try zpl?.data.write(to: url)
+            } catch { throw CLIError("\(error)", hint: "`\(ctx.tool) doctor` checks the printer.", code: .printer) }
+            report.zpl = url.path
+        } else {
+            report.lp = ["lp"] + args
+        }
         let what = "\(labels.count) label\(labels.count == 1 ? "" : "s")"
         if sends {
             do {
-                let id = try LabelPrint.send(file: pdf, printer: printer.name, size: options.size, copies: copies)
+                let id = try zpl.map { try LabelPrint.send($0, to: printer) }
+                    ?? LabelPrint.send(file: pdf, printer: printer, size: options.size, copies: copies)
                 report.job = id
                 ctx.say("\(s.ok) \(s.green("Sent \(what) to \(printer.displayName)")) \(s.dim(id))")
                 if let saved = record(pdf, source: first, printer: printer, size: options.size) {
@@ -327,8 +349,12 @@ struct LabelRun {
                                hint: "`\(ctx.tool) doctor` checks the printer and CUPS.", code: .printer)
             }
         } else {
-            let shown = (["lp"] + args).map { $0.contains(" ") ? "'\($0)'" : $0 }.joined(separator: " ")
-            ctx.say("\(s.arrow) \(s.dim("dry run, \(what), would run:")) \(shown)")
+            if let host = printer.zebraHost, let path = report.zpl {
+                ctx.say("\(s.arrow) \(s.dim("dry run, \(what), would send ZPL to \(host):9100:")) \(tilde(path))")
+            } else {
+                let shown = (["lp"] + args).map { $0.contains(" ") ? "'\($0)'" : $0 }.joined(separator: " ")
+                ctx.say("\(s.arrow) \(s.dim("dry run, \(what), would run:")) \(shown)")
+            }
         }
     }
 }

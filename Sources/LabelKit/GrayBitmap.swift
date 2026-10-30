@@ -45,20 +45,29 @@ public struct GrayBitmap {
         )
     }
 
-    /// A packed 1-bit image (pixels below 128 are black), for printing.
-    public func oneBitImage() -> CGImage? {
+    /// Rows of 1-bit dots, 1 = black (pixels below 128), leftmost dot in the high bit, each row padded
+    /// to whole bytes with white: what printers take (ZPL ^GF) and what `oneBitImage` draws.
+    public func packedBlack() -> (rowBytes: Int, bytes: [UInt8]) {
         let rowBytes = (width + 7) / 8
-        var packed = [UInt8](repeating: 0, count: rowBytes * height)
+        var bytes = [UInt8](repeating: 0, count: rowBytes * height)
         for y in 0..<height {
-            for x in 0..<width where self[x, y] >= 128 {
-                packed[y * rowBytes + x / 8] |= 0x80 >> UInt8(x % 8)
+            let row = y * width
+            for x in 0..<width where pixels[row + x] < 128 {
+                bytes[y * rowBytes + x / 8] |= 0x80 >> UInt8(x % 8)
             }
         }
-        guard let provider = CGDataProvider(data: Data(packed) as CFData) else { return nil }
+        return (rowBytes, bytes)
+    }
+
+    /// A packed 1-bit image, for printing.
+    public func oneBitImage() -> CGImage? {
+        let packed = packedBlack()
+        guard let provider = CGDataProvider(data: Data(packed.bytes) as CFData) else { return nil }
+        // Set bits are black: decode inverts DeviceGray's 0 = black.
         return CGImage(
-            width: width, height: height, bitsPerComponent: 1, bitsPerPixel: 1, bytesPerRow: rowBytes,
+            width: width, height: height, bitsPerComponent: 1, bitsPerPixel: 1, bytesPerRow: packed.rowBytes,
             space: CGColorSpaceCreateDeviceGray(), bitmapInfo: [], provider: provider,
-            decode: nil, shouldInterpolate: false, intent: .defaultIntent
+            decode: [1, 0], shouldInterpolate: false, intent: .defaultIntent
         )
     }
 }

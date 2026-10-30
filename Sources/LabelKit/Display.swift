@@ -20,6 +20,18 @@ extension PrinterInfo {
         return model.isEmpty ? Self.displayName(queue: name) : model
     }
 
+    /// "Ready", "Printing", "Offline", "Not answering", or what stops it ("The print head is open"),
+    /// for the menu, Settings and the command line alike.
+    public var statusText: String {
+        if let problem { return problem.prefix(1).uppercased() + problem.dropFirst() }
+        return switch state {
+        case .idle: "Ready"
+        case .printing: "Printing"
+        case .stopped: "Offline"
+        case .unknown: "Not answering"
+        }
+    }
+
     /// A queue name made readable ("MUNBYN_ITPP941AP" reads "MUNBYN ITPP941AP"), for printers that aren't connected.
     public static func displayName(queue: String) -> String { queue.replacingOccurrences(of: "_", with: " ") }
 }

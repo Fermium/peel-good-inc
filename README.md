@@ -5,7 +5,7 @@
   </picture>
 </p>
 
-A small, simple, delightful Mac menu bar app that prints your labels instantly. Drop a PDF/PNG/SVG/etc in the top bar or use the rules to automatically print from a watched folder and route to any printer.
+A small, simple, delightful Mac menu bar app that prints your labels instantly. Drop a PDF/PNG/SVG/etc in the top bar or use the rules to automatically print from a watched folder and route to any printer, including Zebra printers.
 
 <p align="center">
   <picture>
@@ -24,6 +24,7 @@ A small, simple, delightful Mac menu bar app that prints your labels instantly. 
 - Extensive rule system to automatically identify documents and send them to the right printer.
 - MCP Server to use the printer through AI clients as well as use AI to automatically configure and test the app.
 - Common label sizes: 4 × 6, 4 × 8, 4 × 4, 4 × 3, 4 × 2, 3 × 5, 3 × 3, 3 × 2, 2.5 × 1.5, 2.25 × 2.25, 2.25 × 1.25 and 2 × 2 in, metric rolls such as 100 × 150 mm, and custom sizes.
+- Prints to Zebra printers on your network in ZPL, no driver needed.
 - Watches a folder for new files.
 - After printing it can tag the file in Finder, rename it, move it or put it in the Trash, so you always know which labels are done.
 - Native Mac app: Share menu, Services, Open With, the clipboard and the menu bar.
@@ -66,6 +67,18 @@ Templates for Amazon returns, Royal Mail Click & Drop and shipping labels on Let
     <img src="docs/screenshots/settings-rule-editor-light.png" width="500" alt="The rule editor: conditions on QR code and code text, then printer, size, scaling, ink and Finder tag">
   </picture>
 </p>
+
+## Zebra printers
+
+macOS ships drivers for Zebra printers through CUPS, but they suffer from long-documented bugs and limitations in the way they render labels ([apple/cups#5092](https://github.com/apple/cups/issues/5092), [apple/cups#6113](https://github.com/apple/cups/issues/6113)), which make them close to unusable for barcodes. *Peel Good Inc.* skips them and sends each label to the printer as ZPL, dot for dot, over the network.
+
+When it starts, *Peel Good Inc.* looks for Zebra printers on your network. Deny the permission pop-up to block this. Printers can also be added by address, and Settings → Printers has options such as:
+
+- label size, scaling and ink
+- a position offset, which can be moved onto the printer to be used by every app
+- live status: head open, out of labels, paused
+
+Tested on a Zebra GX420t. USB Zebras aren't supported yet.
 
 ## Install
 

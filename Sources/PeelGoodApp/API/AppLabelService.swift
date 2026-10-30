@@ -11,7 +11,7 @@ import UniformTypeIdentifiers
 /// (printed, cancelled, failed) up to `waitLimit`, then returns status waiting; `jobs()` shows how it ended.
 @MainActor
 final class AppLabelService: LabelService {
-    typealias Sender = @Sendable (_ file: URL, _ printer: String, _ size: LabelSize, _ copies: Int) throws -> String
+    typealias Sender = PrintJob.Sender
 
     let store: Store
     /// Swappable so tests and `-apiDryRun` never reach a printer.
@@ -33,7 +33,7 @@ final class AppLabelService: LabelService {
 
     /// A sender that only logs. Used by `-apiDryRun`.
     static let dryRunSender: Sender = { file, printer, size, copies in
-        Log.notice(.api, "dry run: would send \(file.lastPathComponent) to \(printer) at \(size), \(copies) copies")
+        Log.notice(.api, "dry run: would send \(file.lastPathComponent) to \(printer.name) at \(size), \(copies) copies")
         return "dry-run"
     }
 

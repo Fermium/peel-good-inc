@@ -329,4 +329,42 @@ final class CoreTests: XCTestCase {
         XCTAssertThrowsError(try OptionOverrides(cutoff: 0.1).apply(to: LabelOptions(), on: nil))
         XCTAssertThrowsError(try OptionOverrides(nudgeMM: CGPoint(x: 11, y: 0)).apply(to: LabelOptions(), on: nil))
     }
+
+    func testZebrasAreRememberedBySerial() throws {
+        let s = AppSettings.memory()
+        XCTAssertTrue(s.scanForZebras, "the scan at launch is on until turned off")
+        let gx = Zebra.Profile(serial: "99J000000001", host: "192.168.1.216", product: "GX420t", dotsPerMM: 8,
+                               headDots: 832, maximumLength: 39, discoveryID: "123456")
+        s.remember(gx)
+        var moved = gx
+        moved.host = "192.168.1.40"
+        s.remember(moved)
+        XCTAssertEqual(s.zebraPrinters, [moved], "same serial: updated, not added")
+
+        let listed = s.printers(cups: [Self.label], zebraStatus: [:])
+        XCTAssertEqual(listed.map(\.name), [Self.label.name, "Zebra_99J000000001"])
+        XCTAssertEqual(listed[1].zebraHost, "192.168.1.40")
+        XCTAssertTrue(listed[1].isLabelPrinter)
+        XCTAssertEqual(s.options(for: listed[1]).options.dpi, 203.2, accuracy: 1e-9, "composed at the printer's resolution")
+
+        // A scan finds it back at its old address (moved there), a new one, and an ignored one.
+        func found(_ host: String, _ serial: String) -> Zebra.Found {
+            var reply = [UInt8](repeating: 0, count: 120)
+            reply[0...2] = [0x3A, 0x2C, 0x2E]
+            for (i, b) in serial.utf8.enumerated() { reply[62 + i] = b }
+            return Zebra.Found(reply: reply, from: host)!
+        }
+        s.ignoredZebras = ["999"]
+        let seen = s.reconcile([found("192.168.1.216", "123456"), found("192.168.1.50", "777"), found("192.168.1.60", "999")])
+        XCTAssertEqual(seen.map(\.isKnown), [true, false, false])
+        XCTAssertEqual(seen.filter(\.isNew).map(\.found.host), ["192.168.1.50"])
+        XCTAssertEqual(seen[0].displayName, "Zebra GX420t", "a known printer is named without asking it")
+        XCTAssertEqual(s.zebraPrinters[0].host, "192.168.1.216")
+        XCTAssertEqual(PrinterResolver.match("zebra://192.168.1.216", in: s.printers(cups: []))?.name, "Zebra_99J000000001",
+                       "an address finds the remembered printer, not a stand-in")
+
+        s.forgetZebra(named: "Zebra_99J000000001")
+        XCTAssertTrue(s.zebraPrinters.isEmpty)
+        XCTAssertNil(s.string(SettingsKey.zebraPrinters.rawValue))
+    }
 }

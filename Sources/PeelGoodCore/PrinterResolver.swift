@@ -54,11 +54,12 @@ public struct PrinterResolver: Sendable {
     /// Printers whose queue, display name or model contains `name`, for "did you mean".
     public func candidates(_ name: String) -> [PrinterInfo] { Self.partial(name, in: printers) }
 
-    /// Exact queue name, then queue name or display name ignoring case, then the one printer whose
-    /// queue, display name or model contains the text.
+    /// "zebra://host" is the Zebra at that address. Otherwise the exact queue name, then queue name or
+    /// display name ignoring case, then the one printer whose queue, display name or model contains the text.
     public static func match(_ name: String, in printers: [PrinterInfo]) -> PrinterInfo? {
         let name = name.trimmingCharacters(in: .whitespaces)
         guard !name.isEmpty else { return nil }
+        if let host = Printers.zebraHost(name) { return printers.first { $0.zebraHost == host } }
         if let p = printers.first(where: { $0.name == name }) { return p }
         if let p = printers.first(where: { $0.name.caseInsensitiveCompare(name) == .orderedSame }) { return p }
         if let p = printers.first(where: { $0.displayName.caseInsensitiveCompare(name) == .orderedSame }) { return p }

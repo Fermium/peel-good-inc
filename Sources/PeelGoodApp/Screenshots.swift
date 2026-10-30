@@ -33,6 +33,16 @@ enum Screenshots {
         print(useWindowServer ? "capturing with the window server (own windows only)" : "capturing with cacheDisplay (no Screen Recording access)")
         if isolated { await seedLog() }
         let printers = RulesPreviewData.printers
+        // A Zebra for its settings, only in a throwaway home: the GX420t this was built against.
+        let zebra = Zebra.Profile(serial: "99J000000001", host: "192.168.1.216", product: "GX420t", dotsPerMM: 8,
+                                  headDots: 832, maximumLength: 39, discoveryID: "123456")
+        if isolated {
+            store.addZebra(zebra)
+            store.setNudge(CGPoint(x: 2, y: 0), for: zebra.printer())
+            for _ in 0..<30 where store.printers.first(where: { $0.name == zebra.printerName })?.state == .unknown {
+                try? await Task.sleep(for: .seconds(0.2))
+            }
+        }
         for (name, suffix) in [(NSAppearance.Name.aqua, "light"), (.darkAqua, "dark")] {
             let appearance = NSAppearance(named: name)!
             func file(_ base: String) -> URL { dir.appendingPathComponent("\(base)-\(suffix).png") }
@@ -63,6 +73,36 @@ enum Screenshots {
                 save(windowImage(settings), file("settings-\(item.label.lowercased())"))
             }
             settings.close()
+
+            // Zebra: its settings and the Add sheet (a live scan). The offer at launch is an NSAlert,
+            // which can't be drawn offscreen.
+            if isolated, let z = store.printers.first(where: { $0.name == zebra.printerName }) {
+                let chosen = store.printer
+                store.printer = z
+                let pane = window(NSHostingController(rootView: active(PrintersPane(store: store, testLabel: { _ in }))),
+                                  style: [.titled], appearance: appearance)
+                pane.title = "Printers"
+                await settle(pane, 1.0)
+                save(windowImage(pane), file("settings-printers-zebra"))
+                pane.close()
+                store.printer = chosen
+
+                // The whole detail, down to the Zebra section and the move to the printer.
+                let detailHost = NSHostingController(rootView: active(PrinterDetail(store: store, printer: z, testLabel: { _ in })
+                    .frame(width: 470, height: 980)))
+                let detail = window(detailHost, style: [.titled], appearance: appearance)
+                detail.title = z.displayName
+                await settle(detail, 1.0)
+                save(windowImage(detail), file("settings-printer-zebra-detail"))
+                detail.close()
+
+                let add = window(NSHostingController(rootView: active(AddZebraSheet(store: store) { _ in })), style: [.titled], appearance: appearance)
+                add.title = ""
+                await settle(add, 6)
+                save(windowImage(add), file("settings-add-zebra"))
+                add.close()
+
+            }
 
             // Sheets from the Rules and API tabs, as their own windows.
             let editor = RuleEditorView(rule: RuleTemplate.amazonReturns.make(printers: printers), printers: printers, current: printers[0],
