@@ -1,41 +1,41 @@
 #!/bin/zsh
-# Builds Labelize.app (menu bar only) into ./build and signs it ad hoc.
+# Builds "Peel Good Inc.app" (menu bar only) into ./build and signs it ad hoc.
 set -euo pipefail
 cd "${0:A:h}/.."
 
-swift build -c release --product LabelizeApp
+swift build -c release --product PeelGoodApp
 swift build -c release --product peel-good-mcp
 swift build -c release --product peelgood
 app="build/Peel Good Inc.app"
 rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources/completions" "$app/Contents/Helpers"
-cp .build/release/LabelizeApp "$app/Contents/MacOS/Labelize"
+cp .build/release/PeelGoodApp "$app/Contents/MacOS/PeelGood"
 cp .build/release/peel-good-mcp "$app/Contents/MacOS/peel-good-mcp"
-# The CLI goes to Contents/Helpers: "peelgood" and "Labelize" collide on case-insensitive APFS.
+# The CLI goes to Contents/Helpers: "peelgood" and "PeelGood" collide on case-insensitive APFS.
 cp .build/release/peelgood "$app/Contents/Helpers/peelgood"
 # Man page and shell completions, generated from the CLI's own description of itself.
 .build/release/peelgood man-page --release 0.1 > "$app/Contents/Resources/peelgood.1"
 .build/release/peelgood completions zsh > "$app/Contents/Resources/completions/_peelgood"
 .build/release/peelgood completions bash > "$app/Contents/Resources/completions/peelgood.bash"
 .build/release/peelgood completions fish > "$app/Contents/Resources/completions/peelgood.fish"
-cp Resources/*.wav Resources/Labelize.icns docs/brand/icon.svg docs/brand/logo-light.png docs/brand/logo-dark.png LICENSE "$app/Contents/Resources/"
+cp Resources/*.wav Resources/PeelGood.icns docs/brand/icon.svg docs/brand/logo-light.png docs/brand/logo-dark.png LICENSE "$app/Contents/Resources/"
 python3 scripts/make-sbom.py "$(git describe --tags --always 2>/dev/null || echo dev)" "$app/Contents/Resources/sbom.cdx.json"
 
 # Share extension ("Peel Good Inc." in Share menus), built directly: SwiftPM can't make .appex bundles.
-appex="$app/Contents/PlugIns/LabelizeShare.appex"
+appex="$app/Contents/PlugIns/PeelGoodShare.appex"
 mkdir -p "$appex/Contents/MacOS"
-swiftc -O -parse-as-library -application-extension -module-name LabelizeShare \
+swiftc -O -parse-as-library -application-extension -module-name PeelGoodShare \
     -target "$(uname -m)-apple-macos15.0" -Xlinker -e -Xlinker _NSExtensionMain \
-    Extensions/Share/ShareViewController.swift Sources/PeelGoodShared/AppIdentity.swift -o "$appex/Contents/MacOS/LabelizeShare"
+    Extensions/Share/ShareViewController.swift Sources/PeelGoodShared/AppIdentity.swift -o "$appex/Contents/MacOS/PeelGoodShare"
 cat > "$appex/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>CFBundleName</key><string>LabelizeShare</string>
+    <key>CFBundleName</key><string>PeelGoodShare</string>
     <key>CFBundleDisplayName</key><string>Peel Good Inc.</string>
-    <key>CFBundleIdentifier</key><string>com.fermiumlabs.labelize.share</string>
-    <key>CFBundleExecutable</key><string>LabelizeShare</string>
+    <key>CFBundleIdentifier</key><string>com.fermium.peelgood.share</string>
+    <key>CFBundleExecutable</key><string>PeelGoodShare</string>
     <key>CFBundlePackageType</key><string>XPC!</string>
     <key>CFBundleShortVersionString</key><string>0.1</string>
     <key>CFBundleVersion</key><string>1</string>
@@ -64,15 +64,15 @@ cat > "$app/Contents/Info.plist" <<'PLIST'
 <dict>
     <key>CFBundleName</key><string>Peel Good Inc.</string>
     <key>CFBundleDisplayName</key><string>Peel Good Inc.</string>
-    <key>CFBundleIdentifier</key><string>com.fermiumlabs.labelize</string>
-    <key>CFBundleExecutable</key><string>Labelize</string>
+    <key>CFBundleIdentifier</key><string>com.fermium.peelgood</string>
+    <key>CFBundleExecutable</key><string>PeelGood</string>
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>CFBundleShortVersionString</key><string>0.1</string>
     <key>CFBundleVersion</key><string>1</string>
     <key>LSMinimumSystemVersion</key><string>15.0</string>
     <key>LSUIElement</key><true/>
     <key>NSHighResolutionCapable</key><true/>
-    <key>CFBundleIconFile</key><string>Labelize</string>
+    <key>CFBundleIconFile</key><string>PeelGood</string>
     <key>CFBundleDocumentTypes</key>
     <array>
         <dict>
@@ -102,7 +102,7 @@ PLIST
 
 codesign --force --sign - --entitlements Extensions/Share/Share.entitlements "$appex"
 codesign --force --sign - "$app/Contents/MacOS/peel-good-mcp"
-codesign --force --sign - --identifier com.fermiumlabs.labelize.cli "$app/Contents/Helpers/peelgood"
+codesign --force --sign - --identifier com.fermium.peelgood.cli "$app/Contents/Helpers/peelgood"
 codesign --force --sign - "$app"
 pluginkit -a "$appex" || true
 # Register Open With, the "Print as Label" service and the document types.

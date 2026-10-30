@@ -1,6 +1,6 @@
 // peel-good-mcp: a stdio MCP server for clients like Claude Desktop that relays every
 // JSON-RPC message to the app's local MCP endpoint (http://127.0.0.1:<port>/mcp).
-// Peel Good Inc. (Labelize.app internally) must be running with Settings > API > MCP server on.
+// Peel Good Inc. must be running with Settings > API > MCP server on.
 import Foundation
 import PeelGoodShared
 

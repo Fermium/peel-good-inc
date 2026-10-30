@@ -1,7 +1,7 @@
 import AppKit
 import Foundation
-import LabelizeCLI
-import LabelizeCore
+import PeelGoodCLI
+import PeelGoodCore
 import LabelKit
 import PeelGoodShared
 
@@ -54,7 +54,7 @@ struct Doctor {
                 add("Printers", .warning, note, fix: "Pick a size in Settings > Printers.")
             }
         } else if !printers.isEmpty {
-            add("Printers", .warning, "No default label printer", fix: "Pass --printer, or set LABELIZE_PRINTER.")
+            add("Printers", .warning, "No default label printer", fix: "Pass --printer, or set PEELGOOD_PRINTER.")
         }
 
         // App

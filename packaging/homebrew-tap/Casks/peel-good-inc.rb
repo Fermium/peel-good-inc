@@ -15,7 +15,7 @@ cask "peel-good-inc" do
   depends_on macos: :sequoia
 
   app "Peel Good Inc.app"
-  # The CLI lives in Contents/Helpers: "peelgood" and the app's "Labelize" executable clash on APFS.
+  # The CLI lives in Contents/Helpers: "peelgood" and the app's "PeelGood" executable clash on APFS.
   binary "#{appdir}/Peel Good Inc.app/Contents/Helpers/peelgood"
   # The same command under a short name.
   manpage "#{appdir}/Peel Good Inc.app/Contents/Resources/peelgood.1"
@@ -31,17 +31,25 @@ cask "peel-good-inc" do
         writable_base:  :appdir
   end
 
-  uninstall quit: "com.fermiumlabs.labelize"
+  # com.fermiumlabs.labelize and the Labelize folders: the old name, from before the rename.
+  uninstall quit: [
+    "com.fermium.peelgood",
+    "com.fermiumlabs.labelize", # old name
+  ]
 
   zap trash: [
-    "~/Library/Application Support/Labelize",
+    "~/Library/Application Support/Labelize", # old name
     "~/Library/Application Support/Peel Good",
-    "~/Library/Caches/com.fermiumlabs.labelize",
-    "~/Library/HTTPStorages/com.fermiumlabs.labelize",
-    "~/Library/Logs/Labelize",
+    "~/Library/Caches/com.fermium.peelgood",
+    "~/Library/Caches/com.fermiumlabs.labelize", # old name
+    "~/Library/HTTPStorages/com.fermium.peelgood",
+    "~/Library/HTTPStorages/com.fermiumlabs.labelize", # old name
+    "~/Library/Logs/Labelize", # old name
     "~/Library/Logs/Peel Good",
-    "~/Library/Preferences/com.fermiumlabs.labelize.plist",
-    "~/Library/Saved Application State/com.fermiumlabs.labelize.savedState",
+    "~/Library/Preferences/com.fermium.peelgood.plist",
+    "~/Library/Preferences/com.fermiumlabs.labelize.plist", # old name
+    "~/Library/Saved Application State/com.fermium.peelgood.savedState",
+    "~/Library/Saved Application State/com.fermiumlabs.labelize.savedState", # old name
   ]
 
   caveats <<~EOS

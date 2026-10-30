@@ -6,7 +6,7 @@ import PDFKit
 import Vision
 
 /// What can be read about a file on disk without composing it: where it came from, whether it's a
-/// screenshot, its first page, its text and codes. The rules (LabelizeCore's `RuleContext`) are built on this.
+/// screenshot, its first page, its text and codes. The rules (PeelGoodCore's `RuleContext`) are built on this.
 public enum FileFacts {
     public struct Page: Sendable {
         public var count = 1

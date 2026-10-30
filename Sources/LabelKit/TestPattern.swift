@@ -39,7 +39,7 @@ public enum TestPattern {
                 if tick % 10 == 0 && tick > 0 { number(tick, at: CGPoint(x: r.midX + 3 * mm + 6, y: y - 2)) }
             }
             let side = min(r.width, r.height) * 0.35
-            if let qr = CIFilter(name: "CIQRCodeGenerator", parameters: ["inputMessage": Data("labelize-test \(size)".utf8)])?.outputImage {
+            if let qr = CIFilter(name: "CIQRCodeGenerator", parameters: ["inputMessage": Data("peelgood-test \(size)".utf8)])?.outputImage {
                 fillModules(ctx, qr, in: CGRect(x: 5 * mm, y: 5 * mm, width: side, height: side))
             }
             let font = CTFontCreateUIFontForLanguage(.emphasizedSystem, max(6, min(r.width, r.height) / 16), nil)!

@@ -7,7 +7,7 @@ let package = Package(
     products: [
         .executable(name: "peelgood", targets: ["peelgood"]),
         .library(name: "LabelKit", targets: ["LabelKit"]),
-        .library(name: "LabelizeCore", targets: ["LabelizeCore"]),
+        .library(name: "PeelGoodCore", targets: ["PeelGoodCore"]),
     ],
     dependencies: [
         .package(url: "https://github.com/hummingbird-project/hummingbird.git", from: "2.28.0"),
@@ -22,15 +22,15 @@ let package = Package(
         .target(name: "PeelGoodShared"),
         // What the app, the API and the CLI share: settings, printer choice, option overrides, rules, tags,
         // history and limits. Foundation, CoreGraphics and LabelKit only (no AppKit or SwiftUI).
-        .target(name: "LabelizeCore", dependencies: ["LabelKit", "PeelGoodShared"]),
+        .target(name: "PeelGoodCore", dependencies: ["LabelKit", "PeelGoodShared"]),
         // The command line's one description (commands, help, completions, man page), shared with Settings > CLI.
-        .target(name: "LabelizeCLI", dependencies: ["LabelKit", "LabelizeCore", "PeelGoodShared"]),
-        .executableTarget(name: "peelgood", dependencies: ["LabelKit", "LabelizeCLI", "LabelizeCore", "PeelGoodShared"]),
+        .target(name: "PeelGoodCLI", dependencies: ["LabelKit", "PeelGoodCore", "PeelGoodShared"]),
+        .executableTarget(name: "peelgood", dependencies: ["LabelKit", "PeelGoodCLI", "PeelGoodCore", "PeelGoodShared"]),
         .executableTarget(name: "make-fixtures"),
-        .executableTarget(name: "LabelizeApp", dependencies: [
+        .executableTarget(name: "PeelGoodApp", dependencies: [
             "LabelKit",
-            "LabelizeCLI",
-            "LabelizeCore",
+            "PeelGoodCLI",
+            "PeelGoodCore",
             "PeelGoodShared",
             .product(name: "Hummingbird", package: "hummingbird"),
             .product(name: "MCP", package: "swift-sdk"),
@@ -39,9 +39,9 @@ let package = Package(
         ]),
         .executableTarget(name: "peel-good-mcp", dependencies: ["PeelGoodShared"]),
         .testTarget(name: "LabelKitTests", dependencies: ["LabelKit"]),
-        .testTarget(name: "LabelizeCoreTests", dependencies: ["LabelizeCore", "LabelKit", "PeelGoodShared"]),
-        .testTarget(name: "LabelizeCLITests", dependencies: ["LabelizeCLI", "LabelKit", "LabelizeCore"]),
-        .testTarget(name: "LabelizeAppTests", dependencies: ["LabelizeApp", "LabelizeCore", "LabelKit", .product(name: "MCP", package: "swift-sdk")]),
+        .testTarget(name: "PeelGoodCoreTests", dependencies: ["PeelGoodCore", "LabelKit", "PeelGoodShared"]),
+        .testTarget(name: "PeelGoodCLITests", dependencies: ["PeelGoodCLI", "LabelKit", "PeelGoodCore"]),
+        .testTarget(name: "PeelGoodAppTests", dependencies: ["PeelGoodApp", "PeelGoodCore", "LabelKit", .product(name: "MCP", package: "swift-sdk")]),
     ],
     swiftLanguageModes: [.v5]
 )

@@ -18,7 +18,7 @@ file.
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
-│ Rules pick the printer and label size for each file. Labelize uses   │
+│ Rules pick the printer and label size for each file. Peel Good uses  │
 │ the first rule that matches, from the top.                           │
 │ ┌──────────────────────────────────────────────────────────────────┐ │
 │ │ ☑ Royal Mail / Click & Drop                                      │ │
@@ -76,7 +76,7 @@ Editor sheet (600 × 700, grouped Form):
 - **Enable**: the row checkbox. Disabled rules are dimmed and skipped.
 - **Reorder**: drag rows. The context menu also has *Move to Top* and *Duplicate*.
 - **Delete**: the − button, the Delete key or the context menu. Everything else can't be deleted.
-- **Test a File**: drop a file on the dashed area or click *Choose…*. Labelize reads the file (including
+- **Test a File**: drop a file on the dashed area or click *Choose…*. Peel Good Inc. reads the file (including
   codes) and shows the matching rule, the settings it would print with, any fallback notes, and the facts
   it read. The matching row gets a green **Matches** badge. *Pretend it was* changes the trigger. The
   result updates as you edit rules. Testing never prints.

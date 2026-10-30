@@ -1,12 +1,12 @@
 // Renders the app icon into an .icns: the printer artwork (docs/brand/icon.svg) on a
 // macOS-style rounded square with a warm off-white gradient, hairline edge and soft shadow.
-// Usage: swiftc -O scripts/make-icon.swift -o /tmp/make-icon && /tmp/make-icon docs/brand/icon.svg Resources/Labelize.icns
+// Usage: swiftc -O scripts/make-icon.swift -o /tmp/make-icon && /tmp/make-icon docs/brand/icon.svg Resources/PeelGood.icns
 import AppKit
 
 let args = CommandLine.arguments
 let art = NSImage(contentsOf: URL(fileURLWithPath: args[1]))!
 let out = args[2]
-let iconset = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("Labelize.iconset")
+let iconset = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("PeelGood.iconset")
 try? FileManager.default.removeItem(at: iconset)
 try FileManager.default.createDirectory(at: iconset, withIntermediateDirectories: true)
 

@@ -1,8 +1,8 @@
 import CoreGraphics
 import Foundation
-import LabelizeCLI
+import PeelGoodCLI
 import LabelKit
-import LabelizeCore
+import PeelGoodCore
 
 // printers, sizes, history and version.
 
