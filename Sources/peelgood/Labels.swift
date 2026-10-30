@@ -1,7 +1,7 @@
 import CoreGraphics
 import Foundation
-import LabelizeCLI
-import LabelizeCore
+import PeelGoodCLI
+import PeelGoodCore
 import LabelKit
 import PeelGoodShared
 

@@ -101,7 +101,7 @@ peelgood help print                                # every option, with examples
 
 The old flag-only form (`peelgood label.pdf --size 4x6 --print`) still works. In a checkout, use `swift run peelgood …`.
 
-`LabelKit` holds the label pipeline and `LabelizeCLI` describes the command line once for help, completions, the man page and Settings > CLI. The app is in `Sources/LabelizeApp`, the release process is in [RELEASING.md](RELEASING.md), and `./scripts/screenshots.sh` renders the screenshots above.
+`LabelKit` holds the label pipeline and `PeelGoodCLI` describes the command line once for help, completions, the man page and Settings > CLI. The app is in `Sources/PeelGoodApp`, the release process is in [RELEASING.md](RELEASING.md), and `./scripts/screenshots.sh` renders the screenshots above.
 
 ## License
 

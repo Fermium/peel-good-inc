@@ -1,6 +1,6 @@
 import Foundation
-import LabelizeCLI
-import LabelizeCore
+import PeelGoodCLI
+import PeelGoodCore
 import LabelKit
 import PeelGoodShared
 
@@ -37,7 +37,7 @@ struct Context {
 
     // MARK: Paths
 
-    /// The app's data folder (`AppPaths`, which honours LABELIZE_SUPPORT_DIR).
+    /// The app's data folder (`AppPaths`, which honours PEELGOOD_SUPPORT_DIR).
     var supportFolder: URL { AppPaths.support }
     var historyFolder: URL { AppPaths.history }
 
@@ -45,14 +45,14 @@ struct Context {
 
     func resolver(_ printers: [PrinterInfo]) -> PrinterResolver { PrinterResolver(printers: printers, settings: defaults) }
 
-    /// The name asked for: --printer, then LABELIZE_PRINTER.
+    /// The name asked for: --printer, then PEELGOOD_PRINTER.
     var requestedPrinter: (name: String, from: String)? {
         if let name = inv["printer"] { return (name, "--printer") }
-        if let name = environment["LABELIZE_PRINTER"], !name.isEmpty { return (name, "LABELIZE_PRINTER") }
+        if let name = environment["PEELGOOD_PRINTER"], !name.isEmpty { return (name, "PEELGOOD_PRINTER") }
         return nil
     }
 
-    /// --printer, then LABELIZE_PRINTER, matched like the app and the API do (`PrinterResolver`); then the
+    /// --printer, then PEELGOOD_PRINTER, matched like the app and the API do (`PrinterResolver`); then the
     /// app's default: its chosen printer, the label printer, or the first that takes 4x6. Hidden printers
     /// are never picked by default.
     func choosePrinter(_ printers: [PrinterInfo], required: Bool) throws -> (PrinterInfo, String)? {

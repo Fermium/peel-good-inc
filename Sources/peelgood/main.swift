@@ -1,10 +1,10 @@
 // peelgood (also installed as peel): the command line for Peel Good Inc.
 // Commands, options, help, completions and the man page are all described once in
-// Sources/LabelizeCLI/Manual.swift; this file only runs them.
+// Sources/PeelGoodCLI/Manual.swift; this file only runs them.
 import Foundation
-import LabelizeCLI
+import PeelGoodCLI
 import LabelKit
-import LabelizeCore
+import PeelGoodCore
 
 let environment = ProcessInfo.processInfo.environment
 let tool = (CommandLine.arguments.first.map { ($0 as NSString).lastPathComponent }).flatMap { Manual.names.contains($0) ? $0 : nil } ?? Manual.tool

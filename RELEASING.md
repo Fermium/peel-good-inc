@@ -1,8 +1,9 @@
 # Releasing Peel Good Inc. (draft)
 
-The app was formerly Labelize. The bundle is now `Peel Good Inc.app`. These stay the same: the executable
-`Contents/MacOS/Labelize`, the bundle id `com.fermiumlabs.labelize`, the repo name `peel-good-inc`, the `peelgood` CLI,
-and the support/log folders `~/Library/{Application Support,Logs}/Labelize`.
+The bundle is `Peel Good Inc.app`: executable `Contents/MacOS/PeelGood`, bundle id `com.fermium.peelgood`
+(Share extension `.share`, CLI `.cli`, MCP relay `.mcp`), repo `peel-good-inc`, the `peelgood` CLI, and the
+support/log folders `~/Library/{Application Support,Logs}/Peel Good`. On first launch the app moves the
+folders and copies the UserDefaults of the old name's bundle id over (see `Sources/PeelGoodApp/DefaultsMigration.swift`).
 
 Drafts for copying into the `peelgood` repo (`.github/`, `scripts/`) and a separate
 `homebrew-tap` repo. Nothing here has run against real credentials yet.
@@ -12,7 +13,7 @@ Drafts for copying into the `peelgood` repo (`.github/`, `scripts/`) and a separ
 scripts/release-build.sh        universal build, version injection, Developer ID + hardened runtime
 scripts/make-dmg.sh             hdiutil DMG with an /Applications symlink, then signs it
 scripts/notarize.sh             notarytool submit --wait (API key), prints the log, staples
-scripts/entitlements/*.entitlements   Labelize (none), Share (sandbox), Helper (none)
+scripts/entitlements/*.entitlements   PeelGood (none), Share (sandbox), Helper (none)
 homebrew-tap/Casks/peel-good-inc.rb  the cask (the workflow rewrites version + sha256)
 homebrew-tap/Formula/peelgood.rb optional: the CLI built from source
 ```
@@ -25,10 +26,10 @@ Owner: the `fermium` GitHub org (Fermium Ltd). It is set in
 
 ```
 Peel Good Inc.app/Contents/
-  MacOS/Labelize            main executable (hardened runtime, not sandboxed)
+  MacOS/PeelGood            main executable (hardened runtime, not sandboxed)
   MacOS/peel-good-mcp        MCP stdio shim, copied when Package.swift has that product
-  Helpers/peelgood          CLI. It can't go in MacOS/: "peelgood" and "Labelize" are the same name on case-insensitive APFS
-  PlugIns/LabelizeShare.appex   Share extension (sandboxed, as all app extensions must be)
+  Helpers/peelgood          CLI. It can't go in MacOS/: "peelgood" and "PeelGood" are the same name on case-insensitive APFS
+  PlugIns/PeelGoodShare.appex   Share extension (sandboxed, as all app extensions must be)
 ```
 
 Signing goes from the inside out, without `--deep`: helpers, then the appex, then the app.

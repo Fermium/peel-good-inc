@@ -2,7 +2,7 @@ import Foundation
 
 /// Where Peel Good Inc. keeps its files, for the app, the command line, the MCP relay and Doctor.
 ///
-/// `LABELIZE_SUPPORT_DIR` replaces the data folder (the CLI's tests use it). Tests and development runs
+/// `PEELGOOD_SUPPORT_DIR` replaces the data folder (the CLI's tests use it). Tests and development runs
 /// of the app (`-apiMock`, `-apiDryRun`, XCTest) use a temporary folder, never the user's data.
 public enum AppPaths {
     public static var support: URL {
@@ -22,9 +22,9 @@ public enum AppPaths {
     public static var serverInfo: URL { support.appendingPathComponent("server.json") }
     public static var logFile: URL { logs.appendingPathComponent(AppIdentity.logFileName) }
 
-    /// `LABELIZE_SUPPORT_DIR`, when set.
+    /// `PEELGOOD_SUPPORT_DIR`, when set.
     public static var override: URL? {
-        guard let dir = ProcessInfo.processInfo.environment["LABELIZE_SUPPORT_DIR"], !dir.isEmpty else { return nil }
+        guard let dir = ProcessInfo.processInfo.environment["PEELGOOD_SUPPORT_DIR"], !dir.isEmpty else { return nil }
         return URL(fileURLWithPath: (dir as NSString).expandingTildeInPath, isDirectory: true)
     }
 
