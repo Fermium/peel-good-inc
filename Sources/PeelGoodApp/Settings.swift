@@ -314,7 +314,7 @@ struct PrintersPane: View {
     /// Hide it from Peel Good Inc., or delete the print queue from the Mac.
     private func removeSelected() {
         guard let name = selection, let p = store.printers.first(where: { $0.name == name }) else { return }
-        if p.zebraHost != nil {
+        if p.speaksZPL {
             let alert = NSAlert()
             alert.messageText = "Forget \(p.displayName)?"
             alert.informativeText = "Peel Good Inc. stops printing to it and forgets its settings here. The printer isn't changed."
@@ -403,21 +403,35 @@ struct PrinterDetail: View {
                     }
                 }
             }
-            if let host = printer.zebraHost {
+            if let link = printer.zebraLink {
                 Section("Zebra") {
-                    LabeledContent("Address") {
-                        // The printer's own web page: its settings, status and configuration label.
-                        if let url = URL(string: "http://\(host)") { Link(host, destination: url) } else { Text(host) }
+                    if let host = printer.zebraHost {
+                        LabeledContent("Address") {
+                            // The printer's own web page: its settings, status and configuration label.
+                            if let url = URL(string: "http://\(host)") { Link(host, destination: url) } else { Text(host) }
+                        }
+                    }
+                    if let profile = store.settings.zebraPrinters.first(where: { $0.printerName == printer.name }), profile.usbSerial != nil {
+                        LabeledContent("USB", value: Zebra.Link.usb(id: profile.usbSerial!).isPresent ? "Connected" : "Not connected")
+                        if profile.host != nil {
+                            Picker("Use first", selection: Binding(
+                                get: { profile.prefers ?? .usb },
+                                set: { store.setZebraConnection($0, named: printer.name) }
+                            )) {
+                                Text("USB").tag(Zebra.Connection.usb)
+                                Text("Network").tag(Zebra.Connection.network)
+                            }
+                        }
                     }
                     if let dpi = printer.dpi { LabeledContent("Resolution", value: "\(Int(dpi.rounded())) dpi (\(Int((dpi / 25.4).rounded())) dots/mm)") }
                     LabeledContent("Status", value: printer.statusText)
                 }
-                ZebraSettingsSection(printer: printer, host: host)
+                ZebraSettingsSection(printer: printer, link: link)
             }
             Section(isExpanded: $showAdvanced) {
                 LabeledContent("Horizontal offset") { mmField(\.x) }
                 LabeledContent("Vertical offset") { mmField(\.y) }
-                if printer.zebraHost != nil {
+                if printer.speaksZPL {
                     HStack {
                         Text("The offset applies to Peel Good's labels. The printer can store it for every app.")
                             .font(.callout).foregroundStyle(.secondary)
@@ -469,11 +483,12 @@ struct PrinterDetail: View {
     }
 }
 
-/// Settings > Printers > + > Add Zebra Printer: the Zebras on the network, or one typed by address.
+/// Settings > Printers > + > Add Zebra Printer: the Zebras on USB and the network, or one typed by address.
 struct AddZebraSheet: View {
     @ObservedObject var store: Store
     let done: (PrinterInfo?) -> Void
     @State private var found: [ZebraCandidate] = []
+    @State private var onUSB: [USBCandidate] = []
     @State private var scanning = true
     @State private var host = ""
     @State private var adding = false
@@ -482,14 +497,28 @@ struct AddZebraSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Add Zebra Printer").font(.headline)
-            Text("Peel Good Inc. prints to Zebras on your network directly, in ZPL.")
+            Text("Peel Good Inc. prints to Zebras on USB and on your network directly, in ZPL.")
                 .font(.callout).foregroundStyle(.secondary)
             GroupBox {
                 VStack(alignment: .leading, spacing: 6) {
                     if scanning {
-                        HStack { ProgressView().controlSize(.small); Text("Looking on your network…").foregroundStyle(.secondary) }
-                    } else if found.isEmpty {
+                        HStack { ProgressView().controlSize(.small); Text("Looking on USB and your network…").foregroundStyle(.secondary) }
+                    } else if found.isEmpty && onUSB.isEmpty {
                         Text("No Zebras answered. Type the printer's address below.").foregroundStyle(.secondary)
+                    }
+                    ForEach(onUSB, id: \.printer.id) { c in
+                        HStack {
+                            Image(systemName: "printer.dotmatrix")
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(c.profile.displayName)
+                                Text("USB · \(c.profile.serial)").font(.caption).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Button("Add") {
+                                store.addZebra(c.profile)
+                                done(c.profile.printer())
+                            }
+                        }
                     }
                     ForEach(found, id: \.found.host) { c in
                         let f = c.found, known = store.settings.knownZebra(for: f) != nil
@@ -525,6 +554,7 @@ struct AddZebraSheet: View {
 
     private func scan() async {
         let settings = store.settings
+        onUSB = await Task.detached(priority: .userInitiated) { settings.scanUSB() }.value
         found = await Task.detached(priority: .userInitiated) { settings.scanZebras() }.value
         scanning = false
     }

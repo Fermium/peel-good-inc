@@ -1,8 +1,9 @@
 import Foundation
 import LabelKit
 
-// Zebras on the network aren't CUPS queues: the app remembers them itself (by serial number) and
-// lists them with the Mac's printers, the same way for the app, the API and the command line.
+// Zebras on the network or USB aren't CUPS queues: the app remembers them itself (by serial number,
+// so one printer reached two ways is one printer) and lists them with the Mac's printers, the same
+// way for the app, the API and the command line.
 
 extension AppSettings {
     /// Zebras added in the app, newest last.
@@ -17,10 +18,19 @@ extension AppSettings {
         }
     }
 
-    /// Adds a Zebra, or updates the one with the same serial (a new address, say).
+    /// Adds a Zebra, or updates the one with the same serial (a new address, or a second connection).
     public func remember(_ zebra: Zebra.Profile) {
         var list = zebraPrinters
-        if let i = list.firstIndex(where: { $0.serial == zebra.serial }) { list[i] = zebra } else { list.append(zebra) }
+        if let i = list.firstIndex(where: { $0.serial == zebra.serial }) {
+            var merged = zebra
+            merged.host = zebra.host ?? list[i].host
+            merged.usbSerial = zebra.usbSerial ?? list[i].usbSerial
+            merged.prefers = zebra.prefers ?? list[i].prefers
+            merged.discoveryID = zebra.discoveryID ?? list[i].discoveryID
+            list[i] = merged
+        } else {
+            list.append(zebra)
+        }
         zebraPrinters = list
     }
 
@@ -57,7 +67,7 @@ extension AppSettings {
         final class Box: @unchecked Sendable { var values: [String: Zebra.Status] = [:]; let lock = NSLock() }
         let box = Box()
         DispatchQueue.concurrentPerform(iterations: zebras.count) { i in
-            guard let s = try? Zebra.status(zebras[i].host, timeout: timeout) else { return }
+            guard let link = zebras[i].printer().zebraLink, let s = try? Zebra.status(link, timeout: timeout) else { return }
             box.lock.withLock { box.values[zebras[i].serial] = s }
         }
         return box.values
@@ -85,16 +95,50 @@ extension AppSettings {
     /// launch offers and what Settings › Printers › Add Zebra lists.
     public func scanZebras(timeout: TimeInterval = 3, identifyTimeout: TimeInterval = 2) -> [ZebraCandidate] {
         var candidates = reconcile(Zebra.discover(timeout: timeout))
-        final class Box: @unchecked Sendable { var products: [Int: String] = [:]; let lock = NSLock() }
+        final class Box: @unchecked Sendable { var products: [Int: String] = [:]; var serials: [Int: String] = [:]; let lock = NSLock() }
         let box = Box()
-        let hosts = candidates.map(\.found.host)
+        let hosts = candidates.map(\.found.host), known = candidates.map(\.isKnown)
         DispatchQueue.concurrentPerform(iterations: candidates.count) { i in
-            guard let product = try? Zebra.identify(hosts[i], timeout: identifyTimeout).product else { return }
-            box.lock.withLock { box.products[i] = product }
+            let link = Zebra.Link.network(hosts[i])
+            guard let product = try? Zebra.identify(link, timeout: identifyTimeout).product else { return }
+            let serial = known[i] ? nil : (try? Zebra.getvar(link, "device.unique_id", timeout: identifyTimeout)) ?? nil
+            box.lock.withLock { box.products[i] = product; box.serials[i] = serial }
         }
         for (i, product) in box.products { candidates[i].product = product }
+        // A printer already remembered from USB, now also seen on the network: the same printer.
+        for (i, serial) in box.serials {
+            guard var zebra = zebraPrinters.first(where: { $0.serial == serial }) else { continue }
+            zebra.host = hosts[i]
+            zebra.discoveryID = candidates[i].found.serial
+            remember(zebra)
+            candidates[i].isKnown = true
+        }
         return candidates
     }
+
+    /// Looks at the Zebras attached over USB. One that's already remembered, from either connection,
+    /// gets its USB connection added. Returns the new ones that take ZPL, to offer.
+    public func scanUSB() -> [USBCandidate] {
+        var new: [USBCandidate] = []
+        for printer in Zebra.usbPrinters() where !zebraPrinters.contains(where: { $0.usbSerial == printer.id }) {
+            guard (try? Zebra.usbSpeaksZPL(printer)) == true,
+                  let profile = try? Zebra.describe(.usb(id: printer.id)).profile else { continue }
+            if zebraPrinters.contains(where: { $0.serial == profile.serial }) {
+                remember(profile)
+            } else {
+                new.append(USBCandidate(printer: printer, profile: profile, isIgnored: ignoredZebras.contains(printer.id)))
+            }
+        }
+        return new
+    }
+}
+
+/// A Zebra on USB that isn't remembered yet.
+public struct USBCandidate: Sendable, Equatable {
+    public var printer: Zebra.USBPrinter
+    public var profile: Zebra.Profile
+    /// The user said not to offer it again.
+    public var isIgnored: Bool
 }
 
 /// A Zebra a scan found.

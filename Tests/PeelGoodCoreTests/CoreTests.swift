@@ -344,6 +344,19 @@ final class CoreTests: XCTestCase {
         let listed = s.printers(cups: [Self.label], zebraStatus: [:])
         XCTAssertEqual(listed.map(\.name), [Self.label.name, "Zebra_99J000000001"])
         XCTAssertEqual(listed[1].zebraHost, "192.168.1.40")
+
+        // One printer with two connections: USB first unless the user prefers the network.
+        var both = moved
+        both.usbSerial = "99J000000001"
+        XCTAssertEqual(both.links, [.usb(id: "99J000000001"), .network("192.168.1.40")])
+        both.prefers = .network
+        XCTAssertEqual(both.printer().zebraLink, .network("192.168.1.40"))
+        XCTAssertEqual(both.printer().zebraHost, "192.168.1.40")
+        var usbOnly = both
+        usbOnly.host = nil
+        XCTAssertEqual(usbOnly.links, [.usb(id: "99J000000001")], "the preference only orders what exists")
+        let old = #"[{"serial":"99J000000001","host":"192.168.1.216","product":"GX420t","dotsPerMM":8,"headDots":832,"maximumLength":39}]"#
+        XCTAssertEqual(try JSONDecoder().decode([Zebra.Profile].self, from: Data(old.utf8))[0].links, [.network("192.168.1.216")], "printers saved before USB still load")
         XCTAssertTrue(listed[1].isLabelPrinter)
         XCTAssertEqual(s.options(for: listed[1]).options.dpi, 203.2, accuracy: 1e-9, "composed at the printer's resolution")
 

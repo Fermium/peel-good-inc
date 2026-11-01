@@ -349,8 +349,8 @@ struct LabelRun {
                                hint: "`\(ctx.tool) doctor` checks the printer and CUPS.", code: .printer)
             }
         } else {
-            if let host = printer.zebraHost, let path = report.zpl {
-                ctx.say("\(s.arrow) \(s.dim("dry run, \(what), would send ZPL to \(host):9100:")) \(tilde(path))")
+            if let link = printer.zebraLink, let path = report.zpl {
+                ctx.say("\(s.arrow) \(s.dim("dry run, \(what), would send ZPL to \(link.label):")) \(tilde(path))")
             } else {
                 let shown = (["lp"] + args).map { $0.contains(" ") ? "'\($0)'" : $0 }.joined(separator: " ")
                 ctx.say("\(s.arrow) \(s.dim("dry run, \(what), would run:")) \(shown)")

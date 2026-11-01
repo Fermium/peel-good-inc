@@ -144,14 +144,14 @@ extension Zebra {
     }
 
     /// The printer's current configuration, or nil while it can't answer (paused, head open…).
-    public static func config(_ host: String) throws -> (config: Config, setup: Setup)? {
-        guard let setup = try setup(host) else { return nil }
-        return (Config(setup, diagnostic: (try? headDiagnostic(host)) ?? [:]), setup)
+    public static func config(_ printer: any Channel) throws -> (config: Config, setup: Setup)? {
+        guard let setup = try setup(printer) else { return nil }
+        return (Config(setup, diagnostic: (try? headDiagnostic(printer)) ?? [:]), setup)
     }
 
     /// The `~HD` reply, "Slew Speed = 6" lines as a dictionary.
-    public static func headDiagnostic(_ host: String) throws -> [String: String] {
-        let reply = try query(host, "~HD", timeout: 3) { $0.contains(0x03) }
+    public static func headDiagnostic(_ printer: any Channel) throws -> [String: String] {
+        let reply = try printer.query("~HD", timeout: 3, quiet: 1) { $0.contains(0x03) }
         var values: [String: String] = [:]
         for line in reply.split(whereSeparator: \.isNewline) {
             let parts = line.split(separator: "=", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
@@ -162,35 +162,35 @@ extension Zebra {
 
     /// Changes what differs from `current` and returns the configuration the printer then reports,
     /// so out-of-range values show up as what the printer actually took.
-    public static func apply(_ wanted: Config, over current: Config, save: Bool, to host: String) throws -> Config? {
+    public static func apply(_ wanted: Config, over current: Config, save: Bool, to printer: any Channel) throws -> Config? {
         let commands = wanted.commands(from: current, save: save)
         guard !commands.isEmpty else { return current }
-        try requireIdle(host, doing: "take settings")
-        try write(commands, to: host)
+        try requireIdle(printer, doing: "take settings")
+        try printer.write(commands)
         Thread.sleep(forTimeInterval: save ? 1.5 : 0.5)
         // The settings are sent; a failed read-back only means we can't show what the printer kept.
-        return ((try? config(host)) ?? nil)?.config
+        return ((try? config(printer)) ?? nil)?.config
     }
 
     /// Feeds labels to measure them and set the sensors (~JC).
-    public static func calibrate(_ host: String) throws {
-        try requireIdle(host, doing: "calibrate")
-        try write("~JC", to: host)
+    public static func calibrate(_ printer: any Channel) throws {
+        try requireIdle(printer, doing: "calibrate")
+        try printer.write("~JC")
     }
 
     /// Prints the printer's own configuration label (~WC).
-    public static func printConfigurationLabel(_ host: String) throws {
-        try requireIdle(host, doing: "print its configuration")
-        try write("~WC", to: host)
+    public static func printConfigurationLabel(_ printer: any Channel) throws {
+        try requireIdle(printer, doing: "print its configuration")
+        try printer.write("~WC")
     }
 
     /// Settings and tilde commands apply to whatever is queued (tildes even jump ahead of it), so they
     /// only go to a printer that's ready and idle.
     @discardableResult
-    static func requireIdle(_ host: String, doing what: String) throws -> Status {
-        let s = try status(host)
-        guard s.problems.isEmpty else { throw Failed(description: "\(host) can't \(what): \(s.problems.joined(separator: ", "))") }
-        guard s.isIdle else { throw Failed(description: "\(host) is busy printing; try again when it's done") }
+    static func requireIdle(_ printer: any Channel, doing what: String) throws -> Status {
+        let s = try status(printer)
+        guard s.problems.isEmpty else { throw Failed(description: "\(printer.label) can't \(what): \(s.problems.joined(separator: ", "))") }
+        guard s.isIdle else { throw Failed(description: "\(printer.label) is busy printing; try again when it's done") }
         return s
     }
 }

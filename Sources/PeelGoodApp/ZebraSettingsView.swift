@@ -7,7 +7,7 @@ import SwiftUI
 /// saves it on the printer (^JUS), like Move to Printer does for the offset.
 struct ZebraSettingsSection: View {
     let printer: PrinterInfo
-    let host: String
+    let link: Zebra.Link
     @State private var current: Zebra.Config?
     @State private var edited = Zebra.Config()
     @State private var loading = true
@@ -54,7 +54,7 @@ struct ZebraSettingsSection: View {
             Text("Printer Settings")
         }
         // Read once per printer, not on every appearance: a reload would throw away unsaved edits.
-        .task(id: host) { load() }
+        .task(id: link) { load() }
     }
 
     // MARK: Rows
@@ -90,10 +90,10 @@ struct ZebraSettingsSection: View {
         guard !busy else { return }
         loading = true
         message = nil
-        let host = host
+        let link = link
         Task {
             do {
-                let read = try await Task.detached { try Zebra.config(host)?.config }.value
+                let read = try await Task.detached { try Zebra.config(link)?.config }.value
                 // Keep edits made while reading; otherwise show what the printer has.
                 if let old = current, edited != old {} else if let read { edited = read }
                 current = read
@@ -124,11 +124,11 @@ struct ZebraSettingsSection: View {
     }
 
     private func save(over old: Zebra.Config) {
-        let wanted = edited, host = host
+        let wanted = edited, link = link
         busy = true
         Task {
             do {
-                let after = try await Task.detached { try Zebra.apply(wanted, over: old, save: true, to: host) }.value
+                let after = try await Task.detached { try Zebra.apply(wanted, over: old, save: true, to: link) }.value
                 Log.notice(.app, "\(printer.name): saved \(wanted.changes(from: old).joined(separator: "; "))")
                 if let after {
                     current = after
@@ -157,12 +157,12 @@ struct ZebraSettingsSection: View {
         run("Calibrating. Wait for the printer to stop.") { try Zebra.calibrate($0) }
     }
 
-    private func run(_ done: String, _ action: @escaping @Sendable (String) throws -> Void) {
-        let host = host
+    private func run(_ done: String, _ action: @escaping @Sendable (Zebra.Link) throws -> Void) {
+        let link = link
         busy = true
         Task {
             do {
-                try await Task.detached { try action(host) }.value
+                try await Task.detached { try action(link) }.value
                 message = done
             } catch {
                 message = "\(error)"

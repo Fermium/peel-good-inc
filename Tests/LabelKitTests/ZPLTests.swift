@@ -239,7 +239,7 @@ func formatsRoundTripEveryDot(_ compression: ZPL.Compression) {
     #expect(z.isLabelPrinter && z.zebraHost == "h" && z.dpi == 203.2 && z.state == .unknown)
     #expect(abs(z.customMax!.width - 832 / 203.2) < 1e-9 && z.resolve(LabelSize(width: 2.25, height: 1.25)) != nil)
     #expect(!PrinterInfo(name: "zebra://wide", presets: [], customMin: LabelSize(width: 1, height: 1),
-                         customMax: LabelSize(width: 2, height: 3), zebraHost: "wide").isLabelPrinter)
+                         customMax: LabelSize(width: 2, height: 3), zebraLinks: [.network("wide")]).isLabelPrinter)
 }
 
 // MARK: Printer settings (a GX420t's ^HH wording)
@@ -295,3 +295,29 @@ func formatsRoundTripEveryDot(_ compression: ZPL.Compression) {
     wild.tearOff = 500
     #expect(wild.commands(from: now, save: false) == "~SD30~TA120", "clamped to what ZPL accepts")
 }
+
+@Test func usbSerialsThatCanNameAPrinter() {
+    #expect(Zebra.usableSerial("99J000000001", model: "ZTC GX420t", among: ["99J000000001"]))
+    #expect(!Zebra.usableSerial("", model: "ZTC GX420t", among: [""]), "blank")
+    #expect(!Zebra.usableSerial("ZT230", model: "ZTC ZT230-203dpi ZPL", among: ["ZT230"]), "the product family, as Zebra documents")
+    #expect(!Zebra.usableSerial("same", model: "ZTC GX420t", among: ["same", "same"]), "two printers can't share one")
+}
+
+@Test func usbCommandSets() {
+    let gx = "MANUFACTURER:Zebra Technologies;COMMAND SET:ZPL;MODEL:ZTC GX420t;CLASS:PRINTER;PROTOCOLS:IEEE1284.4;OPTIONS:INTPSRVR;"
+    #expect(Zebra.commandSet(deviceID: gx) == ["ZPL"])
+    #expect(Zebra.commandSet(deviceID: "MFG:Zebra ;CMD: zpl , EPL ;MDL:x;") == ["ZPL", "EPL"])
+    #expect(Zebra.commandSet(deviceID: "MANUFACTURER:Zebra Technologies;MODEL:x;").isEmpty)
+}
+
+@Test func statusReportsAHalfSentFormat() throws {
+    let half = "\u{2}030,0,0,1214,000,0,0,1,000,0,0,0\u{3}\r\n\u{2}001,0,0,0,1,2,6,0,00000000,1,000\u{3}\r\n\u{2}1234,0\u{3}\r\n"
+    #expect(try #require(Zebra.Status(reply: half)).partialFormat)
+}
+
+@Test func anUnpluggedUSBPrinterIsReachedOnTheNetwork() throws {
+    let unplugged = Zebra.Link.usb(id: "not-attached")
+    #expect(try Zebra.route([unplugged, .network("192.0.2.1")]) == .network("192.0.2.1"), "nothing to ask: the last choice")
+    #expect(throws: Zebra.Failed.self) { try Zebra.route([unplugged]) }
+}
+

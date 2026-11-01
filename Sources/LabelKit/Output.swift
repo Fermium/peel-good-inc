@@ -110,7 +110,7 @@ public enum LabelPrint {
     /// once it has printed.
     @discardableResult
     public static func send(file: URL, printer: PrinterInfo, size: LabelSize, copies: Int = 1) throws -> String {
-        if printer.zebraHost != nil { return try send(zplJob(file: file, printer: printer, copies: copies), to: printer) }
+        if printer.speaksZPL { return try send(zplJob(file: file, printer: printer, copies: copies), to: printer) }
         do {
             return try Command.run("/usr/bin/lp", lpArguments(file: file, printer: printer.name, size: size, copies: copies))
         } catch let e as Command.Failed {
@@ -127,21 +127,24 @@ public enum LabelPrint {
     }
 
     public static func zplJob(file: URL, printer: PrinterInfo, copies: Int) throws -> ZPLJob {
-        guard let host = printer.zebraHost, let dpi = printer.dpi else { throw Failed(description: "\(printer.name) doesn't take ZPL") }
+        guard let link = printer.zebraLink, let dpi = printer.dpi else { throw Failed(description: "\(printer.name) doesn't take ZPL") }
         let bitmaps = try LabelRaster.bitmaps(pdf: file, dpi: dpi)
         var options = ZPL.Options(copies: copies)
-        options.labelLength = ((try? Zebra.setup(host)) ?? nil)?.isContinuous ?? false
+        options.labelLength = ((try? Zebra.setup(link)) ?? nil)?.isContinuous ?? false
         return ZPLJob(data: ZPL.job(bitmaps, options: options), labels: bitmaps.count * max(1, copies))
     }
 
     /// Sends a ZPL job and waits while the printer works through it: it acknowledges nothing else.
     @discardableResult
     public static func send(_ job: ZPLJob, to printer: PrinterInfo) throws -> String {
-        guard let host = printer.zebraHost else { throw Failed(description: "\(printer.name) doesn't take ZPL") }
+        guard printer.speaksZPL else { throw Failed(description: "\(printer.name) doesn't take ZPL") }
         do {
-            try Zebra.send(job.data, to: host)
-            try Zebra.waitUntilPrinted(host, timeout: 15 + 3 * Double(job.labels))
-            return "\(job.data.count) bytes of ZPL, printed on \(printer.displayName) at \(host)"
+            let link = try Zebra.route(printer.zebraLinks)
+            try Zebra.holding(link) { held in
+                try Zebra.send(job.data, to: held)
+                try Zebra.waitUntilPrinted(held, timeout: 15 + 3 * Double(job.labels))
+            }
+            return "\(job.data.count) bytes of ZPL, printed on \(printer.displayName) (\(link.label))"
         } catch let e as Zebra.Failed {
             throw Failed(description: e.description)
         }
