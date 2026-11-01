@@ -75,6 +75,38 @@ final class Store: ObservableObject {
         set { change { settings.playSounds = newValue } }
     }
 
+    /// Settings > General: the "Peel Good Inc." printer. Adding or removing its queue can fail
+    /// (a standard user needs an administrator); the switch then goes back.
+    var virtualPrinter: Bool {
+        get { settings.virtualPrinter }
+        set {
+            change { settings.virtualPrinter = newValue }
+            let done: @MainActor (Error?) -> Void = { [weak self] error in
+                guard let error else { return }
+                self?.change { self?.settings.virtualPrinter = !newValue }
+                NSAlert(error: error).runModal()
+            }
+            if newValue { VirtualPrinterController.shared.start(done: done) } else { VirtualPrinterController.shared.stop(done: done) }
+        }
+    }
+
+    /// Settings > General: "Print Label with Peel Good Inc." in the Print dialog's PDF menu.
+    /// Lives in ~/Library/PDF Services, not in the settings.
+    var showInPrintDialog: Bool {
+        get { PDFServices.isInstalled() }
+        set {
+            change {
+                do {
+                    if newValue, let app = PDFServices.app { try PDFServices.install(app: app) } else if !newValue { try PDFServices.remove() }
+                    Log.notice(.app, "\(newValue ? "added" : "removed") “\(PDFServices.title)” in the PDF menu")
+                } catch {
+                    Log.error(.app, "couldn't change the PDF menu item: \(error.localizedDescription)")
+                    NSAlert(error: error).runModal()
+                }
+            }
+        }
+    }
+
     // MARK: Zebras
 
     /// Settings > General: look for Zebras on the network at launch.

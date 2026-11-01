@@ -241,3 +241,57 @@ func formatsRoundTripEveryDot(_ compression: ZPL.Compression) {
     #expect(!PrinterInfo(name: "zebra://wide", presets: [], customMin: LabelSize(width: 1, height: 1),
                          customMax: LabelSize(width: 2, height: 3), zebraHost: "wide").isLabelPrinter)
 }
+
+// MARK: Printer settings (a GX420t's ^HH wording)
+
+@Test func readsPrinterSettings() {
+    let text = """
+      10.0                DARKNESS
+      6 IPS               PRINT SPEED
+      +000                TEAR OFF
+      TEAR OFF            PRINT MODE
+      GAP/NOTCH           MEDIA TYPE
+      THERMAL-TRANS.      PRINT METHOD
+    """
+    let c = Zebra.Config(Zebra.Setup(reply: text))
+    #expect(c == Zebra.Config(darkness: 10, speed: 6, method: .thermalTransfer, tracking: .gap, mode: .tearOff, tearOff: 0))
+    let withSpeeds = Zebra.Config(Zebra.Setup(reply: text), diagnostic: ["Slew Speed": "6", "Backfeed Speed": "2"])
+    #expect(withSpeeds.slew == 6 && withSpeeds.backfeed == 2)
+    let other = Zebra.Config(Zebra.Setup(reply: "  -012   TEAR OFF\n  PEEL OFF   PRINT MODE\n  MARK   MEDIA TYPE\n  DIRECT-THERMAL   PRINT METHOD\n"))
+    #expect(other.tearOff == -12 && other.mode == .peelOff && other.tracking == .mark && other.method == .directThermal)
+    let nonContinuous = Zebra.Setup(reply: "  NON-CONTINUOUS   MEDIA TYPE\n")
+    #expect(Zebra.Config(nonContinuous).tracking == .gap && !nonContinuous.isContinuous)
+    #expect(Zebra.Setup(reply: "  CONTINUOUS   MEDIA TYPE\n").isContinuous)
+}
+
+@Test func printerSettingCommands() {
+    var now = Zebra.Config(darkness: 10, speed: 6, method: .thermalTransfer, tracking: .gap, mode: .tearOff, tearOff: 0)
+    #expect(now.commands(from: now, save: false).isEmpty, "nothing changed, nothing sent")
+    var faster = now
+    faster.speed = 3
+    #expect(faster.commands(from: now, save: false) == "^XA^PR3^XZ", "slew and backfeed unknown: print speed only")
+    now.slew = 6
+    now.backfeed = 2
+    #expect(faster.commands(from: now, save: false) == "^XA^PR3,6,2^XZ", "slew and backfeed kept, not reset to ^PR's defaults")
+    var want = now
+    want.darkness = 5
+    want.tearOff = -10
+    want.speed = 4
+    want.tracking = .gap
+    #expect(want.commands(from: now, save: false) == "~SD05~TA-010^XA^PR4,6,2^XZ")
+    #expect(want.commands(from: now, save: true) == "~SD05~TA-010^XA^PR4,6,2^JUS^XZ")
+    #expect(want.changes(from: now) == ["Darkness: 10 → 5", "Print speed: 6 in/s → 4 in/s", "Tear-off position: +0 dots → -10 dots"])
+
+    var media = now
+    media.tracking = .continuous
+    media.method = .directThermal
+    media.mode = .cutter
+    #expect(media.commands(from: now, save: false) == "^XA^MTD^MNN^MMC^XZ")
+    media.tracking = .gap
+    #expect(media.commands(from: Zebra.Config(), save: false).contains("^MNY"), "gaps are ^MNY, never ^MNM")
+
+    var wild = now
+    wild.darkness = 99
+    wild.tearOff = 500
+    #expect(wild.commands(from: now, save: false) == "~SD30~TA120", "clamped to what ZPL accepts")
+}

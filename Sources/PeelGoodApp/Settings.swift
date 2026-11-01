@@ -144,6 +144,15 @@ struct GeneralPane: View {
                         Text("Play sounds")
                     }
                 }
+                Toggle(isOn: Binding(get: { store.virtualPrinter }, set: { store.virtualPrinter = $0 })) {
+                    Text("Add a Peel Good Inc. printer")
+                    Text("Any app can print to it, and each document follows your rules. Works while Peel Good is open.")
+                }
+                Toggle(isOn: Binding(get: { store.showInPrintDialog }, set: { store.showInPrintDialog = $0 })) {
+                    Text("Show in the Print dialog's PDF menu")
+                    Text("Adds “\(PDFServices.title)” to the PDF menu.")
+                }
+                .disabled(PDFServices.app == nil)
                 Toggle("Look for Zebra printers when Peel Good starts",
                        isOn: Binding(get: { store.scanForZebras }, set: { store.scanForZebras = $0 }))
                 Toggle("Open at login", isOn: $launchAtLogin)
@@ -403,21 +412,22 @@ struct PrinterDetail: View {
                     if let dpi = printer.dpi { LabeledContent("Resolution", value: "\(Int(dpi.rounded())) dpi (\(Int((dpi / 25.4).rounded())) dots/mm)") }
                     LabeledContent("Status", value: printer.statusText)
                 }
+                ZebraSettingsSection(printer: printer, host: host)
             }
-            Section {
-                DisclosureGroup("Advanced", isExpanded: $showAdvanced) {
-                    LabeledContent("Horizontal offset") { mmField(\.x) }
-                    LabeledContent("Vertical offset") { mmField(\.y) }
-                    if printer.zebraHost != nil {
-                        HStack {
-                            Text("The offset applies to Peel Good's labels. The printer can store it for every app.")
-                                .font(.callout).foregroundStyle(.secondary)
-                            Spacer()
-                            Button("Move to Printer…") { ZebraSetup.moveCalibrationToPrinter(printer, store: store) }
-                                .disabled(store.nudge(for: printer) == .zero)
-                        }
+            Section(isExpanded: $showAdvanced) {
+                LabeledContent("Horizontal offset") { mmField(\.x) }
+                LabeledContent("Vertical offset") { mmField(\.y) }
+                if printer.zebraHost != nil {
+                    HStack {
+                        Text("The offset applies to Peel Good's labels. The printer can store it for every app.")
+                            .font(.callout).foregroundStyle(.secondary)
+                        Spacer()
+                        Button("Move to Printer…") { ZebraSetup.moveCalibrationToPrinter(printer, store: store) }
+                            .disabled(store.nudge(for: printer) == .zero)
                     }
                 }
+            } header: {
+                Text("Advanced")
             }
             Section {
                 HStack {
@@ -438,15 +448,10 @@ struct PrinterDetail: View {
     }
 
     private func mmField(_ axis: WritableKeyPath<CGPoint, CGFloat>) -> some View {
-        let binding = Binding<Double>(
+        NumberField(value: Binding(
             get: { Double(store.nudge(for: printer)[keyPath: axis]) },
             set: { v in var n = store.nudge(for: printer); n[keyPath: axis] = CGFloat(v); store.setNudge(Limits.clampNudge(n), for: printer) }
-        )
-        return HStack(spacing: 4) {
-            TextField("", value: binding, format: .number.precision(.fractionLength(1))).frame(width: 56).multilineTextAlignment(.trailing)
-            Stepper("", value: binding, in: Limits.nudgeMM, step: 0.1).labelsHidden()
-            Text("mm").foregroundStyle(.secondary)
-        }
+        ), range: Limits.nudgeMM, step: 0.1, decimals: 1, unit: "mm")
     }
 
     /// The sample label converted with this printer's settings.
@@ -534,6 +539,26 @@ struct AddZebraSheet: View {
                 self.error = "\(error)"
             }
             adding = false
+        }
+    }
+}
+
+/// A number in Settings: an editable value, arrows and its unit, the same everywhere.
+struct NumberField: View {
+    @Binding var value: Double
+    let range: ClosedRange<Double>
+    var step = 1.0
+    var decimals = 0
+    var unit: String?
+
+    var body: some View {
+        HStack(spacing: 4) {
+            TextField("", value: Binding(get: { value }, set: { value = min(max($0, range.lowerBound), range.upperBound) }),
+                      format: .number.precision(.fractionLength(decimals)))
+                .frame(width: 56).multilineTextAlignment(.trailing)
+            Stepper("", value: $value, in: range, step: step).labelsHidden()
+            // The unit column is kept even when empty, so arrows line up from row to row.
+            Text(unit ?? "").foregroundStyle(.secondary).frame(minWidth: 28, alignment: .leading)
         }
     }
 }

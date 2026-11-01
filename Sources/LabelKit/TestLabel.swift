@@ -4,7 +4,7 @@ import Foundation
 /// The generated pages: the calibration label, the step wedge and the ink sample.
 /// Used by the app (Printers > Print Test Label, Ink Modes), the CLI (test-label, step-wedge) and screenshots.
 public enum TestLabel: String, CaseIterable, Sendable {
-    /// Border 2 mm in, rulers and a QR code: offset and scale.
+    /// Border 2 mm in, rulers, a QR code, a Code 128 barcode and a Data Matrix: offset, scale and scanning.
     case pattern
     /// Gray patches from 0 to 100 %: how a printer renders grays.
     case stepWedge

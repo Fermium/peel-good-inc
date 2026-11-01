@@ -10,6 +10,8 @@ final class AppDelegate: NSObject, JobPresenter, NSApplicationDelegate, NSWindow
     private var statusItem: NSStatusItem!
     private let popover = NSPopover()
     private var job: PrintJob?
+    /// Jobs that arrived while another was on screen (several prints from the Print dialog), in order.
+    private var waiting: [PrintJob] = []
     private var dropZoneWatch: Timer?
     private var dragEnteredAt: Date?
     private var lastBounce = Date.distantPast
@@ -50,6 +52,9 @@ final class AppDelegate: NSObject, JobPresenter, NSApplicationDelegate, NSWindow
         History.prune(keepingDays: store.historyDays)
         Notifier.shared.setUp()
         ZebraSetup.scanAtLaunch(store: store)
+        PDFServices.repair()
+        VirtualPrinterController.shared.onDocument = { [weak self] file, _ in self?.printOnDefault([file], trigger: .printDialog) }
+        if store.virtualPrinter { VirtualPrinterController.shared.start() }
         Notifier.shared.onAction = { [weak self] url, print in
             self?.printOnDefault([url], trigger: .watchedFolder, override: print ? .print : .review)
         }
@@ -78,7 +83,7 @@ final class AppDelegate: NSObject, JobPresenter, NSApplicationDelegate, NSWindow
 
     /// Open With, dropping on the app icon, `open -a "Peel Good Inc." file.pdf`.
     func application(_ application: NSApplication, open urls: [URL]) {
-        Log.info(.intake, "asked to open \(urls.map(\.lastPathComponent).joined(separator: ", "))")
+        Log.info(.intake, "asked to open \(urls.map(\.lastPathComponent).joined(separator: ", ")) from \(Set(urls.map { $0.deletingLastPathComponent().path }).sorted().joined(separator: ", "))")
         printOnDefault(urls.filter(Intake.isSupported), trigger: .openWith)
     }
 
@@ -303,16 +308,28 @@ final class AppDelegate: NSObject, JobPresenter, NSApplicationDelegate, NSWindow
     }
 
     /// Shows a job in the popover and starts it. Drops come here through `start`, API prints directly.
+    /// A job that arrives while another is still on screen waits its turn instead of replacing it;
+    /// a failed one (which stays up to show why) is replaced.
     func present(_ job: PrintJob) {
         dropZoneWatch?.invalidate()
         if let current = self.job, current.phase != .done {
-            Log.warning(.job, "replacing an unfinished job (\(current.files.map(\.lastPathComponent).joined(separator: ", ")))")
+            if case .failed = current.phase {
+                Log.warning(.job, "replacing a failed job (\(current.files.map(\.lastPathComponent).joined(separator: ", ")))")
+            } else {
+                Log.info(.job, "queued \(job.files.map(\.lastPathComponent).joined(separator: ", ")) behind the job on screen")
+                waiting.append(job)
+                return
+            }
         }
         Sounds.play(Sounds.dropped, if: store.playSounds)
         job.onFinish = { [weak self, weak job] in
             guard let self, self.job === job else { return }
-            self.popover.performClose(nil)
             self.job = nil
+            if !self.waiting.isEmpty {
+                self.present(self.waiting.removeFirst())
+            } else {
+                self.popover.performClose(nil)
+            }
         }
         self.job = job
         Log.info(.job, "start: \(job.files.map(\.lastPathComponent).joined(separator: ", ")) on \(job.printer.name) at \(job.options.size), \(job.reviewFirst ? "review first" : "countdown \(job.countdownSeconds)s")")

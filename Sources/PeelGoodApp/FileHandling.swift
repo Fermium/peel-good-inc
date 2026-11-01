@@ -54,19 +54,12 @@ enum AfterPrint {
 enum PrinterRemoval {
     /// Deletes the print queue from this Mac. macOS may ask for an administrator password.
     nonisolated static func removeFromMac(_ name: String) throws {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/sbin/lpadmin")
-        process.arguments = ["-x", name]
-        let pipe = Pipe()
-        process.standardError = pipe
-        try process.run()
-        let output = pipe.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-        guard process.terminationStatus == 0 else {
-            let message = String(decoding: output, as: UTF8.self)
-            throw NSError(domain: "PeelGood", code: Int(process.terminationStatus), userInfo: [
+        do {
+            try Command.run("/usr/sbin/lpadmin", ["-x", name])
+        } catch let e as Command.Failed {
+            throw NSError(domain: "PeelGood", code: 1, userInfo: [
                 NSLocalizedDescriptionKey: "Couldn't remove the printer.",
-                NSLocalizedRecoverySuggestionErrorKey: message.isEmpty ? "Try removing it in System Settings › Printers & Scanners." : message,
+                NSLocalizedRecoverySuggestionErrorKey: e.output.isEmpty ? "Try removing it in System Settings › Printers & Scanners." : e.output,
             ])
         }
     }

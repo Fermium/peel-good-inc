@@ -27,7 +27,7 @@ A small, simple, delightful Mac menu bar app that prints your labels instantly. 
 - Prints to Zebra printers on your network in ZPL, no driver needed.
 - Watches a folder for new files.
 - After printing it can tag the file in Finder, rename it, move it or put it in the Trash, so you always know which labels are done.
-- Native Mac app: Share menu, Services, Open With, the clipboard and the menu bar.
+- Native Mac app: Print dialog, Share menu, Services, Open With, the clipboard and the menu bar.
 - Thermal printers only print black and white, and most documents aren't made for that. *Peel Good Inc.* converts them using multiple algorithms (sharp, dithering, halftone).
 
 <p align="center">
@@ -48,7 +48,7 @@ A small, simple, delightful Mac menu bar app that prints your labels instantly. 
 
 A rule is one sentence: when a file matches these conditions, print it on this printer at this size. Rules are checked from the top; the first match wins. Anything else goes to the default printer.
 
-Conditions: source website, file name, file type, folder, how it arrived (drop, clipboard, Finder, watched folder, another app), page size, number of pages, codes on the page, code text.
+Conditions: source website, file name, file type, folder, origin (drop, clipboard, Finder, watched folder, the Peel Good Inc. printer, another app), page size, number of pages, codes on the page, code text.
 
 A rule sets the printer, label size, scaling, ink, copies, whether to print, preview or ask first, and a Finder tag after printing.
 
@@ -76,6 +76,7 @@ When it starts, *Peel Good Inc.* looks for Zebra printers on your network. Deny 
 
 - label size, scaling and ink
 - a position offset, which can be moved onto the printer to be used by every app
+- the printer's own darkness, speed, media and print mode
 - live status: head open, out of labels, paused
 
 Tested on a Zebra GX420t. USB Zebras aren't supported yet.

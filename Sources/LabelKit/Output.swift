@@ -48,6 +48,34 @@ public enum LabelWriter {
     }
 }
 
+/// Runs a command-line tool (lp, lpadmin, lpstat) and returns what it printed.
+public enum Command {
+    public struct Failed: Error, CustomStringConvertible, LocalizedError {
+        public let tool: String
+        /// stdout and stderr, trimmed.
+        public let output: String
+        public var description: String { output.isEmpty ? "\(tool) failed" : output }
+        public var errorDescription: String? { description }
+    }
+
+    @discardableResult
+    public static func run(_ tool: String, _ arguments: [String]) throws -> String {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: tool)
+        process.arguments = arguments
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = pipe
+        try process.run()
+        // Read before waiting: a full pipe would otherwise block the tool forever.
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        let output = String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard process.terminationStatus == 0 else { throw Failed(tool: (tool as NSString).lastPathComponent, output: output) }
+        return output
+    }
+}
+
 /// Label PDFs back to dots, with the Mac's own PDF renderer.
 public enum LabelRaster {
     /// Each page at `dpi`, sized as the composer sizes labels, so a 1-bit label PDF written at the same
@@ -83,20 +111,11 @@ public enum LabelPrint {
     @discardableResult
     public static func send(file: URL, printer: PrinterInfo, size: LabelSize, copies: Int = 1) throws -> String {
         if printer.zebraHost != nil { return try send(zplJob(file: file, printer: printer, copies: copies), to: printer) }
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/lp")
-        process.arguments = lpArguments(file: file, printer: printer.name, size: size, copies: copies)
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = pipe
-        try process.run()
-        // Read before waiting: a full pipe would otherwise block lp forever.
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-        let output = String(decoding: data, as: UTF8.self)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard process.terminationStatus == 0 else { throw Failed(description: "lp failed: \(output)") }
-        return output
+        do {
+            return try Command.run("/usr/bin/lp", lpArguments(file: file, printer: printer.name, size: size, copies: copies))
+        } catch let e as Command.Failed {
+            throw Failed(description: "lp failed: \(e.output)")
+        }
     }
 
     /// A label PDF as the ZPL a Zebra gets: rendered at the resolution the labels were composed at,

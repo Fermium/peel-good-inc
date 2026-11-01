@@ -89,7 +89,7 @@ enum Screenshots {
 
                 // The whole detail, down to the Zebra section and the move to the printer.
                 let detailHost = NSHostingController(rootView: active(PrinterDetail(store: store, printer: z, testLabel: { _ in })
-                    .frame(width: 470, height: 980)))
+                    .frame(width: 470, height: 1400)))
                 let detail = window(detailHost, style: [.titled], appearance: appearance)
                 detail.title = z.displayName
                 await settle(detail, 1.0)

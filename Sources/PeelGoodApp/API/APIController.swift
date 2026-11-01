@@ -178,7 +178,7 @@ final class APIController: ObservableObject {
         } else {
             if args.contains("-apiDryRun"), let app = service as? AppLabelService {
                 Log.notice(.api, "dry run: jobs won't reach a printer (-apiDryRun)")
-                app.sender = AppLabelService.dryRunSender
+                app.sender = PrintJob.dryRunSender
             }
             self.service = service
         }

@@ -80,13 +80,16 @@ public enum Printers {
         return d.profile.printer(name: zebraScheme + host, status: d.status)
     }
 
+    /// The queue Peel Good Inc. adds so any app can print to it. Never a printer it prints to.
+    public static let virtualQueue = "Peel_Good_Inc"
+
     public static func all() -> [PrinterInfo] {
         var dests: UnsafeMutablePointer<cups_dest_t>?
         let count = cupsGetDests2(nil, &dests)
         guard let dests, count > 0 else { return [] }
         defer { cupsFreeDests(count, dests) }
 
-        return (0..<Int(count)).map { info(for: dests + $0) }
+        return (0..<Int(count)).map { info(for: dests + $0) }.filter { $0.name != virtualQueue }
     }
 
     /// The default printer if it's a label printer, else the first label printer.
@@ -126,9 +129,9 @@ public enum Printers {
                     guard let raw = ippGetString(attr, i, nil) else { continue }
                     let keyword = String(cString: raw)
                     if keyword.hasPrefix("custom_min_") {
-                        customMin = LabelSize(parsing: String(keyword.dropFirst("custom_min_".count)))
+                        customMin = LabelSize(pwgMedia: keyword)
                     } else if keyword.hasPrefix("custom_max_") {
-                        customMax = LabelSize(parsing: String(keyword.dropFirst("custom_max_".count)))
+                        customMax = LabelSize(pwgMedia: keyword)
                     }
                 }
             }

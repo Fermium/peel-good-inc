@@ -34,6 +34,12 @@ extension AppSettings {
         nonmutating set { set(newValue.isEmpty ? nil : newValue, SettingsKey.ignoredZebras.rawValue) }
     }
 
+    /// The "Peel Good Inc." printer every app can print to (Settings > General).
+    public var virtualPrinter: Bool {
+        get { bool(SettingsKey.virtualPrinter.rawValue) ?? false }
+        nonmutating set { set(newValue, SettingsKey.virtualPrinter.rawValue) }
+    }
+
     /// Look for Zebras on the network when the app starts, and offer to add new ones.
     public var scanForZebras: Bool {
         get { bool(SettingsKey.scanForZebras.rawValue) ?? true }

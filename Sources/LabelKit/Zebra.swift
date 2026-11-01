@@ -62,9 +62,12 @@ public enum Zebra {
         public var leftPosition: Int?
         public var labelTop: Int?
         public var serial: String?
+        /// "6 IPS", "+000": kept as the printer words them, read by `Zebra.Config`.
+        public var printSpeed: String?
+        public var tearOff: String?
 
         /// Continuous media: no gaps or marks, so labels are as long as ^LL says.
-        public var isContinuous: Bool { mediaType?.uppercased().contains("CONTINUOUS") == true }
+        public var isContinuous: Bool { mediaType?.uppercased().hasPrefix("CONTINUOUS") == true }
 
         public init(reply: String) {
             var values: [String: String] = [:]
@@ -87,6 +90,8 @@ public enum Zebra {
             leftPosition = values["LEFT POSITION"].flatMap { Int($0.replacingOccurrences(of: "+", with: "")) }
             labelTop = values["LABEL TOP"].flatMap { Int($0.replacingOccurrences(of: "+", with: "")) }
             serial = values["SERIAL NUMBER"]
+            printSpeed = values["PRINT SPEED"]
+            tearOff = values["TEAR OFF"]
         }
     }
 
@@ -254,10 +259,7 @@ public enum Zebra {
     /// Returns the new LEFT POSITION and LABEL TOP.
     @discardableResult
     public static func moveCalibration(_ host: String, dx: Int, dy: Int) throws -> (leftPosition: Int, labelTop: Int) {
-        let s = try status(host)
-        guard s.problems.isEmpty, s.isIdle else {
-            throw Failed(description: s.problems.isEmpty ? "\(host) is busy printing" : "\(host) can't take settings: \(s.problems.joined(separator: ", "))")
-        }
+        let s = try requireIdle(host, doing: "take settings")
         guard let setup = try setup(host, known: s), let left = setup.leftPosition, let top = setup.labelTop else {
             throw Failed(description: "\(host) didn't report its LEFT POSITION and LABEL TOP")
         }

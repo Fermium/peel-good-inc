@@ -29,6 +29,12 @@ public struct LabelSize: Hashable, Sendable, CustomStringConvertible {
         self.init(width: w * unit, height: h * unit)
     }
 
+    /// The size a PWG media name describes by its last field: "oe_4x6-label_4x6in", "custom_min_1x0.5in".
+    public init?(pwgMedia name: String) {
+        guard let dims = name.split(separator: "_").last else { return nil }
+        self.init(parsing: String(dims))
+    }
+
     public static let fourBySix = LabelSize(width: 4, height: 6)
 
     public var points: CGSize { CGSize(width: width * 72, height: height * 72) }

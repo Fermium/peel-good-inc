@@ -8,7 +8,7 @@ public enum SettingsKey: String, CaseIterable, Sendable {
     case printer, countdown, alwaysReview, newFilesAction, playSounds, hiddenPrinters
     case historyDays, tagAfterPrint, tagName, tagColor, afterPrintAction, renameSuffix, moveFolder
     case watchedFolders, watchedSeen
-    case zebraPrinters, ignoredZebras, scanForZebras
+    case zebraPrinters, ignoredZebras, scanForZebras, virtualPrinter
     case lastFile = "last.file", lastPrinter = "last.printer", lastSize = "last.size"
     /// Older versions saved fit and ink once for every printer; still read as a fallback.
     case legacyFit = "fit", legacyInk = "ink"
