@@ -31,7 +31,7 @@ final class Store: ObservableObject {
             refreshing = false
             if fresh.map(\.name) != printers.map(\.name) || fresh.map(\.state) != printers.map(\.state)
                 || fresh.map(\.presets.count) != printers.map(\.presets.count) || fresh.map(\.problem) != printers.map(\.problem)
-                || fresh.map(\.zebraLinks) != printers.map(\.zebraLinks) {
+                || fresh.map(\.zebraLinks) != printers.map(\.zebraLinks) || fresh.map(\.zebraUSBAttached) != printers.map(\.zebraUSBAttached) {
                 printers = fresh
             }
         }
@@ -122,7 +122,7 @@ final class Store: ObservableObject {
     }
 
     func setZebraConnection(_ connection: Zebra.Connection, named name: String) {
-        guard var zebra = settings.zebraPrinters.first(where: { $0.printerName == name }) else { return }
+        guard var zebra = settings.zebra(named: name) else { return }
         zebra.prefers = connection
         addZebra(zebra)
     }

@@ -86,6 +86,12 @@ final class JobFlowTests: XCTestCase {
         XCTAssertEqual(sent.all.count, 1)
     }
 
+    func testJobsWaitingForAnAnswerAreTheOnesThatKeepThePopover() {
+        func job(review: Bool) -> PrintJob { PrintJob(files: [file], printer: printer, options: LabelOptions(), reviewFirst: review, countdownSeconds: 1) }
+        XCTAssertTrue(job(review: true).awaitsAnswer, "review, from composing on")
+        XCTAssertFalse(job(review: false).awaitsAnswer, "a countdown goes on by itself")
+    }
+
     func testCancelInThePopover() async throws {
         UserDefaults.standard.set(true, forKey: "alwaysReview")
         let task = Task { try await service.print(files: [file], request: APIPrintRequest(), source: APIJob.Source.upload) }

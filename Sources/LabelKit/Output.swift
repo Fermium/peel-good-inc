@@ -127,10 +127,12 @@ public enum LabelPrint {
     }
 
     public static func zplJob(file: URL, printer: PrinterInfo, copies: Int) throws -> ZPLJob {
-        guard let link = printer.zebraLink, let dpi = printer.dpi else { throw Failed(description: "\(printer.name) doesn't take ZPL") }
+        guard let first = printer.zebraLink, let dpi = printer.dpi else { throw Failed(description: "\(printer.name) doesn't take ZPL") }
         let bitmaps = try LabelRaster.bitmaps(pdf: file, dpi: dpi)
         var options = ZPL.Options(copies: copies)
-        options.labelLength = ((try? Zebra.setup(link)) ?? nil)?.isContinuous ?? false
+        // On the connection the job goes to, waiting for its turn: this decides ^LL.
+        let link = (try? Zebra.route(printer.zebraLinks)) ?? first
+        options.labelLength = (try? Zebra.holding(link) { try Zebra.setup($0) })??.isContinuous ?? false
         return ZPLJob(data: ZPL.job(bitmaps, options: options), labels: bitmaps.count * max(1, copies))
     }
 

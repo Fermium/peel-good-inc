@@ -403,7 +403,7 @@ struct PrinterDetail: View {
                     }
                 }
             }
-            if let link = printer.zebraLink {
+            if printer.speaksZPL {
                 Section("Zebra") {
                     if let host = printer.zebraHost {
                         LabeledContent("Address") {
@@ -411,8 +411,8 @@ struct PrinterDetail: View {
                             if let url = URL(string: "http://\(host)") { Link(host, destination: url) } else { Text(host) }
                         }
                     }
-                    if let profile = store.settings.zebraPrinters.first(where: { $0.printerName == printer.name }), profile.usbSerial != nil {
-                        LabeledContent("USB", value: Zebra.Link.usb(id: profile.usbSerial!).isPresent ? "Connected" : "Not connected")
+                    if let profile = store.settings.zebra(named: printer.name), profile.usbSerial != nil {
+                        LabeledContent("USB", value: printer.zebraUSBAttached ? "Connected" : "Not connected")
                         if profile.host != nil {
                             Picker("Use first", selection: Binding(
                                 get: { profile.prefers ?? .usb },
@@ -426,7 +426,7 @@ struct PrinterDetail: View {
                     if let dpi = printer.dpi { LabeledContent("Resolution", value: "\(Int(dpi.rounded())) dpi (\(Int((dpi / 25.4).rounded())) dots/mm)") }
                     LabeledContent("Status", value: printer.statusText)
                 }
-                ZebraSettingsSection(printer: printer, link: link)
+                ZebraSettingsSection(printer: printer, links: printer.zebraLinks)
             }
             Section(isExpanded: $showAdvanced) {
                 LabeledContent("Horizontal offset") { mmField(\.x) }
@@ -506,7 +506,7 @@ struct AddZebraSheet: View {
                     } else if found.isEmpty && onUSB.isEmpty {
                         Text("No Zebras answered. Type the printer's address below.").foregroundStyle(.secondary)
                     }
-                    ForEach(onUSB, id: \.printer.id) { c in
+                    ForEach(onUSB, id: \.id) { c in
                         HStack {
                             Image(systemName: "printer.dotmatrix")
                             VStack(alignment: .leading, spacing: 1) {
@@ -554,8 +554,9 @@ struct AddZebraSheet: View {
 
     private func scan() async {
         let settings = store.settings
-        onUSB = await Task.detached(priority: .userInitiated) { settings.scanUSB() }.value
-        found = await Task.detached(priority: .userInitiated) { settings.scanZebras() }.value
+        async let usb = Task.detached(priority: .userInitiated) { settings.scanUSB(includingIgnored: true) }.value
+        async let network = Task.detached(priority: .userInitiated) { settings.scanZebras() }.value
+        (onUSB, found) = await (usb, network)
         scanning = false
     }
 

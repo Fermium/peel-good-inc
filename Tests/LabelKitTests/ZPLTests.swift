@@ -321,3 +321,23 @@ func formatsRoundTripEveryDot(_ compression: ZPL.Compression) {
     #expect(throws: Zebra.Failed.self) { try Zebra.route([unplugged]) }
 }
 
+
+/// A printer that answers `~HS` from a script, for what's hard to make a real one do.
+private final class ScriptedPrinter: Zebra.Channel, @unchecked Sendable {
+    let label = "scripted"
+    var replies: [String]
+    init(_ replies: [String]) { self.replies = replies }
+    func query(_ command: String, timeout: TimeInterval, quiet: TimeInterval, done: ([UInt8]) -> Bool) throws -> String {
+        replies.count > 1 ? replies.removeFirst() : replies[0]
+    }
+    func write(_ job: Data, timeout: TimeInterval) throws {}
+    static func status(formats: Int = 0, bufferFull: Bool = false, paused: Bool = false) -> String {
+        "\u{2}030,0,\(paused ? 1 : 0),1214,\(String(format: "%03d", formats)),\(bufferFull ? 1 : 0),0,0,000,0,0,0\u{3}\r\n\u{2}001,0,0,0,1,2,6,0,00000000,1,000\u{3}\r\n\u{2}1234,0\u{3}\r\n"
+    }
+}
+
+@Test func aFullBufferDuringAPrintIsNotAStop() throws {
+    let busy = ScriptedPrinter([ScriptedPrinter.status(formats: 3, bufferFull: true), ScriptedPrinter.status(formats: 1), ScriptedPrinter.status()])
+    #expect(try Zebra.waitUntilPrinted(busy, timeout: 5, every: 0.01).isIdle)
+    #expect(throws: Zebra.Failed.self) { try Zebra.waitUntilPrinted(ScriptedPrinter([ScriptedPrinter.status(formats: 1, paused: true)]), timeout: 5, every: 0.01) }
+}

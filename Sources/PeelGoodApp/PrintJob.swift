@@ -68,6 +68,15 @@ final class PrintJob: ObservableObject {
         self.countdownSeconds = countdownSeconds
     }
 
+    /// Waiting for Print, Cancel or Close: it can't go on or end by itself.
+    var awaitsAnswer: Bool {
+        switch phase {
+        case .composing, .review: reviewFirst
+        case .failed: true
+        default: false
+        }
+    }
+
     var title: String {
         let n = labels.count
         return "\(n) label\(n == 1 ? "" : "s") · \(options.size.display)"

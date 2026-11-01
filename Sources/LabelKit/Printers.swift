@@ -17,6 +17,8 @@ public struct PrinterInfo: Sendable {
     public var dpi: Double?
     /// The ways to reach a Zebra directly, preferred first. Empty for the Mac's own print queues.
     public var zebraLinks: [Zebra.Link]
+    /// A Zebra with a USB connection that's plugged in now.
+    public var zebraUSBAttached: Bool
     /// Why the printer can't print right now ("the print head is open"), when it says.
     public var problem: String?
 
@@ -28,12 +30,12 @@ public struct PrinterInfo: Sendable {
 
     /// Its address on the network, when it has one.
     public var zebraHost: String? {
-        zebraLinks.lazy.compactMap { if case .network(let host) = $0 { host } else { nil } }.first
+        zebraLinks.lazy.compactMap(\.host).first
     }
 
     public init(name: String, makeAndModel: String = "", isDefault: Bool = false, state: State = .unknown,
                 presets: [LabelSize], customMin: LabelSize? = nil, customMax: LabelSize? = nil,
-                dpi: Double? = nil, zebraLinks: [Zebra.Link] = [], problem: String? = nil) {
+                dpi: Double? = nil, zebraLinks: [Zebra.Link] = [], zebraUSBAttached: Bool = false, problem: String? = nil) {
         self.name = name
         self.makeAndModel = makeAndModel
         self.isDefault = isDefault
@@ -43,6 +45,7 @@ public struct PrinterInfo: Sendable {
         self.customMax = customMax
         self.dpi = dpi
         self.zebraLinks = zebraLinks
+        self.zebraUSBAttached = zebraUSBAttached
         self.problem = problem
     }
 
@@ -83,6 +86,11 @@ public enum Printers {
         return host.isEmpty ? nil : host
     }
 
+    /// The connection a "zebra://" name means, or nil for any other name or no such USB printer.
+    public static func zebraLink(_ name: String) -> Zebra.Link? {
+        zebraHost(name).flatMap { try? link(forZebraHost: $0) }
+    }
+
     private static func link(forZebraHost host: String) throws -> Zebra.Link {
         let parts = host.split(separator: "/", maxSplits: 1).map(String.init)
         guard parts.first?.lowercased() == "usb" else { return .network(host) }
@@ -90,12 +98,12 @@ public enum Printers {
         let attached = Zebra.usbPrinters()
         guard attached.count == 1 else {
             throw Zebra.Failed(description: attached.isEmpty ? "no Zebra is connected over USB"
-                : "several Zebras are connected over USB: \(attached.map(\.id).joined(separator: ", ")). Use zebra://usb/ID")
+                : "several Zebras are connected over USB: \(attached.joined(separator: ", ")). Use zebra://usb/ID")
         }
-        return .usb(id: attached[0].id)
+        return .usb(id: attached[0])
     }
 
-    /// Asks a Zebra on the network what it is, for a printer named by its address ("zebra://host").
+    /// Asks a Zebra what it is, for a printer named by its address ("zebra://host").
     public static func zebra(host: String) throws -> PrinterInfo {
         let d = try Zebra.describe(try link(forZebraHost: host))
         return d.profile.printer(name: zebraScheme + host, status: d.status)
