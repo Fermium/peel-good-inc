@@ -3,8 +3,12 @@ import CoreImage
 import CoreText
 
 public enum TestPattern {
-    /// A label-sized page: border 2 mm in, centre rulers with mm ticks, a QR and a title.
-    /// Shows offset (border distance per edge), scale (ruler) and scan quality (QR).
+    /// Digits only: Code 128 packs two per character, so the bars stay wide enough to scan even on small labels.
+    public static let barcodeText = "123456"
+
+    /// A label-sized page: border 2 mm in, centre rulers with mm ticks, a QR code, a Code 128 barcode,
+    /// a Data Matrix and a title. Shows offset (border distance per edge), scale (ruler) and scan quality
+    /// for each kind of code.
     public static func page(size: LabelSize, title: String) -> SourcePage {
         let r = CGRect(origin: .zero, size: size.points)
         return SourcePage(size: r.size) { ctx in
@@ -40,7 +44,7 @@ public enum TestPattern {
             }
             let side = min(r.width, r.height) * 0.35
             if let qr = CIFilter(name: "CIQRCodeGenerator", parameters: ["inputMessage": Data("peelgood-test \(size)".utf8)])?.outputImage {
-                fillModules(ctx, qr, in: CGRect(x: 5 * mm, y: 5 * mm, width: side, height: side))
+                fillModules(ctx, modules(of: qr), in: CGRect(x: 5 * mm, y: 5 * mm, width: side, height: side))
             }
             let font = CTFontCreateUIFontForLanguage(.emphasizedSystem, max(6, min(r.width, r.height) / 16), nil)!
             let attrs: [NSAttributedString.Key: Any] = [
@@ -53,6 +57,26 @@ public enum TestPattern {
                 a[NSAttributedString.Key(kCTFontAttributeName as String)] = CTFontCreateCopyWithAttributes(font, CTFontGetSize(font) * scale, nil, nil)
                 ctx.textPosition = CGPoint(x: 5 * mm, y: r.height - 5 * mm - CTFontGetSize(font) * (i == 0 ? 1 : 1.9))
                 CTLineDraw(CTLineCreateWithAttributedString(NSAttributedString(string: line, attributes: a)), ctx)
+            }
+            // A barcode and a Data Matrix in the upper quarters, between the subtitle and the rulers, when
+            // there's room: below 12 mm a code wouldn't scan anyway.
+            let top = min(titleBottom, r.height - 5 * mm - CTFontGetSize(font) * 2.2) - 2 * mm, bottom = r.midY + 6 * mm
+            let room = top - bottom
+            let leftWidth = r.midX - 10 * mm, rightWidth = r.width - 5 * mm - (r.midX + 12 * mm)
+            if room >= 12 * mm, leftWidth >= 20 * mm,
+               let bars = CIFilter(name: "CICode128BarcodeGenerator", parameters: ["inputMessage": Data(barcodeText.utf8), "inputQuietSpace": 0])?.outputImage {
+                // Bars 0.40 mm wide: about 3 dots once the page is fitted inside its padding (≈95 %) on 200 and
+                // 203 dpi heads, so fitting the barcode to whole dots doesn't shrink the label. Code 128's quiet
+                // zone of 10 bars each side; left out where that doesn't fit.
+                let pattern = modules(of: bars).first ?? []
+                let x = 0.40 * mm, height = min(room, leftWidth * 0.5)
+                if x * CGFloat(pattern.count + 20) <= leftWidth {
+                    fillBars(ctx, pattern, in: CGRect(x: 5 * mm + 10 * x, y: top - height, width: x * CGFloat(pattern.count), height: height))
+                }
+            }
+            if room >= 12 * mm, rightWidth >= 12 * mm, let matrix = DataMatrix.encode("peelgood-dm \(size)") {
+                let s = min(rightWidth, room, side * 0.8)
+                fillModules(ctx, matrix, in: CGRect(x: r.width - 5 * mm - s, y: top - s, width: s, height: s))
             }
         }
     }
@@ -105,16 +129,31 @@ public enum TestPattern {
         }
     }
 
-    /// Draws a code's modules as filled squares, so it stays sharp at any scale.
-    static func fillModules(_ ctx: CGContext, _ code: CIImage, in rect: CGRect) {
+    /// A generated code's modules, one per pixel, row 0 at the top, true = dark.
+    static func modules(of code: CIImage) -> [[Bool]] {
         let w = Int(code.extent.width), h = Int(code.extent.height)
         var pixels = [UInt8](repeating: 255, count: w * h)
         CIContext().render(code, toBitmap: &pixels, rowBytes: w, bounds: code.extent, format: .L8, colorSpace: nil)
-        let m = rect.width / CGFloat(w)
-        for y in 0..<h {
-            for x in 0..<w where pixels[y * w + x] < 128 {
+        return (0..<h).map { y in (0..<w).map { x in pixels[y * w + x] < 128 } }
+    }
+
+    /// Draws modules as filled squares across the rect's width, so the code stays sharp at any scale.
+    static func fillModules(_ ctx: CGContext, _ grid: [[Bool]], in rect: CGRect) {
+        guard let cols = grid.first?.count, cols > 0 else { return }
+        let m = rect.width / CGFloat(cols)
+        for (y, row) in grid.enumerated() {
+            for (x, dark) in row.enumerated() where dark {
                 ctx.fill(CGRect(x: rect.minX + CGFloat(x) * m, y: rect.maxY - CGFloat(y + 1) * m, width: m, height: m))
             }
+        }
+    }
+
+    /// Draws a linear barcode's bars across the rect.
+    static func fillBars(_ ctx: CGContext, _ bars: [Bool], in rect: CGRect) {
+        guard !bars.isEmpty else { return }
+        let m = rect.width / CGFloat(bars.count)
+        for (x, dark) in bars.enumerated() where dark {
+            ctx.fill(CGRect(x: rect.minX + CGFloat(x) * m, y: rect.minY, width: m, height: rect.height))
         }
     }
 }

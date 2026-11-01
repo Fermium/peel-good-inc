@@ -61,7 +61,7 @@ struct Context {
             if let p = resolver.find(name) { return (p, from) }
             if let host = Printers.zebraHost(name) {
                 do { return (try Printers.zebra(host: host), from) } catch {
-                    throw CLIError("\(error)", hint: "Is the printer on and on this network?", code: .printer)
+                    throw CLIError("\(error)", hint: "Is the printer on and connected?", code: .printer)
                 }
             }
             let near = Parser.closest(name, among: printers.map(\.name)) ?? resolver.candidates(name).first?.name

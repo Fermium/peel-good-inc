@@ -99,7 +99,8 @@ enum JobFlow {
             guard let job else { return }
             store.lastPrint = Store.LastPrint(file: url, printer: job.printer.name, size: job.options.size)
             Sounds.play(Sounds.sent, if: store.playSounds)
-            AfterPrint.apply(to: job.files, store: store, tag: tag)
+            // A dry run prints nothing, so it doesn't tag, rename or move the user's files either.
+            if !PrintJob.isDryRun { AfterPrint.apply(to: job.files, store: store, tag: tag) }
             History.prune(keepingDays: store.historyDays)
         }
         return job

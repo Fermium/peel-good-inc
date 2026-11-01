@@ -26,15 +26,7 @@ final class AppLabelService: LabelService {
 
     init(store: Store, sender: Sender? = nil) {
         self.store = store
-        self.sender = sender ?? { file, printer, size, copies in
-            try LabelPrint.send(file: file, printer: printer, size: size, copies: copies)
-        }
-    }
-
-    /// A sender that only logs. Used by `-apiDryRun`.
-    static let dryRunSender: Sender = { file, printer, size, copies in
-        Log.notice(.api, "dry run: would send \(file.lastPathComponent) to \(printer.name) at \(size), \(copies) copies")
-        return "dry-run"
+        self.sender = sender ?? PrintJob.defaultSender
     }
 
     // MARK: LabelService

@@ -239,5 +239,85 @@ func formatsRoundTripEveryDot(_ compression: ZPL.Compression) {
     #expect(z.isLabelPrinter && z.zebraHost == "h" && z.dpi == 203.2 && z.state == .unknown)
     #expect(abs(z.customMax!.width - 832 / 203.2) < 1e-9 && z.resolve(LabelSize(width: 2.25, height: 1.25)) != nil)
     #expect(!PrinterInfo(name: "zebra://wide", presets: [], customMin: LabelSize(width: 1, height: 1),
-                         customMax: LabelSize(width: 2, height: 3), zebraHost: "wide").isLabelPrinter)
+                         customMax: LabelSize(width: 2, height: 3), zebraLinks: [.network("wide")]).isLabelPrinter)
 }
+
+// MARK: Printer settings (a GX420t's ^HH wording)
+
+@Test func readsPrinterSettings() {
+    let text = """
+      10.0                DARKNESS
+      6 IPS               PRINT SPEED
+      +000                TEAR OFF
+      TEAR OFF            PRINT MODE
+      GAP/NOTCH           MEDIA TYPE
+      THERMAL-TRANS.      PRINT METHOD
+    """
+    let c = Zebra.Config(Zebra.Setup(reply: text))
+    #expect(c == Zebra.Config(darkness: 10, speed: 6, method: .thermalTransfer, tracking: .gap, mode: .tearOff, tearOff: 0))
+    let withSpeeds = Zebra.Config(Zebra.Setup(reply: text), diagnostic: ["Slew Speed": "6", "Backfeed Speed": "2"])
+    #expect(withSpeeds.slew == 6 && withSpeeds.backfeed == 2)
+    let other = Zebra.Config(Zebra.Setup(reply: "  -012   TEAR OFF\n  PEEL OFF   PRINT MODE\n  MARK   MEDIA TYPE\n  DIRECT-THERMAL   PRINT METHOD\n"))
+    #expect(other.tearOff == -12 && other.mode == .peelOff && other.tracking == .mark && other.method == .directThermal)
+    let nonContinuous = Zebra.Setup(reply: "  NON-CONTINUOUS   MEDIA TYPE\n")
+    #expect(Zebra.Config(nonContinuous).tracking == .gap && !nonContinuous.isContinuous)
+    #expect(Zebra.Setup(reply: "  CONTINUOUS   MEDIA TYPE\n").isContinuous)
+}
+
+@Test func printerSettingCommands() {
+    var now = Zebra.Config(darkness: 10, speed: 6, method: .thermalTransfer, tracking: .gap, mode: .tearOff, tearOff: 0)
+    #expect(now.commands(from: now, save: false).isEmpty, "nothing changed, nothing sent")
+    var faster = now
+    faster.speed = 3
+    #expect(faster.commands(from: now, save: false) == "^XA^PR3^XZ", "slew and backfeed unknown: print speed only")
+    now.slew = 6
+    now.backfeed = 2
+    #expect(faster.commands(from: now, save: false) == "^XA^PR3,6,2^XZ", "slew and backfeed kept, not reset to ^PR's defaults")
+    var want = now
+    want.darkness = 5
+    want.tearOff = -10
+    want.speed = 4
+    want.tracking = .gap
+    #expect(want.commands(from: now, save: false) == "~SD05~TA-010^XA^PR4,6,2^XZ")
+    #expect(want.commands(from: now, save: true) == "~SD05~TA-010^XA^PR4,6,2^JUS^XZ")
+    #expect(want.changes(from: now) == ["Darkness: 10 → 5", "Print speed: 6 in/s → 4 in/s", "Tear-off position: +0 dots → -10 dots"])
+
+    var media = now
+    media.tracking = .continuous
+    media.method = .directThermal
+    media.mode = .cutter
+    #expect(media.commands(from: now, save: false) == "^XA^MTD^MNN^MMC^XZ")
+    media.tracking = .gap
+    #expect(media.commands(from: Zebra.Config(), save: false).contains("^MNY"), "gaps are ^MNY, never ^MNM")
+
+    var wild = now
+    wild.darkness = 99
+    wild.tearOff = 500
+    #expect(wild.commands(from: now, save: false) == "~SD30~TA120", "clamped to what ZPL accepts")
+}
+
+@Test func usbSerialsThatCanNameAPrinter() {
+    #expect(Zebra.usableSerial("99J000000001", model: "ZTC GX420t", among: ["99J000000001"]))
+    #expect(!Zebra.usableSerial("", model: "ZTC GX420t", among: [""]), "blank")
+    #expect(!Zebra.usableSerial("ZT230", model: "ZTC ZT230-203dpi ZPL", among: ["ZT230"]), "the product family, as Zebra documents")
+    #expect(!Zebra.usableSerial("same", model: "ZTC GX420t", among: ["same", "same"]), "two printers can't share one")
+}
+
+@Test func usbCommandSets() {
+    let gx = "MANUFACTURER:Zebra Technologies;COMMAND SET:ZPL;MODEL:ZTC GX420t;CLASS:PRINTER;PROTOCOLS:IEEE1284.4;OPTIONS:INTPSRVR;"
+    #expect(Zebra.commandSet(deviceID: gx) == ["ZPL"])
+    #expect(Zebra.commandSet(deviceID: "MFG:Zebra ;CMD: zpl , EPL ;MDL:x;") == ["ZPL", "EPL"])
+    #expect(Zebra.commandSet(deviceID: "MANUFACTURER:Zebra Technologies;MODEL:x;").isEmpty)
+}
+
+@Test func statusReportsAHalfSentFormat() throws {
+    let half = "\u{2}030,0,0,1214,000,0,0,1,000,0,0,0\u{3}\r\n\u{2}001,0,0,0,1,2,6,0,00000000,1,000\u{3}\r\n\u{2}1234,0\u{3}\r\n"
+    #expect(try #require(Zebra.Status(reply: half)).partialFormat)
+}
+
+@Test func anUnpluggedUSBPrinterIsReachedOnTheNetwork() throws {
+    let unplugged = Zebra.Link.usb(id: "not-attached")
+    #expect(try Zebra.route([unplugged, .network("192.0.2.1")]) == .network("192.0.2.1"), "nothing to ask: the last choice")
+    #expect(throws: Zebra.Failed.self) { try Zebra.route([unplugged]) }
+}
+

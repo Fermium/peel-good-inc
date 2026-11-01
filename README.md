@@ -24,10 +24,10 @@ A small, simple, delightful Mac menu bar app that prints your labels instantly. 
 - Extensive rule system to automatically identify documents and send them to the right printer.
 - MCP Server to use the printer through AI clients as well as use AI to automatically configure and test the app.
 - Common label sizes: 4 × 6, 4 × 8, 4 × 4, 4 × 3, 4 × 2, 3 × 5, 3 × 3, 3 × 2, 2.5 × 1.5, 2.25 × 2.25, 2.25 × 1.25 and 2 × 2 in, metric rolls such as 100 × 150 mm, and custom sizes.
-- Prints to Zebra printers on your network in ZPL, no driver needed.
+- Prints to Zebra printers on USB or your network in ZPL, no driver needed.
 - Watches a folder for new files.
 - After printing it can tag the file in Finder, rename it, move it or put it in the Trash, so you always know which labels are done.
-- Native Mac app: Share menu, Services, Open With, the clipboard and the menu bar.
+- Native Mac app: Print dialog, Share menu, Services, Open With, the clipboard and the menu bar.
 - Thermal printers only print black and white, and most documents aren't made for that. *Peel Good Inc.* converts them using multiple algorithms (sharp, dithering, halftone).
 
 <p align="center">
@@ -48,7 +48,7 @@ A small, simple, delightful Mac menu bar app that prints your labels instantly. 
 
 A rule is one sentence: when a file matches these conditions, print it on this printer at this size. Rules are checked from the top; the first match wins. Anything else goes to the default printer.
 
-Conditions: source website, file name, file type, folder, how it arrived (drop, clipboard, Finder, watched folder, another app), page size, number of pages, codes on the page, code text.
+Conditions: source website, file name, file type, folder, origin (drop, clipboard, Finder, watched folder, the Peel Good Inc. printer, another app), page size, number of pages, codes on the page, code text.
 
 A rule sets the printer, label size, scaling, ink, copies, whether to print, preview or ask first, and a Finder tag after printing.
 
@@ -70,15 +70,16 @@ Templates for Amazon returns, Royal Mail Click & Drop and shipping labels on Let
 
 ## Zebra printers
 
-macOS ships drivers for Zebra printers through CUPS, but they suffer from long-documented bugs and limitations in the way they render labels ([apple/cups#5092](https://github.com/apple/cups/issues/5092), [apple/cups#6113](https://github.com/apple/cups/issues/6113)), which make them close to unusable for barcodes. *Peel Good Inc.* skips them and sends each label to the printer as ZPL, dot for dot, over the network.
+macOS ships drivers for Zebra printers through CUPS, but they suffer from long-documented bugs and limitations in the way they render labels ([apple/cups#5092](https://github.com/apple/cups/issues/5092), [apple/cups#6113](https://github.com/apple/cups/issues/6113)), which make them close to unusable for barcodes. *Peel Good Inc.* skips them and sends each label to the printer as ZPL, dot for dot, over USB or the network.
 
-When it starts, *Peel Good Inc.* looks for Zebra printers on your network. Deny the permission pop-up to block this. Printers can also be added by address, and Settings → Printers has options such as:
+When it starts, *Peel Good Inc.* looks for Zebra printers on USB and your network. Deny the permission pop-up to block the network search. A printer on both shows up once, and you choose which connection to use first. Printers can also be added by address, and Settings → Printers has options such as:
 
 - label size, scaling and ink
 - a position offset, which can be moved onto the printer to be used by every app
+- the printer's own darkness, speed, media and print mode
 - live status: head open, out of labels, paused
 
-Tested on a Zebra GX420t. USB Zebras aren't supported yet.
+Tested on a Zebra GX420t.
 
 ## Install
 

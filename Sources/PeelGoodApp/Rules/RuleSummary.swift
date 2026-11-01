@@ -64,6 +64,7 @@ enum RuleSummary {
             case .watchedFolder: (yes, no) = ("turns up in a watched folder", "doesn't come from a watched folder")
             case .api: (yes, no) = ("is sent by another app", "isn't sent by another app")
             case .cli: (yes, no) = ("is printed from the command line", "isn't printed from the command line")
+            case .printDialog: (yes, no) = ("is printed to Peel Good Inc.", "isn't printed to Peel Good Inc.")
             }
             return positive ? yes : no
         case .pageSize:

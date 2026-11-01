@@ -34,7 +34,7 @@ enum Screenshots {
         if isolated { await seedLog() }
         let printers = RulesPreviewData.printers
         // A Zebra for its settings, only in a throwaway home: the GX420t this was built against.
-        let zebra = Zebra.Profile(serial: "99J000000001", host: "192.168.1.216", product: "GX420t", dotsPerMM: 8,
+        let zebra = Zebra.Profile(serial: "99J000000001", host: "192.168.1.216", usbSerial: "99J000000001", product: "GX420t", dotsPerMM: 8,
                                   headDots: 832, maximumLength: 39, discoveryID: "123456")
         if isolated {
             store.addZebra(zebra)
@@ -89,7 +89,7 @@ enum Screenshots {
 
                 // The whole detail, down to the Zebra section and the move to the printer.
                 let detailHost = NSHostingController(rootView: active(PrinterDetail(store: store, printer: z, testLabel: { _ in })
-                    .frame(width: 470, height: 980)))
+                    .frame(width: 470, height: 1400)))
                 let detail = window(detailHost, style: [.titled], appearance: appearance)
                 detail.title = z.displayName
                 await settle(detail, 1.0)

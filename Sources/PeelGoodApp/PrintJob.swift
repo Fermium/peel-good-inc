@@ -37,9 +37,20 @@ final class PrintJob: ObservableObject {
     /// Called once, when the job prints, is cancelled or fails.
     var onOutcome: (Outcome) -> Void = { _ in }
     /// Hands the saved PDF to the print system. Swapped in tests and dry runs.
-    var sender: Sender = { file, printer, size, copies in
+    var sender: Sender = PrintJob.defaultSender
+
+    static let liveSender: Sender = { file, printer, size, copies in
         try LabelPrint.send(file: file, printer: printer, size: size, copies: copies)
     }
+
+    /// Logs instead of printing: `-dryRunPrinting` for the whole app, `-apiDryRun` for API and MCP jobs.
+    static let dryRunSender: Sender = { file, printer, size, copies in
+        Log.notice(.print, "dry run: would send \(file.lastPathComponent) to \(printer.name) at \(size), \(copies) copies")
+        return "dry-run"
+    }
+
+    static var isDryRun: Bool { ProcessInfo.processInfo.arguments.contains("-dryRunPrinting") }
+    static var defaultSender: Sender { isDryRun ? dryRunSender : liveSender }
     private(set) var outcome: Outcome?
     private var countdown: Task<Void, Never>?
 

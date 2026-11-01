@@ -45,8 +45,8 @@ struct Doctor {
         if let (p, from) = try? ctx.choosePrinter(printers, required: false) {
             let source = from == "app" ? "chosen in the app" : from
             switch p.state {
-            case .stopped where p.zebraHost != nil:
-                add("Printers", .failed, "\(p.displayName) can't print: \(p.problem ?? "it doesn't answer")", fix: "Check the printer at \(p.zebraHost!).")
+            case .stopped where p.speaksZPL:
+                add("Printers", .failed, "\(p.displayName) can't print: \(p.problem ?? "it doesn't answer")", fix: "Check the printer (\(p.zebraLink?.label ?? p.name)).")
             case .stopped:
                 add("Printers", .failed, "\(p.name) is paused", fix: "Resume it in System Settings > Printers & Scanners, or run: cupsenable \(p.name)")
             default:

@@ -170,9 +170,11 @@ public enum FileKind: String, Codable, CaseIterable, Sendable {
 /// Drop and the printer tiles are `drop`; Open With, Print File…, Services and Share are `openWith`;
 /// Print Clipboard (menu and MCP) is `clipboard`; HTTP and MCP files are `api`; `peelgood print` is `cli`.
 public enum RuleTrigger: String, Codable, CaseIterable, Sendable {
-    case drop, clipboard, openWith, watchedFolder, api, cli
+    case drop, clipboard, openWith, watchedFolder, api, cli, printDialog
     public var title: String {
         switch self {
+        // The Peel Good Inc. printer only: the PDF menu item hands the app a file, which counts as openWith.
+        case .printDialog: "Printed to Peel Good Inc."
         case .drop: "Dropped on the icon"
         case .clipboard: "From the clipboard"
         case .openWith: "Opened in Finder"
