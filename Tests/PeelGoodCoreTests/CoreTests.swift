@@ -373,6 +373,8 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(seen.filter(\.isNew).map(\.found.host), ["192.168.1.50"])
         XCTAssertEqual(seen[0].displayName, "Zebra GX420t", "a known printer is named without asking it")
         XCTAssertEqual(s.zebraPrinters[0].host, "192.168.1.216")
+        let onUSB = PrinterInfo(name: "Zebra_99J000000002", presets: [], zebraLinks: [.usb(id: "99J000000002")])
+        XCTAssertEqual(PrinterResolver.match("zebra://usb/99J000000002", in: [onUSB])?.name, onUSB.name, "a USB id finds the remembered printer")
         XCTAssertEqual(PrinterResolver.match("zebra://192.168.1.216", in: s.printers(cups: []))?.name, "Zebra_99J000000001",
                        "an address finds the remembered printer, not a stand-in")
 

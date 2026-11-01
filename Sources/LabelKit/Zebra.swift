@@ -134,6 +134,11 @@ public enum Zebra {
 
         /// What stops printing, worded for people. Empty when the printer is ready.
         public var problems: [String] {
+            faults + (bufferFull ? ["its buffer is full"] : [])
+        }
+
+        /// The problems waiting won't clear. A full buffer clears once the printer catches up.
+        var faults: [String] {
             var p: [String] = []
             if headOpen { p.append("the print head is open") }
             if paperOut { p.append("it's out of labels") }
@@ -142,11 +147,14 @@ public enum Zebra {
             if overTemperature { p.append("the print head is too hot") }
             if underTemperature { p.append("the print head is too cold") }
             if corruptRAM { p.append("its memory is corrupt") }
-            if bufferFull { p.append("its buffer is full") }
             return p
         }
 
         public var isIdle: Bool { formatsInBuffer == 0 && labelsRemaining == 0 }
+
+        static let command = "~HS"
+        /// All three lines have arrived.
+        static func isComplete(_ reply: [UInt8]) -> Bool { reply.filter { $0 == 0x03 }.count >= 3 }
     }
 
     /// The text between STX (0x02) and ETX (0x03) markers, in order.
@@ -182,14 +190,14 @@ public enum Zebra {
     }
 
     public static func status(_ printer: any Channel, timeout: TimeInterval = 4) throws -> Status {
-        let reply = try printer.query("~HS", timeout: timeout, quiet: 1) { $0.filter { $0 == 0x03 }.count >= 3 }
+        let reply = try printer.query(Status.command, timeout: timeout, quiet: 1, done: Status.isComplete)
         guard let status = Status(reply: reply) else { throw Failed(description: "\(printer.label) sent an unreadable status") }
         return status
     }
 
     // MARK: Connections
 
-    public enum Connection: String, Codable, CaseIterable, Sendable {
+    public enum Connection: String, Codable, Sendable {
         case usb, network
     }
 
@@ -198,11 +206,12 @@ public enum Zebra {
         case network(String)
         case usb(id: String)
 
-        public var connection: Connection {
-            switch self {
-            case .network: .network
-            case .usb: .usb
-            }
+        public var host: String? {
+            if case .network(let host) = self { host } else { nil }
+        }
+
+        public var usbID: String? {
+            if case .usb(let id) = self { id } else { nil }
         }
     }
 
@@ -256,6 +265,12 @@ public enum Zebra {
 
         public var displayName: String { Zebra.displayName(product: product) }
 
+        /// The connections to try, the preferred one first: those attached, or all when none are.
+        public var reachableLinks: [Link] {
+            let present = links.filter(\.isPresent)
+            return present.isEmpty ? links : present
+        }
+
         /// The ways to reach it, the preferred one first.
         public var links: [Link] {
             let usb = usbSerial.map { Link.usb(id: $0) }, network = host.map { Link.network($0) }
@@ -267,13 +282,12 @@ public enum Zebra {
 
         /// The printer for menus, rules and printing: any label up to its head width and maximum length.
         public func printer(name: String? = nil, status: Status? = nil) -> PrinterInfo {
-            let reachable = links.filter(\.isPresent)
             let state: PrinterInfo.State = status.map { $0.problems.isEmpty ? ($0.isIdle ? .idle : .printing) : .stopped } ?? .unknown
             return PrinterInfo(
                 name: name ?? printerName, makeAndModel: displayName, state: state, presets: [],
                 customMin: LabelSize(width: 0.75, height: 0.25),
                 customMax: LabelSize(width: Double(headDots) / dpi, height: maximumLength),
-                dpi: dpi, zebraLinks: reachable.isEmpty ? links : reachable, problem: status?.problems.first
+                dpi: dpi, zebraLinks: reachableLinks, zebraUSBAttached: usbSerial.map { Link.usb(id: $0).isPresent } ?? false, problem: status?.problems.first
             )
         }
     }
@@ -291,13 +305,8 @@ public enum Zebra {
         let status = try? status(link)
         let setup = status.flatMap { (try? self.setup(link, known: $0)) ?? nil }
         let serial = (try? getvar(link, "device.unique_id")) ?? nil
-        var host: String?, usbSerial: String?
-        switch link {
-        case .network(let h): host = h
-        case .usb(let s): usbSerial = s
-        }
         let profile = Profile(
-            serial: serial ?? setup?.serial ?? usbSerial ?? host ?? "", host: host, usbSerial: usbSerial,
+            serial: serial ?? setup?.serial ?? link.usbID ?? link.host ?? "", host: link.host, usbSerial: link.usbID,
             product: id.product, dotsPerMM: id.dotsPerMM,
             headDots: setup?.headWidth ?? setup?.printWidth ?? Int((4.09 * id.dpi).rounded()),
             maximumLength: setup?.maximumLength ?? 39, discoveryID: discoveryID
@@ -357,13 +366,14 @@ public enum Zebra {
         }
     }
 
-    /// Polls `~HS` until the printer has no formats or labels left, or reports a problem.
+    /// Polls `~HS` until the printer has no formats or labels left, or reports a fault. A full buffer
+    /// isn't one: right after a large job it only means the printer is working through it.
     @discardableResult
     public static func waitUntilPrinted(_ printer: any Channel, timeout: TimeInterval = 45, every interval: TimeInterval = 0.7) throws -> Status {
         let deadline = Date().addingTimeInterval(timeout)
         while true {
             let s = try status(printer)
-            if !s.problems.isEmpty { throw Failed(description: "\(printer.label) stopped: \(s.problems.joined(separator: ", "))") }
+            if !s.faults.isEmpty { throw Failed(description: "\(printer.label) stopped: \(s.faults.joined(separator: ", "))") }
             if s.isIdle { return s }
             if Date() > deadline { throw Failed(description: "\(printer.label) is still printing after \(Int(timeout)) s") }
             Thread.sleep(forTimeInterval: interval)
@@ -460,7 +470,7 @@ public enum Zebra {
 
     // MARK: Sockets
 
-    static func query(_ host: String, _ command: String, timeout: TimeInterval, quiet: TimeInterval = 1,
+    static func query(_ host: String, _ command: String, timeout: TimeInterval, quiet: TimeInterval,
                       done: ([UInt8]) -> Bool) throws -> String {
         let fd = try connect(host, timeout: timeout)
         defer { close(fd) }
@@ -535,21 +545,27 @@ extension Zebra.Link: Zebra.Channel {
     public var label: String {
         switch self {
         case .network(let host): host
-        case .usb: "USB printer"
+        case .usb: Zebra.usbLabel
         }
     }
 
     public func query(_ command: String, timeout: TimeInterval, quiet: TimeInterval, done: ([UInt8]) -> Bool) throws -> String {
         switch self {
-        case .network(let host): try Zebra.query(host, command, timeout: timeout, quiet: quiet, done: done)
-        case .usb(let id): try withUSB(id, within: timeout) { try $0.query(command, timeout: timeout, quiet: quiet, done: done) }
+        case .network(let host):
+            return try Zebra.query(host, command, timeout: timeout, quiet: quiet, done: done)
+        case .usb(let id):
+            let port = Zebra.USBPort.named(id)
+            return try port.whileOpen(within: timeout) { try port.query(command, timeout: timeout, quiet: quiet, done: done) }
         }
     }
 
     public func write(_ job: Data, timeout: TimeInterval) throws {
         switch self {
-        case .network(let host): try Zebra.write(job, to: host, timeout: timeout)
-        case .usb(let id): try withUSB(id, within: timeout) { try $0.write(job, timeout: timeout) }
+        case .network(let host):
+            try Zebra.write(job, to: host, timeout: timeout)
+        case .usb(let id):
+            let port = Zebra.USBPort.named(id)
+            try port.whileOpen(within: timeout) { try port.write(job, timeout: timeout) }
         }
     }
 }

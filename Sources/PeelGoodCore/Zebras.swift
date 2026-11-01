@@ -34,11 +34,16 @@ extension AppSettings {
         zebraPrinters = list
     }
 
+    /// The remembered Zebra with this printer name.
+    public func zebra(named name: String) -> Zebra.Profile? {
+        zebraPrinters.first { $0.printerName == name }
+    }
+
     public func forgetZebra(named name: String) {
         zebraPrinters = zebraPrinters.filter { $0.printerName != name }
     }
 
-    /// Discovery IDs of Zebras the user said not to offer again.
+    /// Discovery IDs and USB ids of Zebras the user said not to offer again.
     public var ignoredZebras: [String] {
         get { strings(SettingsKey.ignoredZebras.rawValue) ?? [] }
         nonmutating set { set(newValue.isEmpty ? nil : newValue, SettingsKey.ignoredZebras.rawValue) }
@@ -67,7 +72,7 @@ extension AppSettings {
         final class Box: @unchecked Sendable { var values: [String: Zebra.Status] = [:]; let lock = NSLock() }
         let box = Box()
         DispatchQueue.concurrentPerform(iterations: zebras.count) { i in
-            guard let link = zebras[i].printer().zebraLink, let s = try? Zebra.status(link, timeout: timeout) else { return }
+            guard let link = try? Zebra.route(zebras[i].reachableLinks), let s = try? Zebra.status(link, timeout: timeout) else { return }
             box.lock.withLock { box.values[zebras[i].serial] = s }
         }
         return box.values
@@ -117,16 +122,18 @@ extension AppSettings {
     }
 
     /// Looks at the Zebras attached over USB. One that's already remembered, from either connection,
-    /// gets its USB connection added. Returns the new ones that take ZPL, to offer.
-    public func scanUSB() -> [USBCandidate] {
+    /// gets its USB connection added. Returns the new ones that take ZPL, to offer. Ones the user said
+    /// not to offer aren't even asked, unless `includingIgnored`.
+    public func scanUSB(includingIgnored: Bool = false) -> [USBCandidate] {
         var new: [USBCandidate] = []
-        for printer in Zebra.usbPrinters() where !zebraPrinters.contains(where: { $0.usbSerial == printer.id }) {
-            guard (try? Zebra.usbSpeaksZPL(printer)) == true,
-                  let profile = try? Zebra.describe(.usb(id: printer.id)).profile else { continue }
+        for id in Zebra.usbPrinters() where !zebraPrinters.contains(where: { $0.usbSerial == id }) {
+            if !includingIgnored, ignoredZebras.contains(id) { continue }
+            guard (try? Zebra.usbSpeaksZPL(id: id)) == true,
+                  let profile = try? Zebra.describe(.usb(id: id)).profile else { continue }
             if zebraPrinters.contains(where: { $0.serial == profile.serial }) {
                 remember(profile)
             } else {
-                new.append(USBCandidate(printer: printer, profile: profile, isIgnored: ignoredZebras.contains(printer.id)))
+                new.append(USBCandidate(id: id, profile: profile))
             }
         }
         return new
@@ -135,10 +142,8 @@ extension AppSettings {
 
 /// A Zebra on USB that isn't remembered yet.
 public struct USBCandidate: Sendable, Equatable {
-    public var printer: Zebra.USBPrinter
+    public var id: String
     public var profile: Zebra.Profile
-    /// The user said not to offer it again.
-    public var isIgnored: Bool
 }
 
 /// A Zebra a scan found.

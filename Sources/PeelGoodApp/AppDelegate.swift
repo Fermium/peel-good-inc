@@ -5,7 +5,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 @MainActor
-final class AppDelegate: NSObject, JobPresenter, NSApplicationDelegate, NSWindowDelegate, NSMenuDelegate, NSDraggingDestination {
+final class AppDelegate: NSObject, JobPresenter, NSApplicationDelegate, NSPopoverDelegate, NSWindowDelegate, NSMenuDelegate, NSDraggingDestination {
     let store = Store()
     private var statusItem: NSStatusItem!
     private let popover = NSPopover()
@@ -47,6 +47,7 @@ final class AppDelegate: NSObject, JobPresenter, NSApplicationDelegate, NSWindow
         }
 
         popover.behavior = .transient
+        popover.delegate = self
         popover.animates = true
 
         History.prune(keepingDays: store.historyDays)
@@ -305,6 +306,12 @@ final class AppDelegate: NSObject, JobPresenter, NSApplicationDelegate, NSWindow
             }
             present(JobFlow.makeJob(plan, store: store))
         }
+    }
+
+    /// A job waiting for an answer keeps its popover. Nothing reopens it, so a click elsewhere would leave
+    /// the job unanswerable, and every later job queued behind it.
+    func popoverShouldClose(_ popover: NSPopover) -> Bool {
+        job?.awaitsAnswer != true
     }
 
     /// Shows a job in the popover and starts it. Drops come here through `start`, API prints directly.

@@ -7,7 +7,7 @@ import SwiftUI
 /// saves it on the printer (^JUS), like Move to Printer does for the offset.
 struct ZebraSettingsSection: View {
     let printer: PrinterInfo
-    let link: Zebra.Link
+    let links: [Zebra.Link]
     @State private var current: Zebra.Config?
     @State private var edited = Zebra.Config()
     @State private var loading = true
@@ -54,7 +54,7 @@ struct ZebraSettingsSection: View {
             Text("Printer Settings")
         }
         // Read once per printer, not on every appearance: a reload would throw away unsaved edits.
-        .task(id: link) { load() }
+        .task(id: links) { load() }
     }
 
     // MARK: Rows
@@ -90,10 +90,10 @@ struct ZebraSettingsSection: View {
         guard !busy else { return }
         loading = true
         message = nil
-        let link = link
+        let links = links
         Task {
             do {
-                let read = try await Task.detached { try Zebra.config(link)?.config }.value
+                let read = try await Task.detached { try Zebra.config(try Zebra.route(links))?.config }.value
                 // Keep edits made while reading; otherwise show what the printer has.
                 if let old = current, edited != old {} else if let read { edited = read }
                 current = read
@@ -124,11 +124,11 @@ struct ZebraSettingsSection: View {
     }
 
     private func save(over old: Zebra.Config) {
-        let wanted = edited, link = link
+        let wanted = edited, links = links
         busy = true
         Task {
             do {
-                let after = try await Task.detached { try Zebra.apply(wanted, over: old, save: true, to: link) }.value
+                let after = try await Task.detached { try Zebra.apply(wanted, over: old, save: true, to: try Zebra.route(links)) }.value
                 Log.notice(.app, "\(printer.name): saved \(wanted.changes(from: old).joined(separator: "; "))")
                 if let after {
                     current = after
@@ -158,11 +158,11 @@ struct ZebraSettingsSection: View {
     }
 
     private func run(_ done: String, _ action: @escaping @Sendable (Zebra.Link) throws -> Void) {
-        let link = link
+        let links = links
         busy = true
         Task {
             do {
-                try await Task.detached { try action(link) }.value
+                try await Task.detached { try action(try Zebra.route(links)) }.value
                 message = done
             } catch {
                 message = "\(error)"
