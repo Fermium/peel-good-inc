@@ -24,6 +24,7 @@ final class SettingsWindowController {
             tabs.addTabViewItem(tab("General", "gearshape", GeneralPane(store: store)))
             tabs.addTabViewItem(tab("Printers", "printer", PrintersPane(store: store, testLabel: testLabel)))
             tabs.addTabViewItem(tab("Rules", "list.bullet.rectangle", RulesSettingsView(store: store)))
+            tabs.addTabViewItem(tab("Remote", "tray.and.arrow.down", RemotePane(remote: .shared)))
             tabs.addTabViewItem(tab("API", "point.3.connected.trianglepath.dotted", APIPane(api: .shared)))
             tabs.addTabViewItem(tab("CLI", "terminal", CLIPane()))
             tabs.addTabViewItem(tab("About", "info.circle", AboutView()))

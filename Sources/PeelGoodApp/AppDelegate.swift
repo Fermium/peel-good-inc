@@ -61,6 +61,11 @@ final class AppDelegate: NSObject, JobPresenter, NSApplicationDelegate, NSPopove
         }
         FolderWatcher.shared.onFile = { [weak self] url in self?.printOnDefault([url], trigger: .watchedFolder) }
         FolderWatcher.shared.start()
+        Notifier.shared.onRemoteAction = { source, item, print in
+            guard let id = UUID(uuidString: source) else { return }
+            if print { RemoteController.shared.printNow(item, source: id) } else { self.settings.show(tab: "Remote") }
+        }
+        RemoteController.shared.start(store: store)
         NSApp.servicesProvider = self
         NSUpdateDynamicServices()
         let api = AppLabelService(store: store)
@@ -409,6 +414,7 @@ final class AppDelegate: NSObject, JobPresenter, NSApplicationDelegate, NSPopove
         let reprint = item("Reprint Last Label", #selector(reprintLast), "r", symbol: "arrow.clockwise")
         reprint.isEnabled = store.lastPrint != nil
         menu.addItem(reprint)
+        addRemoteItems(to: menu)
         menu.addItem(.separator())
         menu.addItem(item("Settings…", #selector(showSettings), ",", symbol: "gearshape"))
         // Hold ⌥ to swap Settings for Logs.
@@ -466,6 +472,26 @@ final class AppDelegate: NSObject, JobPresenter, NSApplicationDelegate, NSPopove
 
     @objc private func showLogs() {
         afterMenuCloses { LogWindow.show() }
+    }
+
+    /// Only for those who use remote sources: labels waiting, and a way to stop them printing.
+    private func addRemoteItems(to menu: NSMenu) {
+        let remote = RemoteController.shared
+        guard !remote.sources.isEmpty else { return }
+        menu.addItem(.separator())
+        let waiting = remote.waitingCount
+        if waiting > 0 { menu.addItem(item("\(waiting) Remote Label\(waiting == 1 ? "" : "s") Waiting…", #selector(showRemote), "", symbol: "tray.and.arrow.down")) }
+        let paused = remote.sources.allSatisfy(\.isPaused)
+        menu.addItem(item(paused ? "Resume Remote Sources" : "Pause Remote Sources", #selector(toggleRemote), "", symbol: paused ? "play" : "pause"))
+    }
+
+    @objc private func showRemote() {
+        afterMenuCloses { self.settings.show(tab: "Remote") }
+    }
+
+    @objc private func toggleRemote() {
+        let remote = RemoteController.shared
+        remote.setAllPaused(!remote.sources.allSatisfy(\.isPaused))
     }
 
     @objc private func showSettings() {

@@ -56,6 +56,7 @@ enum Screenshots {
             tabs.addTabViewItem(tab("Rules", "list.bullet.rectangle",
                                     RulesSettingsView(engine: RulesPreviewData.engine(), store: store, previewPrinters: printers,
                                                       folders: .preview(sampleFolders()))))
+            tabs.addTabViewItem(tab("Remote", "tray.and.arrow.down", RemotePane(remote: .shared)))
             tabs.addTabViewItem(tab("API", "point.3.connected.trianglepath.dotted", APIPane(api: .shared)))
             tabs.addTabViewItem(tab("CLI", "terminal", CLIPane(installer: .preview(), expanded: ["print"])))
             tabs.addTabViewItem(tab("About", "info.circle", AboutView()))
@@ -73,6 +74,21 @@ enum Screenshots {
                 save(windowImage(settings), file("settings-\(item.label.lowercased())"))
             }
             settings.close()
+
+            // Remote: a source's detail and the Add sheet, from sample data.
+            let remote = RemoteController.preview()
+            for (name, selected) in [("orders", remote.sources[0].id), ("cant-connect", remote.sources[1].id)] {
+                let pane = window(NSHostingController(rootView: active(RemotePane(remote: remote, initialSelection: selected))), style: [.titled, .closable], appearance: appearance)
+                pane.title = "Remote"
+                await settle(pane, 1.0)
+                save(windowImage(pane), file("settings-remote-\(name)"))
+                pane.close()
+            }
+            let addRemote = window(NSHostingController(rootView: active(AddRemoteSheet(remote: remote) { _ in })), style: [.titled], appearance: appearance)
+            addRemote.title = "Add S3 Bucket"
+            await settle(addRemote, 1.0)
+            save(windowImage(addRemote), file("settings-add-remote"))
+            addRemote.close()
 
             // Zebra: its settings and the Add sheet (a live scan). The offer at launch is an NSAlert,
             // which can't be drawn offscreen.

@@ -122,16 +122,9 @@ final class VirtualPrinter: Sendable {
         return title.isEmpty ? "Printed document" : title
     }
 
-    /// "Invoice 123.pdf" from a title, safe as a file name: no separators or control characters, and
-    /// at most 200 bytes of UTF-8 (file names are limited to 255 bytes, not characters).
+    /// "Invoice 123.pdf" from a title, safe as a file name.
     static func fileName(_ title: String) -> String {
-        var name = String(title.unicodeScalars.filter { !CharacterSet.controlCharacters.contains($0) })
-            .replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ":", with: "-")
-        if name.hasPrefix(".") { name = "_" + name }
-        if name.lowercased().hasSuffix(".pdf") { name = String(name.dropLast(4)) }
-        var short = ""
-        for c in name where short.utf8.count + String(c).utf8.count <= 200 { short.append(c) }
-        return (short.isEmpty ? "Printed document" : short) + ".pdf"
+        SafeFileName.make(title, fileExtension: "pdf", fallback: "Printed document")
     }
 
     /// The media-size-name inside media-col, when the job sent a collection instead of `media`.
