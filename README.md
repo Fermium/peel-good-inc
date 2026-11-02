@@ -96,9 +96,13 @@ Needs macOS 15 or later. Tested on a MUNBYN ITPP941AP; it should work with any l
 
 Keep in mind that CUPS drivers for thermal printers are utterly broken on the Mac.
 
+## Remote labels
+
+Labels can also come from an S3 bucket (Amazon S3, Cloudflare R2, Backblaze B2 or MinIO) or from [your own server](docs/REMOTE-SOURCES.md), by polling or over Server-Sent Events. Every connection goes out from your Mac, so nothing is exposed and no port opens. New labels ask first, until you add a rule with "From a remote source". If a print is interrupted, the label waits for you instead of printing twice.
+
 ## Privacy
 
-No user data leaves your Mac. No ads, no tracking, no analytics.
+No ads, no tracking, no analytics. Your labels stay on your Mac. The exception is a remote source you add: it can see your Mac's IP address and when it checks, and if you turn on "Tell the server what printed", your server hears whether each job printed.
 
 The HTTP API and MCP server are off by default and, when on, only accept token-authenticated connections from your own Mac.
 

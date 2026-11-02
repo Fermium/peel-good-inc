@@ -77,7 +77,7 @@ enum Screenshots {
 
             // Remote: a source's detail and the Add sheet, from sample data.
             let remote = RemoteController.preview()
-            for (name, selected) in [("orders", remote.sources[0].id), ("cant-connect", remote.sources[1].id)] {
+            for (name, selected) in [("orders", remote.sources[0].id), ("cant-connect", remote.sources[1].id), ("server", remote.sources[3].id)] {
                 let pane = window(NSHostingController(rootView: active(RemotePane(remote: remote, initialSelection: selected))), style: [.titled, .closable], appearance: appearance)
                 pane.title = "Remote"
                 await settle(pane, 1.0)
@@ -85,10 +85,15 @@ enum Screenshots {
                 pane.close()
             }
             let addRemote = window(NSHostingController(rootView: active(AddRemoteSheet(remote: remote) { _ in })), style: [.titled], appearance: appearance)
-            addRemote.title = "Add S3 Bucket"
+            addRemote.title = "Add Remote Source"
             await settle(addRemote, 1.0)
             save(windowImage(addRemote), file("settings-add-remote"))
             addRemote.close()
+            let addServer = window(NSHostingController(rootView: active(AddRemoteSheet(remote: remote, initialKind: .server) { _ in })), style: [.titled], appearance: appearance)
+            addServer.title = "Add Remote Source"
+            await settle(addServer, 1.0)
+            save(windowImage(addServer), file("settings-add-remote-server"))
+            addServer.close()
 
             // Zebra: its settings and the Add sheet (a live scan). The offer at launch is an NSAlert,
             // which can't be drawn offscreen.

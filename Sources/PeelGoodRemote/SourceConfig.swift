@@ -7,6 +7,12 @@ public enum RemoteError: Error, CustomStringConvertible, Equatable, Sendable {
     case server(Int, String)
     case unreadableReply(String)
     case tooLarge(limit: Int)
+    /// A message named an address this source isn't allowed to fetch from.
+    case refusedAddress(String)
+    case checksumMismatch
+    /// The data is no longer available, and won't come back.
+    case gone
+    case tryLater(TimeInterval)
 
     public var description: String {
         switch self {
@@ -17,6 +23,25 @@ public enum RemoteError: Error, CustomStringConvertible, Equatable, Sendable {
         case .server(let code, let reason): "The server answered \(code)\(reason.isEmpty ? "" : ": \(reason)")"
         case .unreadableReply(let what): "The server sent something unreadable (\(what))"
         case .tooLarge(let limit): "The file is larger than \(limit / 1_000_000) MB"
+        case .refusedAddress(let host): "The server named \(host), which this source isn't allowed to download from"
+        case .checksumMismatch: "The file doesn't match its checksum"
+        case .gone: "The server no longer has this file"
+        case .tryLater(let seconds): "The server asked Peel Good to wait \(Int(seconds)) s"
+        }
+    }
+
+    /// What to show for any error. URL errors can carry the whole address, and a signed link's query
+    /// is a credential, so they're reduced to their message.
+    public static func describe(_ error: Error) -> String {
+        (error as? RemoteError)?.description ?? (error as NSError).localizedDescription
+    }
+
+    /// It won't get better by downloading again.
+    var isPermanentForFile: Bool {
+        switch self {
+        case .tooLarge, .refusedAddress, .checksumMismatch, .gone, .insecureURL: true
+        case .server(let code, _): code == 404 || code == 410
+        default: false
         }
     }
 
@@ -59,24 +84,75 @@ public struct S3Source: Codable, Equatable, Sendable {
     }
 }
 
+/// Your own server: a jobs URL to poll, a Server-Sent Events stream to follow, or both. The contract
+/// is in docs/REMOTE-SOURCES.md. A bearer token, if any, lives in the Keychain.
+public struct HTTPSource: Codable, Equatable, Sendable {
+    public var jobsURL: String?
+    public var streamURL: String?
+    /// Other hosts files can come from, such as a storage service for signed links.
+    public var downloadHosts: [String]
+    /// POST what became of each job back to the jobs URL.
+    public var sendsAcknowledgements: Bool
+
+    public init(jobsURL: String? = nil, streamURL: String? = nil, downloadHosts: [String] = [], sendsAcknowledgements: Bool = false) {
+        self.jobsURL = jobsURL
+        self.streamURL = streamURL
+        self.downloadHosts = downloadHosts
+        self.sendsAcknowledgements = sendsAcknowledgements
+    }
+
+    /// The configured address everything is judged against: its host gets the token.
+    public var primaryURL: String { jobsURL ?? streamURL ?? "" }
+
+    public var origin: String {
+        guard var parts = URLComponents(string: primaryURL) else { return primaryURL }
+        parts.query = nil
+        parts.fragment = nil
+        return parts.string ?? primaryURL
+    }
+}
+
 public struct RemoteSource: Codable, Equatable, Identifiable, Sendable {
+    public enum Kind: Codable, Equatable, Sendable {
+        case s3(S3Source)
+        case http(HTTPSource)
+    }
+
     public var id: UUID
     public var name: String
-    public var s3: S3Source
+    public var kind: Kind
     public var isPaused = false
     /// Seconds between checks.
     public var interval: TimeInterval = 30
 
-    public init(id: UUID = UUID(), name: String, s3: S3Source) {
+    public init(id: UUID = UUID(), name: String, kind: Kind) {
         self.id = id
         self.name = name
-        self.s3 = s3
+        self.kind = kind
+    }
+
+    public init(id: UUID = UUID(), name: String, s3: S3Source) { self.init(id: id, name: name, kind: .s3(s3)) }
+
+    public var origin: String {
+        switch kind {
+        case .s3(let s): s.origin
+        case .http(let h): h.origin
+        }
+    }
+
+    /// Whether it follows a stream, on top of or instead of checking on an interval.
+    public var streamURL: String? {
+        if case .http(let h) = kind { h.streamURL } else { nil }
     }
 }
 
 public enum RemoteLimits {
     public static let fileBytes = 25_000_000
     public static let replyBytes = 5_000_000
+    public static let eventBytes = 2_000_000
+    public static let inlineBytes = 1_000_000
+    /// What a sender can ask for per job, like everywhere else in the app.
+    public static let copies = 1...100
     public static let pagesPerDocument = 20
     public static let labelsPerWindow = 30
     public static let window: TimeInterval = 600

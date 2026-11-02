@@ -25,6 +25,10 @@ final class RemoteController: ObservableObject {
     private var store: Store?
     private var inboxes: [UUID: RemoteInbox] = [:]
     private var runners: [UUID: Task<Void, Never>] = [:]
+    private var followers: [UUID: Task<Void, Never>] = [:]
+    /// Inboxes being opened. A source's poll and stream ask at once, and must share one: its ledger is
+    /// the memory of what printed.
+    private var opening: [UUID: Task<RemoteInbox?, Never>] = [:]
     private var failingSince: [UUID: Date] = [:]
     private var told: Set<UUID> = []
     private let path = NWPathMonitor()
@@ -62,6 +66,12 @@ final class RemoteController: ObservableObject {
         failing.lastError = "\(RemoteError.denied("SignatureDoesNotMatch"))"
         failing.needsAttention = true
         remote.live[returns.id] = Live(status: failing, entries: [])
+        var stream = RemoteInbox.Status()
+        stream.isStreaming = true
+        stream.lastCheck = now
+        let server = RemoteSource(name: "Shop server", kind: .http(HTTPSource(jobsURL: "https://shop.example.com/labels/jobs", streamURL: "https://shop.example.com/labels/events", downloadHosts: ["files.example.net"], sendsAcknowledgements: true)))
+        remote.sources.append(server)
+        remote.live[server.id] = Live(status: stream, entries: [entry("order 88.pdf", .sent, 1, labels: 3)])
         return remote
     }
 
@@ -92,9 +102,10 @@ final class RemoteController: ObservableObject {
 
     // MARK: Changing sources
 
-    func add(_ source: RemoteSource, secret: String) async throws {
+    /// `secret` is an S3 secret key, or a server's bearer token if it has one.
+    func add(_ source: RemoteSource, secret: String?) async throws {
         let secrets = secrets, id = source.id
-        try await Task.detached { try secrets.setSecret(secret, for: id) }.value
+        try await Task.detached { try secrets.setSecret(secret?.isEmpty == true ? nil : secret, for: id) }.value
         sources.append(source)
         save()
         restart(source)
@@ -102,6 +113,8 @@ final class RemoteController: ObservableObject {
 
     func remove(_ id: UUID) {
         runners.removeValue(forKey: id)?.cancel()
+        followers.removeValue(forKey: id)?.cancel()
+        opening[id] = nil
         inboxes[id] = nil
         live[id] = nil
         sources.removeAll { $0.id == id }
@@ -128,14 +141,24 @@ final class RemoteController: ObservableObject {
         if let s = sources.first(where: { $0.id == id }) { restart(s) }
     }
 
-    /// Lists one key and reads one object, without printing or changing anything.
-    func test(_ source: S3Source, secret: String) async -> String {
+    /// Tries the connection without printing, acknowledging or changing anything.
+    func test(_ kind: RemoteSource.Kind, secret: String?) async -> String {
         do {
-            let client = try S3Client(source: source, secret: secret)
-            return try await client.probe() ? "Peel Good can list and read this bucket." : "Peel Good can list this bucket. It has no files under this prefix yet."
+            switch kind {
+            case .s3(let source):
+                let client = try S3Client(source: source, secret: secret ?? "")
+                return try await client.probe() ? "Peel Good can list and read this bucket." : "Peel Good can list this bucket. It has no files under this prefix yet."
+            case .http(let source):
+                return try await HTTPFeed(source: source, token: secret, sendAcknowledgements: false).test()
+            }
         } catch {
-            return "\(error)"
+            return RemoteError.describe(error)
         }
+    }
+
+    /// The first check left a server's existing jobs alone; prints them after all.
+    func printSkipped(source id: UUID) {
+        act(id) { await $0.printSkipped() }
     }
 
     func printNow(_ item: String, source id: UUID) {
@@ -177,9 +200,34 @@ final class RemoteController: ObservableObject {
     /// inbox stays, and a check in progress is cancelled at its next suspension.
     private func restart(_ source: RemoteSource) {
         runners.removeValue(forKey: source.id)?.cancel()
+        followers.removeValue(forKey: source.id)?.cancel()
         updateActivity()
         guard !source.isPaused else { return }
         runners[source.id] = Task { [weak self] in await self?.run(source) }
+        if source.streamURL != nil { followers[source.id] = Task { [weak self] in await self?.follow(source) } }
+    }
+
+    /// Stays connected to a source's stream, reconnecting with growing waits.
+    private func follow(_ source: RemoteSource) async {
+        var backoff = Backoff()
+        while !Task.isCancelled {
+            guard isOnline, let inbox = await inbox(for: source) else {
+                try? await Task.sleep(for: .seconds(30))
+                continue
+            }
+            let started = Date()
+            var hint: TimeInterval?
+            var attention = false
+            do {
+                hint = try await inbox.follow()
+            } catch {
+                attention = (error as? RemoteError)?.needsAttention ?? false
+            }
+            await refresh(source.id, inbox)
+            let wait = backoff.next(connectedFor: Date().timeIntervalSince(started))
+            // A refused token won't fix itself soon, and a server asking for a wait gets it.
+            try? await Task.sleep(for: .seconds(attention ? 900 : max(wait, hint ?? 0)))
+        }
     }
 
     private func run(_ source: RemoteSource) async {
@@ -197,7 +245,7 @@ final class RemoteController: ObservableObject {
                 }
                 failures = status.lastError == nil ? 0 : failures + 1
                 report(source, status)
-                let delay = status.needsAttention ? 900 : failures > 0 ? min(pow(2, Double(failures)), 300) * .random(in: 0.8...1.2) : source.interval
+                let delay = status.retryAfter ?? (status.needsAttention ? 900 : failures > 0 ? min(pow(2, Double(failures)), 300) * .random(in: 0.8...1.2) : source.interval)
                 try? await Task.sleep(for: .seconds(delay))
             } else {
                 try? await Task.sleep(for: .seconds(failures > 0 ? 60 : source.interval))
@@ -220,24 +268,41 @@ final class RemoteController: ObservableObject {
         }
     }
 
-    private func inbox(for source: RemoteSource) async -> RemoteInbox? {
+    func inbox(for source: RemoteSource) async -> RemoteInbox? {
         if let inbox = inboxes[source.id] { return inbox }
+        if let open = opening[source.id] { return await open.value }
+        let open = Task { await openInbox(for: source) }
+        opening[source.id] = open
+        let inbox = await open.value
+        opening[source.id] = nil
+        return inbox
+    }
+
+    private func openInbox(for source: RemoteSource) async -> RemoteInbox? {
         do {
             let secrets = secrets, id = source.id
-            guard let secret = try await Task.detached(operation: { try secrets.secret(for: id) }).value else {
-                live[id, default: Live()].status.lastError = "Peel Good has no secret key for this source. Remove it and add it again."
-                live[id, default: Live()].status.needsAttention = true
-                return nil
+            let secret = try await Task.detached(operation: { try secrets.secret(for: id) }).value
+            let origin = source.origin, name = source.name, sourceID = id.uuidString
+            let feed: any RemoteFeed
+            switch source.kind {
+            case .s3(let s3):
+                guard let secret else {
+                    live[id, default: Live()].status.lastError = "Peel Good has no secret key for this source. Remove it and add it again."
+                    live[id, default: Live()].status.needsAttention = true
+                    return nil
+                }
+                feed = S3Feed(client: try S3Client(source: s3, secret: secret))
+            case .http(let http):
+                // A dry run prints nothing, so it tells the server nothing either.
+                feed = try HTTPFeed(source: http, token: secret, sendAcknowledgements: !PrintJob.isDryRun)
             }
-            let origin = source.s3.origin, name = source.name, sourceID = id.uuidString
-            let feed = S3Feed(client: try S3Client(source: source.s3, secret: secret))
             let inbox = try RemoteInbox(feed: feed, directory: directory(id)) { [weak self] delivery in
                 await self?.deliver(delivery, origin: origin, source: name, sourceID: sourceID) ?? .notReady("Peel Good is quitting")
             }
             inboxes[id] = inbox
             return inbox
         } catch {
-            live[source.id, default: Live()].status.lastError = "\(error)"
+            live[source.id, default: Live()].status.lastError = RemoteError.describe(error)
             return nil
         }
     }

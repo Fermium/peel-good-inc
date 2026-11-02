@@ -7,22 +7,33 @@ public struct RemoteItem: Equatable, Sendable {
     public var name: String
     public var size: Int
     public var modified: Date
-    /// Copies the sender asked for, within `Limits.copies`; nil leaves it to the rules.
+    /// Copies the sender asked for; nil leaves it to the rules.
     public var copies: Int?
+    /// The file itself, when it came with the message.
+    public var inline: Data?
+    /// The sender's SHA-256 of the file, in hex.
+    public var sha256: String?
 
-    public init(id: String, key: String, name: String, size: Int, modified: Date, copies: Int? = nil) {
+    public init(id: String, key: String, name: String, size: Int, modified: Date, copies: Int? = nil, inline: Data? = nil, sha256: String? = nil) {
         self.id = id
         self.key = key
         self.name = name
         self.size = size
         self.modified = modified
         self.copies = copies
+        self.inline = inline
+        self.sha256 = sha256
     }
 }
 
 /// Where a feed had got to, saved between runs. Nil `watermark`: never checked.
 public struct FeedCursor: Codable, Equatable, Sendable {
     public var watermark: Date?
+    /// HTTP: whether the first check has happened, and the ETag of the last reply.
+    public var started = false
+    public var etag: String?
+    /// The last stream event safely in the ledger.
+    public var lastEventID: String?
     public init(watermark: Date? = nil) { self.watermark = watermark }
 }
 
@@ -35,9 +46,29 @@ public struct FeedPage: Sendable {
     public var cursor: FeedCursor
 }
 
+public enum JobStatus: String, Sendable {
+    case sent, cancelled, failed
+}
+
+public struct StreamEvent: Sendable {
+    public var item: RemoteItem?
+    /// The event's id, to resume from.
+    public var id: String?
+}
+
 public protocol RemoteFeed: Sendable {
     func reconcile(cursor: FeedCursor) async throws -> FeedPage
     func download(_ item: RemoteItem, to file: URL, limit: Int) async throws
+    var sendsAcknowledgements: Bool { get }
+    func acknowledge(id: String, status: JobStatus, labels: Int?, at date: Date) async throws
+    /// Follows the feed's stream until it ends. Returns how long the server asked to wait before reconnecting.
+    func follow(from lastEventID: String?, connected: @Sendable () async -> Void, event: @Sendable (StreamEvent) async -> Void) async throws -> TimeInterval?
+}
+
+extension RemoteFeed {
+    public var sendsAcknowledgements: Bool { false }
+    public func acknowledge(id: String, status: JobStatus, labels: Int?, at date: Date) async throws {}
+    public func follow(from lastEventID: String?, connected: @Sendable () async -> Void, event: @Sendable (StreamEvent) async -> Void) async throws -> TimeInterval? { nil }
 }
 
 /// An S3 prefix: lists it and picks out what's new since the last complete listing. Dates come from

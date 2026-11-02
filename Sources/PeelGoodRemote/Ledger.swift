@@ -28,9 +28,12 @@ public final class Ledger: @unchecked Sendable {
         public var detail: String?
         public var labels: Int?
         public var copies: Int?
+        public var sha256: String?
+        /// The server hasn't heard what became of it yet.
+        public var ackPending: Bool?
 
         public init(id: String, key: String, name: String, size: Int, modified: Date, state: State, at: Date,
-                    detail: String? = nil, labels: Int? = nil, copies: Int? = nil) {
+                    detail: String? = nil, labels: Int? = nil, copies: Int? = nil, sha256: String? = nil) {
             self.id = id
             self.key = key
             self.name = name
@@ -41,6 +44,7 @@ public final class Ledger: @unchecked Sendable {
             self.detail = detail
             self.labels = labels
             self.copies = copies
+            self.sha256 = sha256
         }
 
         public var isDone: Bool { [.sent, .cancelled, .skipped].contains(state) }

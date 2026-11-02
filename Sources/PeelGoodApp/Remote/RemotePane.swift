@@ -38,7 +38,7 @@ struct RemotePane: View {
             if let source = remote.sources.first(where: { $0.id == selection }) {
                 RemoteDetail(remote: remote, source: source).id(source.id)
             } else {
-                Text(remote.sources.isEmpty ? "Add an S3 bucket to get the labels that land in it." : "No source selected")
+                Text(remote.sources.isEmpty ? "Add an S3 bucket or your own server to get labels from it." : "No source selected")
                     .foregroundStyle(.secondary).frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
@@ -56,7 +56,7 @@ struct RemotePane: View {
         if source.isPaused { return "Paused" }
         if !remote.isOnline { return "Offline" }
         let live = remote.live[source.id]
-        if live?.status.lastError != nil { return "Can't connect" }
+        if live?.status.lastError != nil || live?.status.streamError != nil { return "Can't connect" }
         let waiting = live?.entries.filter { [.waiting, .held, .unclear].contains($0.state) }.count ?? 0
         if waiting > 0 { return "\(waiting) need\(waiting == 1 ? "s" : "") you" }
         return live?.status.lastCheck == nil ? "Starting" : "Watching"
@@ -84,19 +84,36 @@ private struct RemoteDetail: View {
     var body: some View {
         Form {
             Section(source.name) {
-                LabeledContent("Bucket", value: source.s3.bucket)
-                if !source.s3.prefix.isEmpty { LabeledContent("Prefix", value: source.s3.prefix) }
-                LabeledContent("Endpoint", value: source.s3.endpoint)
+                switch source.kind {
+                case .s3(let s3):
+                    LabeledContent("Bucket", value: s3.bucket)
+                    if !s3.prefix.isEmpty { LabeledContent("Prefix", value: s3.prefix) }
+                    LabeledContent("Endpoint", value: s3.endpoint)
+                case .http(let http):
+                    if let jobs = http.jobsURL { LabeledContent("Jobs URL", value: jobs) }
+                    if let stream = http.streamURL { LabeledContent("Stream URL", value: stream) }
+                    if !http.downloadHosts.isEmpty { LabeledContent("Downloads from", value: http.downloadHosts.joined(separator: ", ")) }
+                }
                 LabeledContent("Status", value: statusText)
                 if live.status.skippedOnFirstCheck > 0 {
-                    Text("Peel Good started from now, and left the \(live.status.skippedOnFirstCheck) files already there.")
-                        .font(.callout).foregroundStyle(.secondary)
+                    HStack {
+                        Text("Peel Good started from now, and left the \(live.status.skippedOnFirstCheck) files already there.")
+                            .font(.callout).foregroundStyle(.secondary)
+                        if case .http = source.kind {
+                            Spacer()
+                            Button("Print Them") { remote.printSkipped(source: source.id) }
+                        }
+                    }
                 }
-                if let error = live.status.lastError {
+                if let error = live.status.lastError ?? live.status.streamError {
                     Text(error).font(.callout).foregroundStyle(.red)
                 }
+                if case .http(let http) = source.kind, http.jobsURL == nil {
+                    Text("With only a stream, Peel Good can miss labels sent while this Mac is off, unless your server replays them.")
+                        .font(.callout).foregroundStyle(.secondary)
+                }
                 Toggle("Pause", isOn: Binding(get: { source.isPaused }, set: { remote.setPaused($0, source.id) }))
-                Text("Your rules choose the printer, size and copies. Add one with “From a remote source” to print without asking.")
+                Text("Your rules choose the printer and size\(sendsCopies ? ". A job can ask for its own copies" : " and copies"). Add one with “From a remote source” to print without asking.")
                     .font(.callout).foregroundStyle(.secondary)
                 HStack {
                     Spacer()
@@ -124,6 +141,8 @@ private struct RemoteDetail: View {
         .formStyle(.grouped)
     }
 
+    private var sendsCopies: Bool { if case .http = source.kind { true } else { false } }
+
     private static let time: DateFormatter = {
         let f = DateFormatter()
         f.dateStyle = .none
@@ -134,7 +153,8 @@ private struct RemoteDetail: View {
     private var statusText: String {
         if source.isPaused { return "Paused" }
         if !remote.isOnline { return "Offline" }
-        if live.status.lastError != nil { return "Can't connect" }
+        if live.status.lastError != nil || live.status.streamError != nil { return "Can't connect" }
+        if live.status.isStreaming { return "Connected to the stream" }
         guard let last = live.status.lastCheck else { return "Starting" }
         return "Checked \(Self.time.string(from: last)), every \(Int(source.interval)) s"
     }
@@ -175,8 +195,15 @@ private enum RemoteProvider: String, CaseIterable, Identifiable {
 }
 
 struct AddRemoteSheet: View {
+    enum Kind: String, CaseIterable, Identifiable {
+        case bucket = "S3 Bucket", server = "Your Server"
+        var id: String { rawValue }
+    }
+
     @ObservedObject var remote: RemoteController
+    var initialKind = Kind.bucket
     let done: (UUID?) -> Void
+    @State private var kind: Kind?
     @State private var provider = RemoteProvider.aws
     @State private var name = ""
     @State private var region = "us-east-1"
@@ -185,35 +212,69 @@ struct AddRemoteSheet: View {
     @State private var prefix = ""
     @State private var accessKey = ""
     @State private var secret = ""
+    @State private var jobsURL = ""
+    @State private var streamURL = ""
+    @State private var downloadHosts = ""
+    @State private var acknowledges = false
     @State private var message: String?
     @State private var busy = false
 
-    private var source: S3Source {
-        let r = provider == .r2 ? "auto" : region
-        return S3Source(endpoint: provider.endpoint(region: r, account: account.trimmingCharacters(in: .whitespaces)), region: r,
-                        bucket: bucket.trimmingCharacters(in: .whitespaces), prefix: prefix.trimmingCharacters(in: .whitespaces),
-                        accessKey: accessKey.trimmingCharacters(in: .whitespaces), pathStyle: provider != .aws)
+    private var current: Kind { kind ?? initialKind }
+
+    private var source: RemoteSource.Kind {
+        switch current {
+        case .bucket:
+            let r = provider == .r2 ? "auto" : region
+            return .s3(S3Source(endpoint: provider.endpoint(region: r, account: account.trimmingCharacters(in: .whitespaces)), region: r,
+                                bucket: bucket.trimmingCharacters(in: .whitespaces), prefix: prefix.trimmingCharacters(in: .whitespaces),
+                                accessKey: accessKey.trimmingCharacters(in: .whitespaces), pathStyle: provider != .aws))
+        case .server:
+            func clean(_ s: String) -> String? { let t = s.trimmingCharacters(in: .whitespaces); return t.isEmpty ? nil : t }
+            return .http(HTTPSource(jobsURL: clean(jobsURL), streamURL: clean(streamURL),
+                                    downloadHosts: downloadHosts.split(separator: ",").map(String.init), sendsAcknowledgements: acknowledges))
+        }
     }
 
     private var isComplete: Bool {
-        !bucket.isEmpty && !accessKey.isEmpty && !secret.isEmpty && (provider == .aws || provider == .b2 ? !region.isEmpty : !account.isEmpty)
+        switch current {
+        case .bucket: !bucket.isEmpty && !accessKey.isEmpty && !secret.isEmpty && (provider == .aws || provider == .b2 ? !region.isEmpty : !account.isEmpty)
+        case .server: !jobsURL.isEmpty || !streamURL.isEmpty
+        }
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Add S3 Bucket").font(.headline)
-            Text("Peel Good checks the bucket every 30 seconds for new labels. It needs permission to list and read only. It connects out from this Mac, and nothing connects in.")
+            Text("Add Remote Source").font(.headline)
+            Picker("", selection: Binding(get: { current }, set: { kind = $0; message = nil })) {
+                ForEach(Kind.allCases) { Text($0.rawValue).tag($0) }
+            }
+            .pickerStyle(.segmented).labelsHidden()
+            Text(current == .bucket
+                 ? "Peel Good checks the bucket every 30 seconds for new labels. It needs permission to list and read only. It connects out from this Mac, and nothing connects in."
+                 : "Peel Good checks your jobs URL every 30 seconds, follows your event stream, or both. It connects out from this Mac, and nothing connects in.")
                 .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             Form {
-                Picker("Service", selection: $provider) { ForEach(RemoteProvider.allCases) { Text($0.rawValue).tag($0) } }
                 TextField("Name", text: $name, prompt: Text("Orders"))
-                if provider == .r2 { TextField("Account ID", text: $account) }
-                if provider == .other { TextField("Endpoint", text: $account, prompt: Text("https://s3.example.com")) }
-                if provider == .aws || provider == .b2 || provider == .other { TextField("Region", text: $region) }
-                TextField("Bucket", text: $bucket)
-                TextField("Prefix", text: $prefix, prompt: Text("Optional, such as labels/"))
-                TextField("Access key", text: $accessKey)
-                SecureField("Secret key", text: $secret)
+                if current == .bucket {
+                    Picker("Service", selection: $provider) { ForEach(RemoteProvider.allCases) { Text($0.rawValue).tag($0) } }
+                    if provider == .r2 { TextField("Account ID", text: $account) }
+                    if provider == .other { TextField("Endpoint", text: $account, prompt: Text("https://s3.example.com")) }
+                    if provider != .r2 { TextField("Region", text: $region) }
+                    TextField("Bucket", text: $bucket)
+                    TextField("Prefix", text: $prefix, prompt: Text("Optional, such as labels/"))
+                    TextField("Access key", text: $accessKey)
+                    SecureField("Secret key", text: $secret)
+                } else {
+                    TextField("Jobs URL", text: $jobsURL, prompt: Text("https://example.com/labels/jobs"))
+                    TextField("Stream URL", text: $streamURL, prompt: Text("Optional, https://example.com/labels/events"))
+                    SecureField("Token", text: $secret, prompt: Text("Optional bearer token"))
+                    TextField("Download hosts", text: $downloadHosts, prompt: Text("Optional, other hosts files come from"))
+                    Toggle("Tell the server what printed", isOn: $acknowledges)
+                }
+            }
+            if current == .server, jobsURL.isEmpty, !streamURL.isEmpty {
+                Text("With only a stream, Peel Good can miss labels sent while this Mac is off, unless your server replays them.")
+                    .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
             if let message { Text(message).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
             HStack {
@@ -225,7 +286,7 @@ struct AddRemoteSheet: View {
             }
         }
         .padding(20)
-        .frame(width: 460)
+        .frame(width: 480)
     }
 
     private func test() {
@@ -238,13 +299,14 @@ struct AddRemoteSheet: View {
 
     private func add() {
         busy = true
-        let new = RemoteSource(name: name.isEmpty ? bucket : name, s3: source)
+        let fallback = current == .bucket ? bucket : URLComponents(string: jobsURL.isEmpty ? streamURL : jobsURL)?.host ?? "Server"
+        let new = RemoteSource(name: name.isEmpty ? fallback : name, kind: source)
         Task {
             do {
                 try await remote.add(new, secret: secret)
                 done(new.id)
             } catch {
-                message = "\(error)"
+                message = RemoteError.describe(error)
             }
             busy = false
         }

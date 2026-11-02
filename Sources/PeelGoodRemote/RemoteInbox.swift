@@ -1,4 +1,5 @@
 import CoreGraphics
+import CryptoKit
 import Foundation
 import PeelGoodShared
 
@@ -41,6 +42,11 @@ public actor RemoteInbox {
         public var needsAttention = false
         public var skippedOnFirstCheck = 0
         public var shouldPause = false
+        /// The server asked to wait this long before the next check.
+        public var retryAfter: TimeInterval?
+        public var isStreaming = false
+        public var streamError: String?
+        public var streamNeedsAttention = false
         public init() {}
     }
 
@@ -87,16 +93,101 @@ public actor RemoteInbox {
             for item in page.items where ledger[item.id] == nil {
                 try ledger.record(entry(item, .new))
             }
-            cursor = page.cursor
+            // A stream may have moved on during this check.
+            var next = page.cursor
+            next.lastEventID = cursor.lastEventID
+            cursor = next
             try JSONEncoder().encode(cursor).write(to: cursorFile, options: .atomic)
             if page.skippedCount > 0 { status.skippedOnFirstCheck = page.skippedCount }
             status.lastCheck = now()
             status.lastError = nil
             status.needsAttention = false
+            status.retryAfter = nil
             await drain(page.items)
+            await sendAcknowledgements()
+        } catch RemoteError.tryLater(let seconds) {
+            status.retryAfter = seconds
         } catch {
-            status.lastError = "\(error)"
+            // Pausing or waking cancels a check in progress, which isn't a failure.
+            guard !Task.isCancelled else { return }
+            status.lastError = RemoteError.describe(error)
             status.needsAttention = (error as? RemoteError)?.needsAttention ?? false
+        }
+    }
+
+    /// Follows the feed's stream until it ends, and checks at each connect for anything sent while away.
+    /// Returns how long the server asked to wait before reconnecting.
+    public func follow() async throws -> TimeInterval? {
+        defer { status.isStreaming = false }
+        do {
+            let retry = try await feed.follow(from: cursor.lastEventID, connected: { [self] in
+                await streamConnected()
+            }, event: { [self] event in
+                await receive(event)
+            })
+            return retry
+        } catch {
+            guard !Task.isCancelled else { return nil }
+            status.streamError = RemoteError.describe(error)
+            status.streamNeedsAttention = (error as? RemoteError)?.needsAttention ?? false
+            throw error
+        }
+    }
+
+    private func streamConnected() async {
+        status.isStreaming = true
+        status.streamError = nil
+        status.streamNeedsAttention = false
+        await check()
+    }
+
+    func receive(_ event: StreamEvent) async {
+        do {
+            if let item = event.item, ledger[item.id] == nil { try ledger.record(entry(item, .new)) }
+            // Only once it's in the ledger: reconnecting from here can't lose it.
+            if let id = event.id {
+                cursor.lastEventID = id
+                try JSONEncoder().encode(cursor).write(to: cursorFile, options: .atomic)
+            }
+            await drain(event.item.map { [$0] } ?? [])
+            await sendAcknowledgements()
+        } catch {
+            status.lastError = RemoteError.describe(error)
+        }
+    }
+
+    /// Prints what the first check left alone, for a source you've just added and do want the backlog of.
+    public func printSkipped() async {
+        for var e in ledger.all where e.state == .skipped {
+            e.state = .new
+            e.at = now()
+            try? ledger.record(e)
+        }
+        status.skippedOnFirstCheck = 0
+        await drain([])
+    }
+
+    private func sendAcknowledgements() async {
+        guard feed.sendsAcknowledgements else { return }
+        for var e in ledger.all where e.ackPending == true {
+            guard let job = Self.jobStatus(e.state) else { continue }
+            do {
+                try await feed.acknowledge(id: e.id, status: job, labels: e.labels, at: e.at)
+                e.ackPending = false
+                try ledger.record(e)
+            } catch {
+                // Still pending: the next check tries again. It never reprints.
+                return
+            }
+        }
+    }
+
+    private static func jobStatus(_ state: Ledger.State) -> JobStatus? {
+        switch state {
+        case .sent: .sent
+        case .cancelled: .cancelled
+        case .failed: .failed
+        default: nil
         }
     }
 
@@ -112,14 +203,16 @@ public actor RemoteInbox {
         await send(e, forced: true)
     }
 
-    public func markPrinted(_ id: String) {
+    public func markPrinted(_ id: String) async {
         update(id, .sent, detail: "Marked as printed")
         removeSpool(id)
+        await sendAcknowledgements()
     }
 
-    public func discard(_ id: String) {
+    public func discard(_ id: String) async {
         update(id, .cancelled, detail: nil)
         removeSpool(id)
+        await sendAcknowledgements()
     }
 
     // MARK: Working through items
@@ -147,6 +240,10 @@ public actor RemoteInbox {
             }
             guard let pages = checked(e) else { continue }
             let copies = e.copies ?? 1
+            if !RemoteLimits.copies.contains(copies) {
+                update(e.id, .held, detail: "It asks for \(copies) copies")
+                continue
+            }
             if pages > RemoteLimits.pagesPerDocument {
                 update(e.id, .held, detail: "It has \(pages) pages")
                 continue
@@ -172,6 +269,7 @@ public actor RemoteInbox {
             e.labels = labels
             e.at = now()
             e.detail = nil
+            e.ackPending = feed.sendsAcknowledgements ? true : nil
             try? ledger.record(e)
             removeSpool(entry.id)
         case .waiting:
@@ -191,7 +289,7 @@ public actor RemoteInbox {
     private func download(_ entry: Ledger.Entry, fresh: [RemoteItem]) async -> Ledger.Entry? {
         update(entry.id, .downloading, detail: nil)
         let item = fresh.first { $0.id == entry.id }
-            ?? RemoteItem(id: entry.id, key: entry.key, name: entry.name, size: entry.size, modified: entry.modified, copies: entry.copies)
+            ?? RemoteItem(id: entry.id, key: entry.key, name: entry.name, size: entry.size, modified: entry.modified, copies: entry.copies, sha256: entry.sha256)
         guard item.size <= RemoteLimits.fileBytes else {
             update(entry.id, .failed, detail: "\(RemoteError.tooLarge(limit: RemoteLimits.fileBytes))")
             return nil
@@ -199,6 +297,7 @@ public actor RemoteInbox {
         let part = spool.appendingPathComponent("\(Self.fileStem(entry.id)).part")
         do {
             try await feed.download(item, to: part, limit: RemoteLimits.fileBytes)
+            if let expected = item.sha256?.lowercased(), Self.sha256(part) != expected { throw RemoteError.checksumMismatch }
             guard let kind = FileKindSniffer.kind(of: part) else {
                 try? FileManager.default.removeItem(at: part)
                 update(entry.id, .failed, detail: "It isn't a PDF, PNG or JPEG")
@@ -212,14 +311,12 @@ public actor RemoteInbox {
             try FileManager.default.moveItem(at: part, to: target)
             e.state = .ready
             e.at = now()
-            e.copies = item.copies
             try ledger.record(e)
             return e
         } catch {
             try? FileManager.default.removeItem(at: part)
-            let tooLarge = (error as? RemoteError).map { if case .tooLarge = $0 { true } else { false } } ?? false
-            // A passing failure goes back to the start, for the next check. Too large never improves.
-            update(entry.id, tooLarge ? .failed : .new, detail: "\(error)")
+            // A passing failure goes back to the start, for the next check.
+            update(entry.id, (error as? RemoteError)?.isPermanentForFile == true ? .failed : .new, detail: RemoteError.describe(error))
             return nil
         }
     }
@@ -243,7 +340,7 @@ public actor RemoteInbox {
     // MARK: Records
 
     private func entry(_ item: RemoteItem, _ state: Ledger.State) -> Ledger.Entry {
-        Ledger.Entry(id: item.id, key: item.key, name: item.name, size: item.size, modified: item.modified, state: state, at: now(), copies: item.copies)
+        Ledger.Entry(id: item.id, key: item.key, name: item.name, size: item.size, modified: item.modified, state: state, at: now(), copies: item.copies, sha256: item.sha256)
     }
 
     private func update(_ id: String, _ state: Ledger.State, detail: String?) {
@@ -251,7 +348,13 @@ public actor RemoteInbox {
         e.state = state
         e.at = now()
         e.detail = detail
+        if Self.jobStatus(state) != nil, feed.sendsAcknowledgements { e.ackPending = true }
         try? ledger.record(e)
+    }
+
+    private static func sha256(_ file: URL) -> String? {
+        guard let data = try? Data(contentsOf: file) else { return nil }
+        return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 
     /// In a folder of its own, so the name the rules see stays the sender's.
@@ -273,7 +376,11 @@ enum FileKindSniffer {
     static func kind(of file: URL) -> String? {
         guard let handle = try? FileHandle(forReadingFrom: file) else { return nil }
         defer { try? handle.close() }
-        let head = [UInt8]((try? handle.read(upToCount: 8)) ?? Data())
+        return kind(of: (try? handle.read(upToCount: 8)) ?? Data())
+    }
+
+    static func kind(of data: Data) -> String? {
+        let head = [UInt8](data.prefix(8))
         if head.starts(with: Array("%PDF-".utf8)) { return "pdf" }
         if head.starts(with: [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]) { return "png" }
         if head.starts(with: [0xFF, 0xD8, 0xFF]) { return "jpg" }
