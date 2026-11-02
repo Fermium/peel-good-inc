@@ -9,7 +9,11 @@ private final class Printer: @unchecked Sendable {
     private var _got: [Delivery] = []
     var got: [Delivery] { lock.withLock { _got } }
     var names: [String] { got.map(\.name) }
-    func deliver(_ d: Delivery) -> DeliveryResult { lock.withLock { _got.append(d) }; return .sent(labels: d.copies ?? 1) }
+    func deliver(_ d: Delivery) -> DeliveryResult {
+        guard d.fits(copies: d.copies ?? 1) else { return .overLimit }
+        lock.withLock { _got.append(d) }
+        return .sent(labels: d.copies ?? 1)
+    }
 }
 
 private func json(_ o: Any) -> Data { try! JSONSerialization.data(withJSONObject: o) }
@@ -60,17 +64,6 @@ private func until(_ what: @Sendable () async -> Bool) async throws {
     #expect(printer.names == ["order 1459.pdf"])
     #expect(printer.got[0].copies == 3)
     #expect(server.requests.first?.headers["authorization"] == "Bearer TOKEN")
-    server.stop()
-}
-
-@Test func thePrintThemButtonPrintsTheBacklog() async throws {
-    let (server, printer, inbox, _) = try await rig()
-    let base = server.base
-    server.handle { r in r.path == "/jobs" ? .full(200, [:], json(["jobs": [["id": "a", "url": "\(base)/a.pdf"], ["id": "b", "url": "\(base)/b.pdf"]]])) : .full(200, [:], pdf) }
-    await inbox.check()
-    await inbox.printSkipped()
-    #expect(printer.names.sorted() == ["a.pdf", "b.pdf"])
-    #expect(await inbox.status.skippedOnFirstCheck == 0)
     server.stop()
 }
 
@@ -126,7 +119,7 @@ private func until(_ what: @Sendable () async -> Bool) async throws {
     server.stop()
 }
 
-@Test func copiesOutOfRangeAreHeld() async throws {
+@Test func copiesOutOfRangeAreInvalidAndOverTheLimitAreHeld() async throws {
     let (server, printer, inbox, _) = try await rig()
     let base = server.base
     server.handle { _ in .full(200, [:], json(["jobs": []])) }
@@ -140,8 +133,10 @@ private func until(_ what: @Sendable () async -> Bool) async throws {
     }
     await inbox.check()
     #expect(printer.got.isEmpty)
-    let held = await inbox.entries.filter { $0.state == .held }.map(\.id).sorted()
-    #expect(held == ["big", "many", "none"], "a sender can't spend the rate limit in one job")
+    #expect(await inbox.status.rejectedJobs == 2)
+    #expect(await inbox.entries.filter { $0.state == .held }.map(\.id) == ["big"], "a sender can't spend the rate limit in one job")
+    await inbox.printNow("big")
+    #expect(printer.got.count == 1, "a person can let it through")
     server.stop()
 }
 
@@ -193,6 +188,29 @@ private func until(_ what: @Sendable () async -> Bool) async throws {
     #expect(!RemoteError.describe(error).contains("SECRET"))
 }
 
+@Test func idsUseTheDocumentedCharacters() async throws {
+    #expect(RemoteJob.isValidID("Order-1459_v2.0"))
+    #expect(RemoteJob.isValidID(String(repeating: "a", count: 256)))
+    for bad in ["", String(repeating: "a", count: 257), "order 1", "order/1", "a#b", "é", "../x", "a\nb"] { #expect(!RemoteJob.isValidID(bad), "\(bad)") }
+
+    let (server, printer, inbox, _) = try await rig(stream: true)
+    let base = server.base
+    server.handle { _ in .full(200, [:], json(["jobs": []])) }
+    await inbox.check()
+    #expect(await inbox.status.rejectedJobs == 0)
+    server.handle { r in
+        r.path == "/jobs" ? .full(200, [:], json(["jobs": [
+            ["id": "good.1", "url": "\(base)/f.pdf"],
+            ["id": "bad id", "url": "\(base)/f.pdf"],
+            ["id": "no-file"],
+        ]])) : .full(200, [:], pdf)
+    }
+    await inbox.check()
+    #expect(printer.names == ["f.pdf"], "the valid one still prints")
+    #expect(await inbox.status.rejectedJobs == 2, "and Settings hears about the others")
+    server.stop()
+}
+
 // MARK: Acknowledgements
 
 @Test func theServerHearsWhatBecameOfEachJob() async throws {
@@ -202,18 +220,18 @@ private func until(_ what: @Sendable () async -> Bool) async throws {
     await inbox.check()
     server.handle { r in
         if r.method == "POST" { return .full(503, [:], Data()) }
-        return r.path == "/jobs" ? .full(200, [:], json(["jobs": [["id": "order/1", "url": "\(base)/f.pdf", "copies": 2]]])) : .full(200, [:], pdf)
+        return r.path == "/jobs" ? .full(200, [:], json(["jobs": [["id": "order-1", "url": "\(base)/f.pdf", "copies": 2]]])) : .full(200, [:], pdf)
     }
     await inbox.check()
     #expect(printer.got.count == 1)
     server.handle { r in
         if r.method == "POST" { return .full(200, [:], Data()) }
-        return r.path == "/jobs" ? .full(200, [:], json(["jobs": [["id": "order/1", "url": "\(base)/f.pdf", "copies": 2]]])) : .full(200, [:], pdf)
+        return r.path == "/jobs" ? .full(200, [:], json(["jobs": [["id": "order-1", "url": "\(base)/f.pdf", "copies": 2]]])) : .full(200, [:], pdf)
     }
     await inbox.check()
     #expect(printer.got.count == 1, "a retry of the message, never of the print")
     let posts = server.requests.filter { $0.method == "POST" }
-    #expect(posts.last?.path == "/jobs/order%2F1/ack")
+    #expect(posts.last?.path == "/jobs/order-1/ack")
     let body = try #require(posts.last.flatMap { try? JSONSerialization.jsonObject(with: $0.body) as? [String: Any] })
     #expect(body["status"] as? String == "sent")
     #expect(body["labels"] as? Int == 2)
@@ -238,25 +256,22 @@ private func until(_ what: @Sendable () async -> Bool) async throws {
 
 // MARK: Streams
 
-@Test func parsesTheEventStreamFormat() throws {
-    func parse(_ text: String) throws -> ([SSEParser.Message], SSEParser) {
-        var parser = SSEParser(), out: [SSEParser.Message] = []
-        for byte in text.utf8 { if let m = try parser.feed(byte) { out.append(m) } }
-        return (out, parser)
+@Test func parsesTheEventStreamFormat() {
+    func parse(_ text: String) -> [SSEParser.Message] {
+        var parser = SSEParser()
+        return text.utf8.compactMap { parser.feed($0) }
     }
-    var (m, p) = try parse("\u{FEFF}event: label\nid: 7\ndata: one\ndata: two\n\n")
-    #expect(m == [.init(event: "label", data: "one\ntwo", id: "7")])
-    (m, p) = try parse(": keepalive\r\n\r\nevent:label\r\ndata:x\r\n\r\ndata: y\r\rretry: 5000\n")
-    #expect(m == [.init(event: "label", data: "x", id: nil), .init(event: "message", data: "y", id: nil)])
-    #expect(p.retry == 5)
-    (m, p) = try parse("id: bad\u{0}id\ndata: z\n\nretry: nope\n")
-    #expect(m[0].id == nil, "an id with NUL is ignored")
-    #expect(p.retry == nil)
-    (_, p) = try parse("retry: 1\nretry: 99999999\n")
-    #expect(p.retry == 300, "clamped")
-    (m, _) = try parse("event: label\n\n")
-    #expect(m.isEmpty, "no data, no event")
-    #expect(throws: RemoteError.self) { try parse("data: " + String(repeating: "x", count: RemoteLimits.eventBytes + 1)) }
+    #expect(parse("\u{FEFF}event: label\nid: 7\ndata: one\ndata: two\n\n") == [.init(event: "label", data: "one\ntwo", id: "7")])
+    #expect(parse(": keepalive\r\n\r\nevent:label\r\ndata:x\r\n\r\ndata: y\r\r") == [.init(event: "label", data: "x", id: nil), .init(event: "message", data: "y", id: nil)])
+    #expect(parse("id: bad\u{0}id\ndata: z\n\n")[0].id == nil, "an id with NUL is ignored")
+    #expect(parse("event: label\n\n").isEmpty, "no data, no event")
+}
+
+@Test func anOversizedEventDoesntJamTheStream() {
+    var parser = SSEParser()
+    let huge = "event: label\nid: 8\ndata: " + String(repeating: "x", count: RemoteLimits.eventBytes + 1) + "\ndata: more\n\nevent: label\nid: 9\ndata: {}\n\n"
+    let out = huge.utf8.compactMap { parser.feed($0) }
+    #expect(out == [.init(event: "label", data: "", id: "8"), .init(event: "label", data: "{}", id: "9")], "it counts as a bad job, its id moves the cursor on, and the next event arrives")
 }
 
 @Test func backoffDoublesAndResets() {
@@ -355,4 +370,102 @@ private func until(_ what: @Sendable () async -> Bool) async throws {
     #expect(server.requests.allSatisfy { $0.method == "GET" })
     #expect(await inbox.entries.isEmpty)
     server.stop()
+}
+
+// MARK: Hostile headers
+
+@Test func aBadRetryAfterCantBreakTheWait() async throws {
+    let (server, _, inbox, _) = try await rig()
+    for value in ["nan", "inf", "-5", "soon", "1e308"] {
+        server.handle { _ in .full(429, ["Retry-After": value], Data()) }
+        await inbox.check()
+        let wait = try #require(await inbox.status.retryAfter)
+        #expect(wait.isFinite && (1...3600).contains(wait), "\(value) gave \(wait)")
+    }
+    server.stop()
+}
+
+@Test func cookiesAreIgnored() async throws {
+    let (server, _, inbox, _) = try await rig()
+    server.handle { _ in .full(200, ["Set-Cookie": "tracker=1"], json(["jobs": []])) }
+    await inbox.check()
+    await inbox.check()
+    #expect(server.requests.count == 2)
+    #expect(server.requests.allSatisfy { $0.headers["cookie"] == nil })
+    server.stop()
+}
+
+@Test func oversizedEtagsAndEventIDsArentKept() async throws {
+    let (server, _, inbox, _) = try await rig()
+    let huge = "\"" + String(repeating: "x", count: 5000) + "\""
+    server.handle { _ in .full(200, ["ETag": huge], json(["jobs": []])) }
+    await inbox.check()
+    await inbox.check()
+    #expect(server.requests.last?.headers["if-none-match"] == nil)
+    server.stop()
+
+    var parser = SSEParser(), out: [SSEParser.Message] = []
+    for byte in ("id: " + String(repeating: "y", count: 2000) + "\ndata: z\n\n").utf8 { if let m = parser.feed(byte) { out.append(m) } }
+    #expect(out.first?.id == nil)
+}
+
+// MARK: From the cross-check
+
+@Test func anInlineJobSurvivesAStuckPrinterAndARestart() async throws {
+    let server = FakeHTTP()
+    try await server.start()
+    let source = HTTPSource(jobsURL: "\(server.base)/jobs")
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent("inline-\(UUID().uuidString)", isDirectory: true)
+    let list: @Sendable ([String]) -> Data = { ids in json(["jobs": ids.map { ["id": $0, "content_base64": pdf.base64EncodedString(), "name": "\($0).pdf"] }]) }
+    final class Answer: @unchecked Sendable { let lock = NSLock(); var ready = false; var got: [String] = [] }
+    let answer = Answer()
+    let deliver: @Sendable (Delivery) async -> DeliveryResult = { d in
+        answer.lock.withLock {
+            answer.got.append(d.name)
+            return answer.ready ? .sent(labels: 1) : .notReady("out of labels")
+        }
+    }
+    let first = try RemoteInbox(feed: try HTTPFeed(source: source, token: nil), directory: dir, deliver: deliver)
+    server.handle { _ in .full(200, [:], list([])) }
+    await first.check()
+    server.handle { _ in .full(200, [:], list(["a", "b"])) }
+    await first.check()
+    // The URL moves on, and the app restarts. The bytes only ever came in that one reply.
+    server.handle { _ in .full(200, [:], list([])) }
+    answer.lock.withLock { answer.ready = true }
+    let second = try RemoteInbox(feed: try HTTPFeed(source: source, token: nil), directory: dir, deliver: deliver)
+    await second.check()
+    #expect(answer.lock.withLock { answer.got.filter { $0 == "b.pdf" }.count } == 1)
+    #expect(await second.entries.allSatisfy { $0.state == .sent })
+    server.stop()
+}
+
+@Test func aRetryAfterDoesntOutliveTheNextReply() async throws {
+    let (server, _, inbox, _) = try await rig()
+    server.handle { _ in .full(429, ["Retry-After": "120"], Data()) }
+    await inbox.check()
+    #expect(await inbox.status.retryAfter == 120)
+    server.handle { _ in .full(401, [:], Data()) }
+    await inbox.check()
+    #expect(await inbox.status.retryAfter == nil)
+    #expect(await inbox.status.needsAttention)
+    server.handle { _ in .full(429, ["Retry-After": "5"], Data()) }
+    await inbox.check()
+    #expect(await inbox.status.lastError == nil, "being asked to wait isn't an error")
+    server.stop()
+}
+
+@Test func aStreamHonoursRetryAfter() async throws {
+    let (server, _, inbox, _) = try await rig(stream: true, jobs: false)
+    server.handle { _ in .full(503, ["Retry-After": "90"], Data()) }
+    let wait = try await inbox.follow()
+    #expect(wait == 90)
+    #expect(await inbox.status.streamError == nil)
+    server.stop()
+}
+
+@Test func aStreamOnAnotherHostIsExplained() {
+    for stream in ["https://b.example/events", "https://a.example:8443/events"] {
+        #expect(throws: RemoteError.streamOnAnotherHost) { try HTTPFeed(source: HTTPSource(jobsURL: "https://a.example/jobs", streamURL: stream), token: nil) }
+    }
 }

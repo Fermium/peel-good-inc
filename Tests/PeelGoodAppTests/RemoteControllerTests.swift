@@ -82,6 +82,14 @@ final class RemoteControllerTests: XCTestCase {
         remote.setPaused(false, source.id)
         try await waitFor { remote.live[source.id]?.entries.contains { $0.key == "out/second.pdf" } == true }
 
+        // Editing keeps the history, and a blank key keeps the saved one.
+        var renamed = remote.sources[0]
+        renamed.name = "Renamed"
+        try await remote.update(renamed, secret: "")
+        XCTAssertEqual(secrets.values[source.id], "SECRET")
+        try await waitFor { remote.live[source.id]?.entries.contains { $0.name == "order 1459.pdf" && $0.state == .sent } == true }
+        XCTAssertEqual(sent.all.filter { $0.contains("order 1459") }.count, 1, "editing doesn't reprint")
+
         remote.remove(source.id)
         try await waitFor { secrets.values[source.id] == nil }
         XCTAssertFalse(FileManager.default.fileExists(atPath: AppPaths.remote.appendingPathComponent(source.id.uuidString).path))
@@ -105,7 +113,7 @@ final class RemoteControllerTests: XCTestCase {
         let remote = RemoteController(secrets: Secrets())
         remote.sender = { file, _, _, n in sent.add(file.lastPathComponent); copies.add("\(n)"); return "test-1" }
         remote.start(store: store)
-        let source = RemoteSource(name: "Server", kind: .http(HTTPSource(streamURL: "\(server.base)/events")))
+        let source = RemoteSource(name: "Stream", kind: .http(HTTPSource(streamURL: "\(server.base)/events")))
         try await remote.add(source, secret: nil)
         try await waitFor { server.openStreams == 1 }
         try await waitFor { remote.live[source.id]?.status.isStreaming == true || server.openStreams == 1 }

@@ -48,7 +48,7 @@ A small, simple, delightful Mac menu bar app that prints your labels instantly. 
 
 A rule is one sentence: when a file matches these conditions, print it on this printer at this size. Rules are checked from the top; the first match wins. Anything else goes to the default printer.
 
-Conditions: source website, file name, file type, folder, origin (drop, clipboard, Finder, watched folder, the Peel Good Inc. printer, another app), page size, number of pages, codes on the page, code text.
+Conditions: source website, file name, file type, folder, origin (drop, clipboard, Finder, watched folder, remote source, the Peel Good Inc. printer, another app), page size, number of pages, codes on the page, code text.
 
 A rule sets the printer, label size, scaling, ink, copies, whether to print, preview or ask first, and a Finder tag after printing.
 
@@ -96,15 +96,24 @@ Needs macOS 15 or later. Tested on a MUNBYN ITPP941AP; it should work with any l
 
 Keep in mind that CUPS drivers for thermal printers are utterly broken on the Mac.
 
-## Remote labels
+## Remote print jobs
 
-Labels can also come from an S3 bucket (Amazon S3, Cloudflare R2, Backblaze B2 or MinIO) or from [your own server](docs/REMOTE-SOURCES.md), by polling or over Server-Sent Events. Every connection goes out from your Mac, so nothing is exposed and no port opens. New labels ask first, until you add a rule with "From a remote source". If a print is interrupted, the label waits for you instead of printing twice.
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/settings-remote-orders-dark.png">
+    <img src="docs/screenshots/settings-remote-orders-light.png" width="560" alt="Remote settings: watched sources, status, and print jobs waiting for review">
+  </picture>
+</p>
+
+Peel Good pulls print jobs from HTTPS feeds, Server-Sent Events streams, and S3-compatible object stores (Amazon S3, Cloudflare R2, Backblaze B2, MinIO). Every connection goes outbound from your Mac; nothing listens on the public internet, and no incoming firewall ports need opening.
+
+Incoming jobs go through your rules, and Peel Good asks first until a rule says Print. It never prints a job twice by itself: if a print is interrupted, the label waits for you. [Full guide](docs/REMOTE-SOURCES.md).
 
 ## Privacy
 
-No ads, no tracking, no analytics. Your labels stay on your Mac. The exception is a remote source you add: it can see your Mac's IP address and when it checks, and if you turn on "Tell the server what printed", your server hears whether each job printed.
+No ads, no tracking, no analytics. Your labels stay on your Mac. A remote source you add, and any download host you list, can see your Mac's IP address and when Peel Good connects. If you turn on "Report each job's result to this URL", Peel Good posts each job's ID, outcome, label count and time to an address under that URL.
 
-The HTTP API and MCP server are off by default and, when on, only accept token-authenticated connections from your own Mac.
+The HTTP API and MCP server are off by default. When on, they accept connections only from your own Mac, and require the token for everything except the docs page and OpenAPI file.
 
 ## HTTP API and MCP
 

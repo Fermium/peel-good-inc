@@ -123,6 +123,16 @@ final class JobFlowTests: XCTestCase {
         result = await RemoteController.deliver(delivery, origin: "https://s3.example.com/labels/", store: store, engine: printing, sender: sender)
         XCTAssertEqual(result, .sent(labels: 2))
         XCTAssertEqual(sent.all.count, 2)
+
+        // The limit counts the copies a rule sets, not only the ones a job asks for.
+        var fifty = rule
+        fifty.outcome.copies = 50
+        let many = RuleEngine(fileURL: nil)
+        many.add(fifty)
+        let limited = Delivery(id: "b", name: "b.pdf", file: file, copies: nil, forced: false, pages: 2, labelsLeft: 30)
+        result = await RemoteController.deliver(limited, origin: "https://s3.example.com/labels/", store: store, engine: many, sender: sender)
+        XCTAssertEqual(result, .overLimit)
+        XCTAssertEqual(sent.all.count, 2, "nothing went out")
     }
 
     func testCancelInThePopover() async throws {

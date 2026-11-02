@@ -59,7 +59,7 @@ final class RemoteController: ObservableObject {
             entry("order 1459.pdf", .sent, 4, labels: 2),
             entry("order 1460.pdf", .failed, 3, detail: "USB printer stopped after 2048 of 3470 bytes because it's out of labels. Check what printed before you print again"),
             entry("order 1461.pdf", .unclear, 2, detail: "Peel Good stopped while this was printing. It may have printed."),
-            entry("packing list.pdf", .held, 1, detail: "It has 24 pages"),
+            entry("packing list.pdf", .held, 1, detail: "This would pass 30 labels in 10 minutes."),
             entry("order 1462.pdf", .waiting, 0),
         ])
         var failing = RemoteInbox.Status()
@@ -69,7 +69,7 @@ final class RemoteController: ObservableObject {
         var stream = RemoteInbox.Status()
         stream.isStreaming = true
         stream.lastCheck = now
-        let server = RemoteSource(name: "Shop server", kind: .http(HTTPSource(jobsURL: "https://shop.example.com/labels/jobs", streamURL: "https://shop.example.com/labels/events", downloadHosts: ["files.example.net"], sendsAcknowledgements: true)))
+        let server = RemoteSource(name: "Shop labels", kind: .http(HTTPSource(jobsURL: "https://shop.example.com/labels/jobs", streamURL: "https://shop.example.com/labels/events", downloadHosts: ["files.example.net"], sendsAcknowledgements: true)))
         remote.sources.append(server)
         remote.live[server.id] = Live(status: stream, entries: [entry("order 88.pdf", .sent, 1, labels: 3)])
         return remote
@@ -84,7 +84,7 @@ final class RemoteController: ObservableObject {
     private func directory(_ id: UUID) -> URL { AppPaths.remote.appendingPathComponent(id.uuidString, isDirectory: true) }
 
     /// Labels waiting for someone, across sources.
-    var waitingCount: Int { live.values.reduce(0) { $0 + $1.entries.filter { [.waiting, .held, .unclear].contains($0.state) }.count } }
+    var waitingCount: Int { live.values.reduce(0) { $0 + $1.entries.filter { [.waiting, .held, .unclear, .failed].contains($0.state) }.count } }
 
     func start(store: Store) {
         self.store = store
@@ -102,8 +102,10 @@ final class RemoteController: ObservableObject {
 
     // MARK: Changing sources
 
-    /// `secret` is an S3 secret key, or a server's bearer token if it has one.
+    /// `secret` is an S3 secret key, or the bearer token for a URL, if it needs one.
     func add(_ source: RemoteSource, secret: String?) async throws {
+        // Refuse a source that could never start, while the person is here to fix it.
+        if case .http(let http) = source.kind { _ = try HTTPFeed(source: http, token: nil) }
         let secrets = secrets, id = source.id
         try await Task.detached { try secrets.setSecret(secret?.isEmpty == true ? nil : secret, for: id) }.value
         sources.append(source)
@@ -147,7 +149,7 @@ final class RemoteController: ObservableObject {
             switch kind {
             case .s3(let source):
                 let client = try S3Client(source: source, secret: secret ?? "")
-                return try await client.probe() ? "Peel Good can list and read this bucket." : "Peel Good can list this bucket. It has no files under this prefix yet."
+                return try await client.probe() ? "Peel Good can list and read this bucket." : "Peel Good can list this bucket. It found no file to test reading."
             case .http(let source):
                 return try await HTTPFeed(source: source, token: secret, sendAcknowledgements: false).test()
             }
@@ -156,9 +158,26 @@ final class RemoteController: ObservableObject {
         }
     }
 
-    /// The first check left a server's existing jobs alone; prints them after all.
-    func printSkipped(source id: UUID) {
-        act(id) { await $0.printSkipped() }
+    func printAll(_ states: [Ledger.State], source id: UUID) {
+        act(id) { await $0.printAll(states) }
+    }
+
+    func discardAll(_ states: [Ledger.State], source id: UUID) {
+        act(id) { await $0.discardAll(states) }
+    }
+
+    /// Changes a source and keeps its history. A new address starts from now, like a new source.
+    /// A blank `secret` keeps the saved one.
+    func update(_ source: RemoteSource, secret: String?) async throws {
+        if case .http(let http) = source.kind { _ = try HTTPFeed(source: http, token: nil) }
+        let secrets = secrets, id = source.id
+        if let secret, !secret.isEmpty { try await Task.detached { try secrets.setSecret(secret, for: id) }.value }
+        guard let i = sources.firstIndex(where: { $0.id == id }) else { return }
+        if sources[i].kind != source.kind { try? FileManager.default.removeItem(at: directory(id).appendingPathComponent("cursor.json")) }
+        sources[i] = source
+        save()
+        inboxes[id] = nil
+        restart(source)
     }
 
     func printNow(_ item: String, source id: UUID) {
@@ -225,7 +244,7 @@ final class RemoteController: ObservableObject {
             }
             await refresh(source.id, inbox)
             let wait = backoff.next(connectedFor: Date().timeIntervalSince(started))
-            // A refused token won't fix itself soon, and a server asking for a wait gets it.
+            // A refused token won't fix itself soon, and a stream asking for a wait gets it.
             try? await Task.sleep(for: .seconds(attention ? 900 : max(wait, hint ?? 0)))
         }
     }
@@ -239,7 +258,7 @@ final class RemoteController: ObservableObject {
                 let status = await inbox.status
                 if status.shouldPause {
                     Log.warning(.remote, "\(source.name): paused, too many labels waiting")
-                    Notifier.shared.tell(title: source.name, body: "\(source.name) sent more labels than Peel Good can hold. Peel Good paused it.")
+                    Notifier.shared.tell(title: source.name, body: "\(RemoteLimits.heldBeforePausing) labels are waiting, so Peel Good paused this source. Print or discard them in Settings › Remote.")
                     setPaused(true, source.id)
                     return
                 }
@@ -281,6 +300,12 @@ final class RemoteController: ObservableObject {
     private func openInbox(for source: RemoteSource) async -> RemoteInbox? {
         do {
             let secrets = secrets, id = source.id
+            // After an update, macOS may ask before handing over the key, and nothing runs until someone answers.
+            let notice = Task { [weak self] in
+                try await Task.sleep(for: .seconds(3))
+                self?.live[id, default: Live()].status.lastError = "Allow Keychain access to start this source."
+            }
+            defer { notice.cancel() }
             let secret = try await Task.detached(operation: { try secrets.secret(for: id) }).value
             let origin = source.origin, name = source.name, sourceID = id.uuidString
             let feed: any RemoteFeed
@@ -293,10 +318,12 @@ final class RemoteController: ObservableObject {
                 }
                 feed = S3Feed(client: try S3Client(source: s3, secret: secret))
             case .http(let http):
-                // A dry run prints nothing, so it tells the server nothing either.
+                // A dry run prints nothing, so it reports nothing either.
                 feed = try HTTPFeed(source: http, token: secret, sendAcknowledgements: !PrintJob.isDryRun)
             }
-            let inbox = try RemoteInbox(feed: feed, directory: directory(id)) { [weak self] delivery in
+            let inbox = try RemoteInbox(feed: feed, directory: directory(id), changed: { [weak self] in
+                Task { @MainActor in await self?.refresh(id) }
+            }) { [weak self] delivery in
                 await self?.deliver(delivery, origin: origin, source: name, sourceID: sourceID) ?? .notReady("Peel Good is quitting")
             }
             inboxes[id] = inbox
@@ -305,6 +332,10 @@ final class RemoteController: ObservableObject {
             live[source.id, default: Live()].status.lastError = RemoteError.describe(error)
             return nil
         }
+    }
+
+    private func refresh(_ id: UUID) async {
+        if let inbox = inboxes[id] { await refresh(id, inbox) }
     }
 
     private func refresh(_ id: UUID, _ inbox: RemoteInbox) async {
@@ -335,7 +366,7 @@ final class RemoteController: ObservableObject {
         return result
     }
 
-    /// One file through the rules. Nothing a server sent chooses the printer or size.
+    /// One file through the rules. Nothing in a reply chooses the printer or size.
     static func deliver(_ d: Delivery, origin: String, store: Store, engine: RuleEngine, sender: PrintJob.Sender?) async -> DeliveryResult {
         tag(d.file, origin: origin)
         do {
@@ -345,6 +376,7 @@ final class RemoteController: ObservableObject {
             }
             // Asking also covers "always review": nothing's on screen to review with.
             guard d.forced || !plan.review else { return .waiting }
+            guard d.fits(copies: plan.copies) else { return .overLimit }
             // Fresh, not the list from the last refresh: this decides whether the label waits.
             let settings = store.settings, name = plan.printer.name
             let now = await Task.detached { settings.printers(zebraStatus: settings.zebraStatus()) }.value.first { $0.name == name }
@@ -361,7 +393,7 @@ final class RemoteController: ObservableObject {
     }
 
     /// Says where a file came from the way browsers do, for the rules' Source website condition. The
-    /// value comes from the source's settings, never from a server.
+    /// value comes from the source's settings, never from a reply.
     static func tag(_ file: URL, origin: String) {
         guard let data = try? PropertyListSerialization.data(fromPropertyList: [origin], format: .binary, options: 0) else { return }
         _ = data.withUnsafeBytes { Darwin.setxattr(file.path, "com.apple.metadata:kMDItemWhereFroms", $0.baseAddress, $0.count, 0, 0) }

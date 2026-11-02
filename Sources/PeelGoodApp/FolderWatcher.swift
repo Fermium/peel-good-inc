@@ -123,7 +123,9 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         center.delegate = self
         let print = UNNotificationAction(identifier: "print", title: "Print", options: [])
         let preview = UNNotificationAction(identifier: "preview", title: "Preview", options: [.foreground])
-        center.setNotificationCategories([UNNotificationCategory(identifier: "label", actions: [print, preview], intentIdentifiers: [])])
+        let settings = UNNotificationAction(identifier: "settings", title: "Open Settings", options: [.foreground])
+        center.setNotificationCategories([UNNotificationCategory(identifier: "label", actions: [print, preview], intentIdentifiers: []),
+                                          UNNotificationCategory(identifier: "remote", actions: [print, settings], intentIdentifiers: [])])
     }
 
     func ask(_ url: URL, detail: String) {
@@ -132,7 +134,7 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
 
     /// Asks about a remote label. Settings › Remote lists it too, in case notifications are off.
     func askRemote(name: String, detail: String, source: String, item: String) {
-        post(title: name, body: detail, category: "label", id: "\(source)#\(item)", info: ["remoteSource": source, "remoteItem": item], file: name)
+        post(title: name, body: detail, category: "remote", id: "\(source)#\(item)", info: ["remoteSource": source, "remoteItem": item], file: name)
     }
 
     /// Says something went wrong and needs a look, with no buttons.

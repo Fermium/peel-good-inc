@@ -21,6 +21,8 @@ public final class S3Client: Sendable {
         self.now = now
         let config = URLSessionConfiguration.ephemeral
         config.urlCache = nil
+        config.httpCookieStorage = nil
+        config.httpShouldSetCookies = false
         config.timeoutIntervalForRequest = 30
         session = URLSession(configuration: config, delegate: NoRedirects(), delegateQueue: nil)
     }
@@ -40,7 +42,8 @@ public final class S3Client: Sendable {
             objects += page.objects
             token = page.nextToken
         } while token != nil
-        guard let serverDate else { throw RemoteError.unreadableReply("no date") }
+        // Dates set how far along this source is, for good. One far ahead would lose every label until then.
+        guard let serverDate, serverDate < now().addingTimeInterval(86_400) else { throw RemoteError.unreadableReply("its date is missing or far ahead of this Mac") }
         // Folder markers aren't files.
         return (objects.filter { !$0.key.hasSuffix("/") }, serverDate)
     }

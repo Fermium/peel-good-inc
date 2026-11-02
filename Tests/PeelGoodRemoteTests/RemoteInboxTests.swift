@@ -11,7 +11,10 @@ private final class Printer: @unchecked Sendable {
     var got: [Delivery] { lock.withLock { _got } }
     var names: [String] { got.map(\.name) }
     func answer(_ a: @escaping @Sendable (Delivery) -> DeliveryResult) { lock.withLock { _answer = a } }
-    func deliver(_ d: Delivery) -> DeliveryResult { lock.withLock { _got.append(d); return _answer(d) } }
+    func deliver(_ d: Delivery) -> DeliveryResult {
+        guard d.fits(copies: d.copies ?? 1) else { return .overLimit }
+        return lock.withLock { _got.append(d); return _answer(d) }
+    }
 }
 
 private struct Rig {
@@ -174,7 +177,7 @@ private func rig() async throws -> Rig {
     await inbox.check()
     r.advance()
     r.s3.put("out/fake.pdf", Data("<svg xmlns='http://www.w3.org/2000/svg'/>".utf8))
-    r.s3.put("out/long.pdf", FakeS3.pdf(pages: RemoteLimits.pagesPerDocument + 1))
+    r.s3.put("out/long.pdf", FakeS3.pdf(pages: RemoteLimits.labelsPerWindow + 1))
     r.s3.put("out/huge.pdf", FakeS3.pdf(padding: RemoteLimits.fileBytes + 1))
     r.s3.put("out/photo.txt", Data([0xFF, 0xD8, 0xFF, 0xE0, 0, 0, 0, 0]))
     r.s3.put("out/.. ..:evil.pdf")
@@ -285,4 +288,72 @@ private func rig() async throws -> Rig {
             #expect(!text.contains(word), "\(file.lastPathComponent) mentions \(word)")
         }
     }
+}
+
+@Test func aFarFutureDateCantLoseLaterLabels() async throws {
+    let r = try await rig()
+    let s3 = r.s3
+    let inbox = try RemoteInbox(feed: S3Feed(client: try S3Client(source: s3.source, secret: "SECRET", now: { s3.clock.addingTimeInterval(-10 * 86_400) })),
+                                directory: r.dir, now: { s3.clock }, deliver: { r.printer.deliver($0) })
+    await inbox.check()
+    #expect(await inbox.status.lastError != nil, "a date 10 days ahead of this Mac is refused")
+    #expect(await inbox.status.skippedOnFirstCheck == 0, "and moves nothing forward")
+    r.s3.stop()
+}
+
+@Test func longKeysDontShareASpoolFolder() async throws {
+    let r = try await rig()
+    let inbox = try r.inbox()
+    await inbox.check()
+    r.advance()
+    let long = String(repeating: "k", count: 300)
+    let first = FakeS3.pdf(), second = FakeS3.pdf(pages: 2)
+    r.s3.put("out/\(long)-1.pdf", first)
+    r.s3.put("out/\(long)-2.pdf", second)
+    r.printer.answer { _ in .notReady("") }   // Both wait, downloaded, side by side.
+    await inbox.check()
+    #expect(r.printer.got.count == 1)
+    r.printer.answer { _ in .sent(labels: 1) }
+    r.advance()
+    await inbox.check()
+    #expect(r.printer.got.count == 3, "a, again, then b")
+    #expect(Set(r.printer.got.map(\.file.path)).count == 2, "each key has its own file")
+    r.s3.stop()
+}
+
+@Test func printAllAndDiscardAllClearABatch() async throws {
+    let r = try await rig()
+    let inbox = try r.inbox()
+    await inbox.check()
+    r.advance()
+    for i in 0..<(RemoteLimits.labelsPerWindow + 4) { r.s3.put("out/\(String(format: "%03d", i)).pdf", at: r.s3.clock.addingTimeInterval(Double(i))) }
+    await inbox.check()
+    #expect(await inbox.entries.filter { $0.state == .held }.count == 4)
+    r.s3.put("out/more.pdf", at: r.s3.clock.addingTimeInterval(100))
+    await inbox.printAll([.held])
+    #expect(await inbox.entries.filter { $0.state == .held }.isEmpty)
+    #expect(r.printer.got.count == RemoteLimits.labelsPerWindow + 4)
+
+    r.advance()
+    await inbox.check()
+    #expect(await inbox.entries.filter { $0.state == .held }.count == 1, "still over the limit")
+    await inbox.discardAll([.held])
+    #expect(await inbox.entries.filter { $0.state == .held }.isEmpty)
+    r.s3.stop()
+}
+
+@Test func aStoppedPrinterIsVisibleAndClears() async throws {
+    let r = try await rig()
+    let inbox = try r.inbox()
+    await inbox.check()
+    r.advance()
+    r.s3.put("out/a.pdf")
+    r.printer.answer { _ in .notReady("it's out of labels") }
+    await inbox.check()
+    #expect(await inbox.status.printerProblem == "it's out of labels")
+    r.printer.answer { _ in .sent(labels: 1) }
+    r.advance()
+    await inbox.check()
+    #expect(await inbox.status.printerProblem == nil)
+    r.s3.stop()
 }

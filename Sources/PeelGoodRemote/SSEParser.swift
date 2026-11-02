@@ -9,9 +9,6 @@ struct SSEParser {
         var id: String?
     }
 
-    /// Set by a `retry:` line, in seconds.
-    private(set) var retry: TimeInterval?
-
     private var line: [UInt8] = []
     private var data: [UInt8] = []
     private var hasData = false
@@ -19,9 +16,12 @@ struct SSEParser {
     private var lastID: String?
     private var atStart = true
     private var afterCR = false
+    /// The event passed the size limit. It still ends at its blank line, so the stream carries on.
+    private var tooLarge = false
+    private var discardingLine = false
 
     /// Feeds one byte; returns a message when it completes one.
-    mutating func feed(_ byte: UInt8) throws -> Message? {
+    mutating func feed(_ byte: UInt8) -> Message? {
         if afterCR {
             afterCR = false
             if byte == 0x0A { return nil }
@@ -33,13 +33,24 @@ struct SSEParser {
         case 0x0A:
             return endLine()
         default:
+            guard !discardingLine else { return nil }
             line.append(byte)
-            guard line.count + data.count <= RemoteLimits.eventBytes else { throw RemoteError.tooLarge(limit: RemoteLimits.eventBytes) }
+            if line.count + data.count > RemoteLimits.eventBytes {
+                tooLarge = true
+                hasData = true
+                discardingLine = true
+                line.removeAll(keepingCapacity: false)
+                data.removeAll(keepingCapacity: false)
+            }
             return nil
         }
     }
 
     private mutating func endLine() -> Message? {
+        if discardingLine {
+            discardingLine = false
+            return nil
+        }
         defer { line.removeAll(keepingCapacity: true) }
         if atStart {
             atStart = false
@@ -49,6 +60,7 @@ struct SSEParser {
             defer {
                 data.removeAll(keepingCapacity: true)
                 hasData = false
+                tooLarge = false
                 event = ""
             }
             guard hasData else { return nil }
@@ -61,17 +73,15 @@ struct SSEParser {
         if value.first == 0x20 { value.removeFirst() }
         switch name {
         case "data":
+            if tooLarge { break }
             if hasData { data.append(0x0A) }
             data += value
             hasData = true
         case "event":
             event = String(decoding: value, as: UTF8.self)
         case "id":
-            if !value.contains(0) { lastID = String(decoding: value, as: UTF8.self) }
-        case "retry":
-            if !value.isEmpty, value.allSatisfy({ (0x30...0x39).contains($0) }), let ms = Double(String(decoding: value, as: UTF8.self)) {
-                retry = min(max(ms / 1000, 1), 300)
-            }
+            // It goes back as a header when reconnecting, so it has to stay small.
+            if !value.contains(0), value.count <= 1024 { lastID = String(decoding: value, as: UTF8.self) }
         default:
             break
         }

@@ -2,7 +2,7 @@ import CryptoKit
 import Darwin
 import Foundation
 
-/// Which addresses a source may reach. A message from a server can name a URL, so a compromised server
+/// Which addresses a source may reach. A job can name a URL, so a compromised source
 /// could otherwise aim this Mac at its own network. Only the configured host gets the token.
 struct LinkPolicy: Sendable {
     let origin: URLComponents
@@ -90,8 +90,18 @@ struct RemoteJob: Decodable {
     var copies: Int?
     var content_base64: String?
 
+    /// 1 to 256 of A-Z, a-z, 0-9, `-`, `_` and `.`, as docs/REMOTE-SOURCES.md says.
+    static func isValidID(_ id: String) -> Bool {
+        (1...256).contains(id.utf8.count) && id.utf8.allSatisfy { byte in
+            switch byte {
+            case 0x41...0x5A, 0x61...0x7A, 0x30...0x39, 0x2D, 0x5F, 0x2E: true
+            default: false
+            }
+        }
+    }
+
     func item(now: Date) -> RemoteItem? {
-        guard !id.isEmpty, id.utf8.count <= 256 else { return nil }
+        guard Self.isValidID(id), copies.map(RemoteLimits.copies.contains) != false else { return nil }
         var inline: Data?
         if let content_base64 {
             guard let data = Data(base64Encoded: content_base64, options: .ignoreUnknownCharacters), data.count <= RemoteLimits.inlineBytes else { return nil }
@@ -105,7 +115,7 @@ struct RemoteJob: Decodable {
     }
 }
 
-/// A server you run: a jobs URL to check, a stream to follow, or both.
+/// A URL to fetch on an interval, a stream to follow, or both. Anything can answer: an app, or a file on a CDN.
 public final class HTTPFeed: RemoteFeed, Sendable {
     private struct JobList: Decodable { var jobs: [Lenient] }
     /// One bad job doesn't lose the others.
@@ -129,15 +139,20 @@ public final class HTTPFeed: RemoteFeed, Sendable {
         policy = try LinkPolicy(primary: source.primaryURL, downloadHosts: source.downloadHosts)
         if let stream = source.streamURL, let jobs = source.jobsURL {
             let a = try SecureURL.check(stream), b = try SecureURL.check(jobs)
-            guard a.host?.lowercased() == b.host?.lowercased() else { throw RemoteError.refusedAddress(a.host ?? stream) }
+            // The token only goes to one origin, so a stream anywhere else could never sign in.
+            guard a.host?.lowercased() == b.host?.lowercased(), a.scheme == b.scheme, a.port == b.port else { throw RemoteError.streamOnAnotherHost }
         }
         sendsAcknowledgements = sendAcknowledgements && source.sendsAcknowledgements && source.jobsURL != nil
         let config = URLSessionConfiguration.ephemeral
         config.urlCache = nil   // A cache would answer 304s itself and hide them.
+        config.httpCookieStorage = nil
+        config.httpShouldSetCookies = false
         config.timeoutIntervalForRequest = 30
         session = URLSession(configuration: config, delegate: SafeRedirects(policy: policy), delegateQueue: nil)
         let stream = URLSessionConfiguration.ephemeral
         stream.urlCache = nil
+        stream.httpCookieStorage = nil
+        stream.httpShouldSetCookies = false
         stream.timeoutIntervalForRequest = Self.deadStream   // No bytes for this long: reconnect.
         stream.timeoutIntervalForResource = 60 * 60 * 24 * 365
         streamSession = URLSession(configuration: stream, delegate: SafeRedirects(policy: policy), delegateQueue: nil)
@@ -164,8 +179,9 @@ public final class HTTPFeed: RemoteFeed, Sendable {
         case 200...299, 304: return http
         case 401, 403: throw RemoteError.denied("HTTP \(http.statusCode)")
         case 429, 503:
-            let wait = http.value(forHTTPHeaderField: "Retry-After").flatMap(Double.init) ?? 60
-            throw RemoteError.tryLater(min(max(wait, 1), 3600))
+            // Whole seconds only. Double() also takes "nan", which would trap in the sleep.
+            let wait = http.value(forHTTPHeaderField: "Retry-After").flatMap { Int($0.trimmingCharacters(in: .whitespaces)) } ?? 60
+            throw RemoteError.tryLater(TimeInterval(min(max(wait, 1), 3600)))
         default: throw RemoteError.server(http.statusCode, "")
         }
     }
@@ -183,24 +199,26 @@ public final class HTTPFeed: RemoteFeed, Sendable {
         let http = try Self.check(reply)
         if http.statusCode == 304 { return FeedPage(items: [], baseline: [], skippedCount: 0, cursor: next) }
         let body = try await Self.collect(bytes, limit: RemoteLimits.fileBytes)
-        let items = try parse(body, etag: http.value(forHTTPHeaderField: "ETag"))
-        next.etag = http.value(forHTTPHeaderField: "ETag")
+        let (items, rejected) = try parse(body, etag: http.value(forHTTPHeaderField: "ETag"))
+        // It goes back in every request, so a reply can't make that request huge.
+        next.etag = http.value(forHTTPHeaderField: "ETag").flatMap { $0.utf8.count <= 1024 ? $0 : nil }
         // The first answer is what was already there.
-        guard cursor.started else { return FeedPage(items: [], baseline: items, skippedCount: items.count, cursor: next) }
-        return FeedPage(items: items, baseline: [], skippedCount: 0, cursor: next)
+        guard cursor.started else { return FeedPage(items: [], baseline: items, skippedCount: items.count, cursor: next, rejected: rejected) }
+        return FeedPage(items: items, baseline: [], skippedCount: 0, cursor: next, rejected: rejected)
     }
 
     /// A jobs list, or a label itself when the URL simply serves one.
-    private func parse(_ body: Data, etag: String?) throws -> [RemoteItem] {
+    private func parse(_ body: Data, etag: String?) throws -> (items: [RemoteItem], rejected: Int) {
         if let kind = FileKindSniffer.kind(of: body) {
             let hash = SHA256.hash(data: body).map { String(format: "%02x", $0) }.joined()
             let name = source.jobsURL.flatMap(URLComponents.init(string:))?.path.split(separator: "/").last.map(String.init) ?? "Remote label.\(kind)"
-            return [RemoteItem(id: "direct#\(etag ?? hash)", key: "inline:direct", name: name, size: body.count, modified: now(), inline: body)]
+            return ([RemoteItem(id: "direct#\(etag ?? hash)", key: "inline:direct", name: name, size: body.count, modified: now(), inline: body)], 0)
         }
         guard body.count <= RemoteLimits.replyBytes, let list = try? JSONDecoder().decode(JobList.self, from: body) else {
             throw RemoteError.unreadableReply("it isn't a jobs list or a label")
         }
-        return list.jobs.compactMap { $0.job?.item(now: now()) }
+        let items = list.jobs.compactMap { $0.job?.item(now: now()) }
+        return (items, list.jobs.count - items.count)
     }
 
     public func download(_ item: RemoteItem, to file: URL, limit: Int) async throws {
@@ -232,8 +250,8 @@ public final class HTTPFeed: RemoteFeed, Sendable {
         _ = try Self.check(reply)
     }
 
-    public func follow(from lastEventID: String?, connected: @Sendable () async -> Void, event: @Sendable (StreamEvent) async -> Void) async throws -> TimeInterval? {
-        guard let text = source.streamURL else { return nil }
+    public func follow(from lastEventID: String?, connected: @Sendable () async -> Void, event: @Sendable (StreamEvent) async -> Void) async throws {
+        guard let text = source.streamURL else { return }
         guard let url = try URL(string: text).flatMap({ try policy.check($0); return $0 }) else { throw RemoteError.insecureURL(text) }
         var r = request(url)
         r.setValue("text/event-stream", forHTTPHeaderField: "Accept")
@@ -246,13 +264,12 @@ public final class HTTPFeed: RemoteFeed, Sendable {
         await connected()
         var parser = SSEParser()
         for try await byte in bytes {
-            guard let message = try parser.feed(byte) else { continue }
+            guard let message = parser.feed(byte) else { continue }
             // Other event types are for someone else; their ids still count as read.
             var item: RemoteItem?
             if message.event == "label", let job = try? JSONDecoder().decode(RemoteJob.self, from: Data(message.data.utf8)) { item = job.item(now: now()) }
-            await event(StreamEvent(item: item, id: message.id))
+            await event(StreamEvent(item: item, id: message.id, rejected: message.event == "label" && item == nil))
         }
-        return parser.retry
     }
 
     /// Answers Test Connection without printing, acknowledging or moving a cursor.
@@ -262,8 +279,8 @@ public final class HTTPFeed: RemoteFeed, Sendable {
             try policy.check(url)
             let (bytes, reply) = try await session.bytes(for: request(url))
             _ = try Self.check(reply)
-            let count = try parse(try await Self.collect(bytes, limit: RemoteLimits.fileBytes), etag: nil).count
-            notes.append("The jobs URL lists \(count) job\(count == 1 ? "" : "s").")
+            let count = try parse(try await Self.collect(bytes, limit: RemoteLimits.fileBytes), etag: nil).items.count
+            notes.append("The URL lists \(count) job\(count == 1 ? "" : "s").")
         }
         if let text = source.streamURL, let url = URL(string: text) {
             try policy.check(url)
@@ -285,7 +302,7 @@ public final class HTTPFeed: RemoteFeed, Sendable {
                 _ = try await task.value
                 notes.append("The stream is open and sending.")
             } catch where task.isCancelled {
-                notes.append("The stream sent nothing in 5 seconds. Have your server send a comment line as soon as it connects, and every 30 seconds after.")
+                notes.append("The stream sent nothing in 5 seconds. It needs to send a comment line as soon as Peel Good connects, and every 30 seconds after.")
             }
         }
         return notes.joined(separator: " ")

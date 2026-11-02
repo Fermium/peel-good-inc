@@ -10,10 +10,19 @@ public struct Delivery: Sendable {
     public var file: URL
     /// What the sender asked for; nil leaves it to the rules.
     public var copies: Int?
-    /// A person pressed Print: skip Ask and print.
+    /// A person pressed Print: skip Ask and the limit, and print.
     public var forced: Bool
+    public var pages: Int
+    /// How many more labels this source can print in this window.
+    public var labelsLeft: Int
 
-    public init(id: String, name: String, file: URL, copies: Int?, forced: Bool) {
+    /// Whether printing this many copies stays inside the limit. Only the print step knows the copies,
+    /// because a rule can set them.
+    public func fits(copies: Int) -> Bool { forced || pages * max(copies, 1) <= labelsLeft }
+
+    public init(id: String, name: String, file: URL, copies: Int?, forced: Bool, pages: Int = 1, labelsLeft: Int = .max) {
+        self.pages = pages
+        self.labelsLeft = labelsLeft
         self.id = id
         self.name = name
         self.file = file
@@ -26,6 +35,8 @@ public enum DeliveryResult: Equatable, Sendable {
     case sent(labels: Int)
     /// The rules said Ask.
     case waiting
+    /// It would pass the source's label limit.
+    case overLimit
     case cancelled
     /// Sent or attempted, and it failed. Never retried without a person: it may have printed.
     case failed(String)
@@ -41,10 +52,14 @@ public actor RemoteInbox {
         public var lastError: String?
         public var needsAttention = false
         public var skippedOnFirstCheck = 0
+        /// Why labels are queued behind a printer that can't take them.
+        public var printerProblem: String?
         public var shouldPause = false
         /// The server asked to wait this long before the next check.
         public var retryAfter: TimeInterval?
         public var isStreaming = false
+        /// Jobs just received that can't be used: a bad ID, or no file.
+        public var rejectedJobs = 0
         public var streamError: String?
         public var streamNeedsAttention = false
         public init() {}
@@ -56,6 +71,7 @@ public actor RemoteInbox {
     private let cursorFile: URL
     private let deliver: @Sendable (Delivery) async -> DeliveryResult
     private let now: @Sendable () -> Date
+    private let changed: @Sendable () -> Void
     private var cursor: FeedCursor
     /// Checks and streams overlap, and an actor can be re-entered at each await: only one pass at a time
     /// picks items, or two would both print the same one.
@@ -64,11 +80,12 @@ public actor RemoteInbox {
     public private(set) var status = Status()
 
     /// `directory` is this source's own folder. Starting up turns an interrupted print into `unclear`.
-    public init(feed: any RemoteFeed, directory: URL, now: @escaping @Sendable () -> Date = { Date() },
+    public init(feed: any RemoteFeed, directory: URL, now: @escaping @Sendable () -> Date = { Date() }, changed: @escaping @Sendable () -> Void = {},
                 deliver: @escaping @Sendable (Delivery) async -> DeliveryResult) throws {
         self.feed = feed
         self.deliver = deliver
         self.now = now
+        self.changed = changed
         spool = directory.appendingPathComponent("spool", isDirectory: true)
         cursorFile = directory.appendingPathComponent("cursor.json")
         try FileManager.default.createDirectory(at: spool, withIntermediateDirectories: true)
@@ -90,9 +107,7 @@ public actor RemoteInbox {
         do {
             let page = try await feed.reconcile(cursor: cursor)
             for item in page.baseline where ledger[item.id] == nil { try ledger.record(entry(item, .skipped)) }
-            for item in page.items where ledger[item.id] == nil {
-                try ledger.record(entry(item, .new))
-            }
+            for item in page.items where ledger[item.id] == nil { try accept(item) }
             // A stream may have moved on during this check.
             var next = page.cursor
             next.lastEventID = cursor.lastEventID
@@ -103,29 +118,35 @@ public actor RemoteInbox {
             status.lastError = nil
             status.needsAttention = false
             status.retryAfter = nil
+            if let rejected = page.rejected { status.rejectedJobs = rejected }
             await drain(page.items)
             await sendAcknowledgements()
         } catch RemoteError.tryLater(let seconds) {
             status.retryAfter = seconds
+            status.lastError = nil
+            status.needsAttention = false
         } catch {
             // Pausing or waking cancels a check in progress, which isn't a failure.
             guard !Task.isCancelled else { return }
+            status.retryAfter = nil
             status.lastError = RemoteError.describe(error)
             status.needsAttention = (error as? RemoteError)?.needsAttention ?? false
         }
     }
 
     /// Follows the feed's stream until it ends, and checks at each connect for anything sent while away.
-    /// Returns how long the server asked to wait before reconnecting.
+    /// Returns how long the stream asked to wait before reconnecting.
     public func follow() async throws -> TimeInterval? {
         defer { status.isStreaming = false }
         do {
-            let retry = try await feed.follow(from: cursor.lastEventID, connected: { [self] in
+            try await feed.follow(from: cursor.lastEventID, connected: { [self] in
                 await streamConnected()
             }, event: { [self] event in
                 await receive(event)
             })
-            return retry
+            return nil
+        } catch RemoteError.tryLater(let seconds) {
+            return seconds
         } catch {
             guard !Task.isCancelled else { return nil }
             status.streamError = RemoteError.describe(error)
@@ -143,7 +164,8 @@ public actor RemoteInbox {
 
     func receive(_ event: StreamEvent) async {
         do {
-            if let item = event.item, ledger[item.id] == nil { try ledger.record(entry(item, .new)) }
+            if event.rejected { status.rejectedJobs += 1 }
+            if let item = event.item, ledger[item.id] == nil { try accept(item) }
             // Only once it's in the ledger: reconnecting from here can't lose it.
             if let id = event.id {
                 cursor.lastEventID = id
@@ -154,18 +176,17 @@ public actor RemoteInbox {
         } catch {
             status.lastError = RemoteError.describe(error)
         }
+        changed()
     }
 
-    /// Prints what the first check left alone, for a source you've just added and do want the backlog of.
-    public func printSkipped() async {
-        for var e in ledger.all where e.state == .skipped {
-            e.state = .new
-            e.at = now()
-            try? ledger.record(e)
-        }
-        status.skippedOnFirstCheck = 0
-        await drain([])
+    /// Records a new item. A file that came in the message goes to disk first: it won't come again, and
+    /// the item may wait behind a stopped printer or a restart.
+    private func accept(_ item: RemoteItem) throws {
+        if let inline = item.inline { try inline.write(to: inlineFile(item.id)) }
+        try ledger.record(entry(item, .new))
     }
+
+    private func inlineFile(_ id: String) -> URL { spool.appendingPathComponent("\(Self.fileStem(id)).inline") }
 
     private func sendAcknowledgements() async {
         guard feed.sendsAcknowledgements else { return }
@@ -200,11 +221,27 @@ public actor RemoteInbox {
             await drain([])
             return
         }
-        await send(e, forced: true)
+        await send(e, pages: pages(of: e) ?? 1, forced: true)
+    }
+
+    /// Print All or Discard All: stops printing if the printer stops, and what's left waits for it.
+    public func printAll(_ states: [Ledger.State]) async {
+        for e in ledger.all where states.contains(e.state) {
+            await printNow(e.id)
+            if status.printerProblem != nil { break }
+        }
+    }
+
+    public func discardAll(_ states: [Ledger.State]) async {
+        for e in ledger.all where states.contains(e.state) {
+            update(e.id, .cancelled, detail: nil)
+            removeSpool(e.id)
+        }
+        await sendAcknowledgements()
     }
 
     public func markPrinted(_ id: String) async {
-        update(id, .sent, detail: "Marked as printed")
+        update(id, .sent, detail: "You marked this as printed")
         removeSpool(id)
         await sendAcknowledgements()
     }
@@ -238,31 +275,27 @@ public actor RemoteInbox {
                 guard let downloaded = await download(e, fresh: fresh) else { continue }
                 e = downloaded
             }
-            guard let pages = checked(e) else { continue }
-            let copies = e.copies ?? 1
-            if !RemoteLimits.copies.contains(copies) {
-                update(e.id, .held, detail: "It asks for \(copies) copies")
-                continue
-            }
-            if pages > RemoteLimits.pagesPerDocument {
-                update(e.id, .held, detail: "It has \(pages) pages")
-                continue
-            }
-            if labelsInWindow() + pages * copies > RemoteLimits.labelsPerWindow {
-                update(e.id, .held, detail: "This source sent more than \(RemoteLimits.labelsPerWindow) labels in \(Int(RemoteLimits.window / 60)) minutes")
-                continue
-            }
-            if await !send(e, forced: false) { break }
+            guard let pages = pages(of: e) else { continue }
+            if await !send(e, pages: pages, forced: false) { break }
         }
         status.shouldPause = ledger.all.filter { $0.state == .held }.count >= RemoteLimits.heldBeforePausing
     }
 
     /// False when the printer can't take it now, so the rest wait as well.
     @discardableResult
-    private func send(_ entry: Ledger.Entry, forced: Bool) async -> Bool {
+    private func send(_ entry: Ledger.Entry, pages: Int, forced: Bool) async -> Bool {
         let file = spoolFile(entry)
         update(entry.id, .printing, detail: nil)
-        switch await deliver(Delivery(id: entry.id, name: entry.name, file: file, copies: entry.copies, forced: forced)) {
+        let left = RemoteLimits.labelsPerWindow - labelsInWindow()
+        let result = await deliver(Delivery(id: entry.id, name: entry.name, file: file, copies: entry.copies, forced: forced, pages: pages, labelsLeft: left))
+        if case .notReady(let reason) = result {
+            status.printerProblem = reason
+        } else {
+            status.printerProblem = nil
+        }
+        switch result {
+        case .overLimit:
+            update(entry.id, .held, detail: "This would pass \(RemoteLimits.labelsPerWindow) labels in \(Int(RemoteLimits.window / 60)) minutes.")
         case .sent(let labels):
             var e = ledger[entry.id] ?? entry
             e.state = .sent
@@ -296,7 +329,13 @@ public actor RemoteInbox {
         }
         let part = spool.appendingPathComponent("\(Self.fileStem(entry.id)).part")
         do {
-            try await feed.download(item, to: part, limit: RemoteLimits.fileBytes)
+            let saved = inlineFile(entry.id)
+            if FileManager.default.fileExists(atPath: saved.path) {
+                try? FileManager.default.removeItem(at: part)
+                try FileManager.default.moveItem(at: saved, to: part)
+            } else {
+                try await feed.download(item, to: part, limit: RemoteLimits.fileBytes)
+            }
             if let expected = item.sha256?.lowercased(), Self.sha256(part) != expected { throw RemoteError.checksumMismatch }
             guard let kind = FileKindSniffer.kind(of: part) else {
                 try? FileManager.default.removeItem(at: part)
@@ -322,7 +361,7 @@ public actor RemoteInbox {
     }
 
     /// Its page count, or nil when it can't be opened. Looks at PDFs before they go near a job.
-    private func checked(_ entry: Ledger.Entry) -> Int? {
+    private func pages(of entry: Ledger.Entry) -> Int? {
         let file = spoolFile(entry)
         guard file.pathExtension == "pdf" else { return 1 }
         guard let document = CGPDFDocument(file as CFURL), document.numberOfPages > 0 else {
@@ -364,10 +403,12 @@ public actor RemoteInbox {
 
     private func removeSpool(_ id: String) {
         try? FileManager.default.removeItem(at: spool.appendingPathComponent(Self.fileStem(id), isDirectory: true))
+        try? FileManager.default.removeItem(at: inlineFile(id))
     }
 
     private static func fileStem(_ id: String) -> String {
-        Data(id.utf8).base64EncodedString().replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "+", with: "-").prefix(120).description
+        // A hash, as ids can be long: two that share a start must not share a folder.
+        SHA256.hash(data: Data(id.utf8)).map { String(format: "%02x", $0) }.joined()
     }
 }
 

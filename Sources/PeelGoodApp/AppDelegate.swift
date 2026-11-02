@@ -480,7 +480,7 @@ final class AppDelegate: NSObject, JobPresenter, NSApplicationDelegate, NSPopove
         guard !remote.sources.isEmpty else { return }
         menu.addItem(.separator())
         let waiting = remote.waitingCount
-        if waiting > 0 { menu.addItem(item("\(waiting) Remote Label\(waiting == 1 ? "" : "s") Waiting…", #selector(showRemote), "", symbol: "tray.and.arrow.down")) }
+        if waiting > 0 { menu.addItem(item("\(waiting) Remote Label\(waiting == 1 ? " Needs" : "s Need") You…", #selector(showRemote), "", symbol: "tray.and.arrow.down")) }
         let paused = remote.sources.allSatisfy(\.isPaused)
         menu.addItem(item(paused ? "Resume Remote Sources" : "Pause Remote Sources", #selector(toggleRemote), "", symbol: paused ? "play" : "pause"))
     }

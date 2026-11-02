@@ -13,20 +13,22 @@ public enum RemoteError: Error, CustomStringConvertible, Equatable, Sendable {
     /// The data is no longer available, and won't come back.
     case gone
     case tryLater(TimeInterval)
+    case streamOnAnotherHost
 
     public var description: String {
         switch self {
-        case .insecureURL(let url): "\(url) isn't a secure address. Use https."
+        case .insecureURL: "That address won't work. Use a full https:// address, with no username or password in it."
         case .denied("SignatureDoesNotMatch"): "The secret key doesn't match this access key."
-        case .denied("InvalidAccessKeyId"): "The server doesn't know this access key."
-        case .denied(let reason): "The server refused the credentials: \(reason)"
-        case .server(let code, let reason): "The server answered \(code)\(reason.isEmpty ? "" : ": \(reason)")"
-        case .unreadableReply(let what): "The server sent something unreadable (\(what))"
+        case .denied("InvalidAccessKeyId"): "This access key isn't valid."
+        case .denied(let reason): "Access refused: \(reason)"
+        case .server(let code, let reason): "The request got HTTP \(code)\(reason.isEmpty ? "" : ": \(reason)")"
+        case .unreadableReply(let what): "The reply is unreadable (\(what))"
         case .tooLarge(let limit): "The file is larger than \(limit / 1_000_000) MB"
-        case .refusedAddress(let host): "The server named \(host), which this source isn't allowed to download from"
+        case .refusedAddress(let host): "The job names \(host), which this source isn't allowed to download from"
         case .checksumMismatch: "The file doesn't match its checksum"
-        case .gone: "The server no longer has this file"
-        case .tryLater(let seconds): "The server asked Peel Good to wait \(Int(seconds)) s"
+        case .gone: "The file is no longer available"
+        case .tryLater(let seconds): "The URL asked Peel Good to wait \(Int(seconds)) s"
+        case .streamOnAnotherHost: "The event stream must use the same host and port as the URL."
         }
     }
 
@@ -48,7 +50,7 @@ public enum RemoteError: Error, CustomStringConvertible, Equatable, Sendable {
     /// Worth showing as Needs attention and retrying slowly, not a passing network problem.
     public var needsAttention: Bool {
         switch self {
-        case .insecureURL, .denied: true
+        case .insecureURL, .denied, .streamOnAnotherHost: true
         case .server(let code, _): code == 404
         default: false
         }
@@ -76,7 +78,7 @@ public struct S3Source: Codable, Equatable, Sendable {
     }
 
     /// Where a file from this source says it came from, for the rules' Source website condition.
-    /// Always this, never anything a server sent.
+    /// Always this, never anything in a reply.
     public var origin: String {
         var parts = URLComponents(string: endpoint) ?? URLComponents()
         parts.path = "/\(bucket)/\(prefix)".replacingOccurrences(of: "//", with: "/")
@@ -84,7 +86,7 @@ public struct S3Source: Codable, Equatable, Sendable {
     }
 }
 
-/// Your own server: a jobs URL to poll, a Server-Sent Events stream to follow, or both. The contract
+/// A URL to fetch, a Server-Sent Events stream to follow, or both. The contract
 /// is in docs/REMOTE-SOURCES.md. A bearer token, if any, lives in the Keychain.
 public struct HTTPSource: Codable, Equatable, Sendable {
     public var jobsURL: String?
@@ -153,7 +155,6 @@ public enum RemoteLimits {
     public static let inlineBytes = 1_000_000
     /// What a sender can ask for per job, like everywhere else in the app.
     public static let copies = 1...100
-    public static let pagesPerDocument = 20
     public static let labelsPerWindow = 30
     public static let window: TimeInterval = 600
     /// A source this far behind pauses itself.

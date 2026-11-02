@@ -44,6 +44,8 @@ public struct FeedPage: Sendable {
     /// How many existing files the first check left alone.
     public var skippedCount: Int
     public var cursor: FeedCursor
+    /// Jobs in the reply that can't be used. Nil when there was no list to read.
+    public var rejected: Int?
 }
 
 public enum JobStatus: String, Sendable {
@@ -54,6 +56,8 @@ public struct StreamEvent: Sendable {
     public var item: RemoteItem?
     /// The event's id, to resume from.
     public var id: String?
+    /// A label event that can't be used.
+    public var rejected = false
 }
 
 public protocol RemoteFeed: Sendable {
@@ -61,14 +65,14 @@ public protocol RemoteFeed: Sendable {
     func download(_ item: RemoteItem, to file: URL, limit: Int) async throws
     var sendsAcknowledgements: Bool { get }
     func acknowledge(id: String, status: JobStatus, labels: Int?, at date: Date) async throws
-    /// Follows the feed's stream until it ends. Returns how long the server asked to wait before reconnecting.
-    func follow(from lastEventID: String?, connected: @Sendable () async -> Void, event: @Sendable (StreamEvent) async -> Void) async throws -> TimeInterval?
+    /// Follows the feed's stream until it ends.
+    func follow(from lastEventID: String?, connected: @Sendable () async -> Void, event: @Sendable (StreamEvent) async -> Void) async throws
 }
 
 extension RemoteFeed {
     public var sendsAcknowledgements: Bool { false }
     public func acknowledge(id: String, status: JobStatus, labels: Int?, at date: Date) async throws {}
-    public func follow(from lastEventID: String?, connected: @Sendable () async -> Void, event: @Sendable (StreamEvent) async -> Void) async throws -> TimeInterval? { nil }
+    public func follow(from lastEventID: String?, connected: @Sendable () async -> Void, event: @Sendable (StreamEvent) async -> Void) async throws {}
 }
 
 /// An S3 prefix: lists it and picks out what's new since the last complete listing. Dates come from
