@@ -301,7 +301,7 @@ final class AppDelegate: NSObject, JobPresenter, NSApplicationDelegate, NSPopove
             guard let plan = try? await JobFlow.plan(files, trigger: trigger, store: store, engine: .shared, forcedPrinter: forcedPrinter,
                                                      review: review, action: override) else {
                 Log.error(.rules, "no printer for \(first.lastPathComponent)")
-                NSAlert(error: NSError(domain: "PeelGood", code: 1, userInfo: [NSLocalizedDescriptionKey: "No label printer found."])).runModal()
+                await ModalAlert.show(NSError(domain: "PeelGood", code: 1, userInfo: [NSLocalizedDescriptionKey: "No label printer found."]))
                 return
             }
             // Files that turn up on their own ask first, with a notification.

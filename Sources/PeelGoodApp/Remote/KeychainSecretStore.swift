@@ -12,14 +12,19 @@ struct KeychainSecretStore: SecretStore {
         var description: String { SecCopyErrorMessageString(status, nil) as String? ?? "Keychain error \(status)" }
     }
 
-    private func query(_ source: UUID) -> [String: Any] {
+    private func query(_ account: String) -> [String: Any] {
         [kSecClass as String: kSecClassGenericPassword,
          kSecAttrService as String: "\(AppIdentity.bundleID).remote",
-         kSecAttrAccount as String: source.uuidString]
+         kSecAttrAccount as String: account]
     }
 
-    func secret(for source: UUID) throws -> String? {
-        var q = query(source)
+    func secret(for source: UUID) throws -> String? { try read(source.uuidString) }
+    func setSecret(_ secret: String?, for source: UUID) throws { try write(secret, source.uuidString) }
+    func privateKey(for source: UUID) throws -> String? { try read("\(source.uuidString).private-key") }
+    func setPrivateKey(_ key: String?, for source: UUID) throws { try write(key, "\(source.uuidString).private-key") }
+
+    private func read(_ account: String) throws -> String? {
+        var q = query(account)
         q[kSecReturnData as String] = true
         var out: CFTypeRef?
         let status = SecItemCopyMatching(q as CFDictionary, &out)
@@ -28,10 +33,10 @@ struct KeychainSecretStore: SecretStore {
         return String(decoding: data, as: UTF8.self)
     }
 
-    func setSecret(_ secret: String?, for source: UUID) throws {
-        SecItemDelete(query(source) as CFDictionary)
+    private func write(_ secret: String?, _ account: String) throws {
+        SecItemDelete(query(account) as CFDictionary)
         guard let secret else { return }
-        var item = query(source)
+        var item = query(account)
         item[kSecValueData as String] = Data(secret.utf8)
         item[kSecAttrLabel as String] = "\(AppIdentity.appName) remote source"
         let status = SecItemAdd(item as CFDictionary, nil)

@@ -84,7 +84,7 @@ final class Store: ObservableObject {
             let done: @MainActor (Error?) -> Void = { [weak self] error in
                 guard let error else { return }
                 self?.change { self?.settings.virtualPrinter = !newValue }
-                NSAlert(error: error).runModal()
+                Task { await ModalAlert.show(error) }
             }
             if newValue { VirtualPrinterController.shared.start(done: done) } else { VirtualPrinterController.shared.stop(done: done) }
         }

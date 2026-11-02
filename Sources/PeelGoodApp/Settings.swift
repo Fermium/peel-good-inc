@@ -345,7 +345,7 @@ struct PrintersPane: View {
                     selection = store.printer?.name
                 } catch {
                     Log.error(.app, "couldn't remove printer \(name): \(error.localizedDescription)")
-                    NSAlert(error: error).runModal()
+                    await ModalAlert.show(error)
                 }
             }
             return

@@ -97,9 +97,14 @@ private struct RemoteDetail: View {
                     if let stream = http.streamURL { LabeledContent("Event stream", value: stream) }
                     if !http.downloadHosts.isEmpty { LabeledContent("Download hosts", value: http.downloadHosts.joined(separator: ", ")) }
                 }
+                if let encryption = source.encryption {
+                    LabeledContent("This Mac's key") { MacKey(key: encryption.macKey) }
+                    Text("Peel Good only accepts labels encrypted by the paired sender.")
+                        .font(.callout).foregroundStyle(.secondary)
+                }
                 LabeledContent("Status", value: statusText)
                 if live.status.skippedOnFirstCheck > 0 {
-                    Text("Peel Good skipped the \(live.status.skippedOnFirstCheck) \(sendsCopies ? "jobs" : "files") already there.")
+                    Text("Peel Good skipped the \(live.status.skippedOnFirstCheck) \(sendsJobs ? "jobs" : "files") already there.")
                         .font(.callout).foregroundStyle(.secondary)
                 }
                 if let error = live.status.lastError ?? live.status.streamError {
@@ -146,7 +151,8 @@ private struct RemoteDetail: View {
         }
     }
 
-    private var sendsCopies: Bool { if case .http = source.kind { true } else { false } }
+    private var sendsJobs: Bool { if case .http = source.kind { true } else { false } }
+    private var sendsCopies: Bool { sendsJobs || source.encryption != nil }
 
     private static let time: DateFormatter = {
         let f = DateFormatter()
@@ -195,6 +201,21 @@ private struct RemoteDetail: View {
     }
 }
 
+/// A public key to hand to the sender.
+private struct MacKey: View {
+    let key: String
+
+    var body: some View {
+        HStack {
+            Text(key).font(.caption.monospaced()).lineLimit(1).truncationMode(.middle).textSelection(.enabled)
+            Button("Copy") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(key, forType: .string)
+            }
+        }
+    }
+}
+
 /// S3 and the stores that speak its API. Each fills in what it can.
 private enum RemoteProvider: String, CaseIterable, Identifiable {
     case aws = "Amazon S3", r2 = "Cloudflare R2", b2 = "Backblaze B2", other = "Other"
@@ -234,6 +255,11 @@ struct AddRemoteSheet: View {
     @State private var streamURL = ""
     @State private var downloadHosts = ""
     @State private var acknowledges = false
+    @State private var encrypted = false
+    @State private var macKey = ""
+    @State private var senderKey = ""
+    /// Made when encryption first goes on, and saved along with the source.
+    @State private var newPrivateKey: String?
     @State private var message: String?
     @State private var busy = false
 
@@ -263,7 +289,8 @@ struct AddRemoteSheet: View {
     }
 
     private var isComplete: Bool {
-        switch current {
+        if encrypted, !SealedLabel.isValidKey(senderKey) { return false }
+        return switch current {
         case .bucket: !bucket.isEmpty && !accessKey.isEmpty && (editing != nil || !secret.isEmpty) && (provider == .aws || provider == .b2 ? !region.isEmpty : !account.isEmpty)
         case .url: !jobsURL.isEmpty
         case .stream: !streamURL.isEmpty
@@ -301,6 +328,19 @@ struct AddRemoteSheet: View {
                     TextField("Download hosts", text: $downloadHosts, prompt: Text("Optional, such as files.example.com"))
                     if current == .url { Toggle("Report each job's result to this URL", isOn: $acknowledges) }
                 }
+                Toggle("Only accept encrypted labels", isOn: $encrypted)
+                    .onChange(of: encrypted) { _, on in
+                        guard on, macKey.isEmpty else { return }
+                        let keys = SealedLabel.newKeys()
+                        newPrivateKey = keys.privateKey
+                        macKey = keys.publicKey
+                    }
+                if encrypted {
+                    LabeledContent("This Mac's key") { MacKey(key: macKey) }
+                    TextField("Sender's key", text: $senderKey, prompt: Text("The sender's public key"))
+                    Text("Give the sender this Mac's key. Peel Good then refuses anything this sender didn't encrypt.")
+                        .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                }
             }
             if current == .stream {
                 Text("With only a stream, Peel Good can miss labels sent while this Mac is off, unless the stream replays them.")
@@ -324,6 +364,11 @@ struct AddRemoteSheet: View {
     private func load() {
         guard let editing else { return }
         name = editing.name
+        if let encryption = editing.encryption {
+            encrypted = true
+            macKey = encryption.macKey
+            senderKey = encryption.senderKey
+        }
         switch editing.kind {
         case .s3(let s3):
             kind = .bucket
@@ -368,9 +413,11 @@ struct AddRemoteSheet: View {
             new.isPaused = editing.isPaused
             new.interval = editing.interval
         }
+        new.encryption = encrypted ? SourceEncryption(macKey: macKey, senderKey: senderKey.trimmingCharacters(in: .whitespacesAndNewlines)) : nil
+        let privateKey = encrypted ? newPrivateKey : nil
         Task {
             do {
-                if editing == nil { try await remote.add(new, secret: secret) } else { try await remote.update(new, secret: secret) }
+                if editing == nil { try await remote.add(new, secret: secret, privateKey: privateKey) } else { try await remote.update(new, secret: secret, privateKey: privateKey) }
                 done(new.id)
             } catch {
                 message = RemoteError.describe(error)

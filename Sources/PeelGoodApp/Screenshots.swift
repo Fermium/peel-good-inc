@@ -1,6 +1,7 @@
 import AppKit
 import LabelKit
 import PeelGoodCore
+import PeelGoodRemote
 import SwiftUI
 
 /// `PeelGood -screenshots <dir>` renders every surface of the app into PNGs, light and dark, then quits.
@@ -93,7 +94,15 @@ enum Screenshots {
             addServer.title = "Add Remote Source"
             await settle(addServer, 1.0)
             save(windowImage(addServer), file("settings-add-remote-url"))
+
             addServer.close()
+            var sealed = RemoteSource(name: "Orders", kind: .http(HTTPSource(jobsURL: "https://relay.example.com/labels/jobs")))
+            sealed.encryption = SourceEncryption(macKey: SealedLabel.newKeys().publicKey, senderKey: SealedLabel.newKeys().publicKey)
+            let addSealed = window(NSHostingController(rootView: active(AddRemoteSheet(remote: remote, editing: sealed) { _ in })), style: [.titled], appearance: appearance)
+            addSealed.title = "Edit Orders"
+            await settle(addSealed, 1.0)
+            save(windowImage(addSealed), file("settings-add-remote-encrypted"))
+            addSealed.close()
 
             // Zebra: its settings and the Add sheet (a live scan). The offer at launch is an NSAlert,
             // which can't be drawn offscreen.

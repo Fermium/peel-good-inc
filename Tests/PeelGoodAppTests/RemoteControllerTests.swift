@@ -20,6 +20,9 @@ final class RemoteControllerTests: XCTestCase {
             return values[source]
         }
         func setSecret(_ secret: String?, for source: UUID) throws { values[source] = secret }
+        var keys: [UUID: String] = [:]
+        func privateKey(for source: UUID) throws -> String? { keys[source] }
+        func setPrivateKey(_ key: String?, for source: UUID) throws { keys[source] = key }
     }
 
     final class Sent: @unchecked Sendable {
@@ -27,6 +30,63 @@ final class RemoteControllerTests: XCTestCase {
         private var names: [String] = []
         func add(_ name: String) { lock.withLock { names.append(name) } }
         var all: [String] { lock.withLock { names } }
+    }
+
+    func testAnEncryptedSourceWithoutItsKeyDoesNotStart() async throws {
+        let keys = SealedLabel.newKeys(), sender = SealedLabel.newKeys()
+        var source = RemoteSource(name: "Sealed", kind: .http(HTTPSource(jobsURL: "https://example.com/jobs")))
+        source.encryption = SourceEncryption(macKey: keys.publicKey, senderKey: sender.publicKey)
+        let remote = RemoteController(secrets: Secrets())
+        let inbox = await remote.inbox(for: source)
+        XCTAssertNil(inbox, "no key means nothing runs, rather than printing anything unchecked")
+        XCTAssertEqual(remote.live[source.id]?.status.needsAttention, true)
+        do {
+            try await remote.add(source, secret: nil)
+            XCTFail("a source can't be saved encrypted without its private key")
+        } catch {
+            XCTAssertEqual(error as? RemoteError, .invalidKey)
+        }
+        XCTAssertTrue(remote.sources.isEmpty)
+    }
+
+    func testAnEncryptionKeyLivesAndDiesWithItsSource() async throws {
+        try? FileManager.default.removeItem(at: AppPaths.remote)
+        let keys = SealedLabel.newKeys(), sender = SealedLabel.newKeys()
+        var source = RemoteSource(name: "Sealed", kind: .http(HTTPSource(jobsURL: "https://example.com/jobs")))
+        source.isPaused = true   // Nothing connects.
+        source.encryption = SourceEncryption(macKey: keys.publicKey, senderKey: sender.publicKey)
+        let secrets = Secrets()
+        let remote = RemoteController(secrets: secrets)
+
+        try await remote.add(source, secret: "TOKEN", privateKey: keys.privateKey)
+        XCTAssertEqual(secrets.keys[source.id], keys.privateKey)
+        XCTAssertEqual(secrets.values[source.id], "TOKEN", "the token and the key don't share a slot")
+        XCTAssertFalse(String(decoding: try Data(contentsOf: AppPaths.remote.appendingPathComponent("sources.json")), as: UTF8.self).contains(keys.privateKey),
+                       "the private key stays out of the source list")
+
+        source.name = "Renamed"
+        try await remote.update(source, secret: "")
+        XCTAssertEqual(secrets.keys[source.id], keys.privateKey, "an edit keeps the key")
+
+        source.encryption?.senderKey = "not a key"
+        do {
+            try await remote.update(source, secret: "")
+            XCTFail("a bad sender key can't be saved")
+        } catch {
+            XCTAssertEqual(error as? RemoteError, .invalidKey)
+        }
+        XCTAssertEqual(remote.sources.first?.encryption?.senderKey, sender.publicKey)
+
+        source.encryption = nil
+        try await remote.update(source, secret: "")
+        XCTAssertNil(secrets.keys[source.id], "turning encryption off deletes the key")
+        XCTAssertEqual(secrets.values[source.id], "TOKEN")
+
+        source.encryption = SourceEncryption(macKey: keys.publicKey, senderKey: sender.publicKey)
+        try await remote.update(source, secret: "", privateKey: keys.privateKey)
+        XCTAssertEqual(secrets.keys[source.id], keys.privateKey)
+        remote.remove(source.id)
+        try await waitFor { secrets.keys[source.id] == nil && secrets.values[source.id] == nil }
     }
 
     func testALabelLandsInTheBucketAndWaitsForAPerson() async throws {

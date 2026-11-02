@@ -180,6 +180,58 @@ Peel Good ignores what's already in the bucket when you add it, and checks every
 
 To watch part of a bucket, set a prefix such as `incoming/labels/`. It matches the start of the key and includes nested folders, so end it with `/`. Keep only labels there, because any other file shows up as **Failed**.
 
+## End-to-end encryption (optional)
+
+Turn on **Only accept encrypted labels** for a source, and the URL, stream or bucket only ever holds ciphertext. Your Mac decrypts each label, and nothing else can. It works on every source type.
+
+Set it up once:
+
+1. Make a sender key where you create labels: `node examples/seal/seal.mjs keygen`. Keep the private key there.
+2. In **Settings → Remote**, turn on **Only accept encrypted labels** and paste the **Sender's key**.
+3. Copy **This Mac's key** to the sender.
+
+Then seal each label before it leaves:
+
+```sh
+SENDER_KEY=<private key> node seal.mjs seal "<Mac's key>" label.pdf 9f2c1e --name order-1459.pdf --copies 2
+```
+
+Upload the result to your bucket, serve it from your URL, or list it as a job. Use a random file name and `id`, because the source can read those:
+
+```json
+{ "id": "9f2c1e", "url": "https://relay.example.com/blobs/9f2c1e" }
+```
+
+Name and copies come from inside the sealed file, and Peel Good ignores a job's own `name` and `copies`. Without a name inside, the label is called "Remote label". `sha256` covers the sealed file, and the 25 MB and 1 MB limits apply to it too.
+
+**Failed** shows any plain file, anything this sender didn't seal, and a sealed file that arrives again as another job. **Print Again** runs the same checks.
+
+### What it doesn't hide
+
+- The source still sees when labels arrive, roughly how big they are and your Mac's IP address. Reports show each job's status and label count.
+- The source can withhold or delete jobs. It just can't read, change or add any.
+- Whoever creates the label has already seen it, so a carrier or shop platform still has the address.
+- Seal outside the source. Code that the source itself serves, such as a web page, could leak the label before sealing it.
+- Anyone who takes this Mac's private key from the Keychain can read any sealed files they saved. Delete sealed files once they've printed.
+
+Turning encryption off deletes the private key. Turning it on again makes a new one, so the sender needs the new key.
+
+### Format
+
+Build it in any language using an HPKE library ([RFC 9180](https://www.rfc-editor.org/rfc/rfc9180)):
+
+| Part | Value |
+|---|---|
+| Mode | Auth, using the sender's X25519 key |
+| Ciphersuite | DHKEM(X25519, HKDF-SHA256), HKDF-SHA256, ChaCha20-Poly1305 |
+| `info` | `peel-good sealed label` |
+| AAD | `PGSEAL1\n` |
+| File | `PGSEAL1\n`, then the 32-byte encapsulated key, then the ciphertext |
+| Plaintext | Details length as 4 bytes big-endian, then details as JSON, then the PDF, PNG or JPEG |
+| Details | Up to 4,096 bytes: optional `name`, optional `copies` from 1 to 100. Use `{}` for neither. |
+
+Keys are raw 32-byte X25519 keys in base64.
+
 ## When something goes wrong
 
 Each source keeps its own record of what it printed, and never prints a job twice by itself. Editing a source keeps that record. Changing its address starts from now, and removing the source deletes the record.
@@ -203,6 +255,8 @@ If the printer can't take a job, the source shows **Waiting for the printer**. J
 ## Security risks
 
 Peel Good parses everything a remote source sends, so anyone who controls that source can attack your Mac. A malicious reply or header could exploit a bug in Peel Good's parsers or the macOS networking code, and a malicious PDF or image could exploit a bug in the macOS renderer. A successful exploit could run code with your user account's access, because Peel Good isn't sandboxed.
+
+End-to-end encryption narrows this. Peel Good only renders a file once it proves it came from your sender, so a compromised source can't send a malicious PDF or image. It can still attack the code that reads replies, headers and bucket listings, and a compromised sender can still send anything.
 
 Limit who can write to each source, and give Peel Good read-only credentials. Don't use a source for untrusted data, such as files your customers upload. Peel Good only checks download hosts for private addresses, so a job on your source's own host can reach whatever that host can.
 

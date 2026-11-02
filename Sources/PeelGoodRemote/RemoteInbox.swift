@@ -69,6 +69,10 @@ public actor RemoteInbox {
     private let ledger: Ledger
     private let spool: URL
     private let cursorFile: URL
+    private let keys: SealedLabel.Keys?
+    private let sealsFile: URL
+    /// Each seal opened so far, and the job it belongs to. Outlives the ledger's compacting.
+    private var seals: [String: String] = [:]
     private let deliver: @Sendable (Delivery) async -> DeliveryResult
     private let now: @Sendable () -> Date
     private let changed: @Sendable () -> Void
@@ -80,7 +84,7 @@ public actor RemoteInbox {
     public private(set) var status = Status()
 
     /// `directory` is this source's own folder. Starting up turns an interrupted print into `unclear`.
-    public init(feed: any RemoteFeed, directory: URL, now: @escaping @Sendable () -> Date = { Date() }, changed: @escaping @Sendable () -> Void = {},
+    public init(feed: any RemoteFeed, directory: URL, keys: SealedLabel.Keys? = nil, now: @escaping @Sendable () -> Date = { Date() }, changed: @escaping @Sendable () -> Void = {},
                 deliver: @escaping @Sendable (Delivery) async -> DeliveryResult) throws {
         self.feed = feed
         self.deliver = deliver
@@ -88,6 +92,12 @@ public actor RemoteInbox {
         self.changed = changed
         spool = directory.appendingPathComponent("spool", isDirectory: true)
         cursorFile = directory.appendingPathComponent("cursor.json")
+        self.keys = keys
+        sealsFile = directory.appendingPathComponent("seals.txt")
+        for line in ((try? String(contentsOf: sealsFile, encoding: .utf8)) ?? "").split(separator: "\n") {
+            let parts = line.split(separator: " ")
+            if parts.count == 2 { seals[String(parts[0])] = String(parts[1]) }
+        }
         try FileManager.default.createDirectory(at: spool, withIntermediateDirectories: true)
         ledger = try Ledger(file: directory.appendingPathComponent("ledger.jsonl"))
         cursor = (try? Data(contentsOf: cursorFile)).flatMap { try? JSONDecoder().decode(FeedCursor.self, from: $0) } ?? FeedCursor()
@@ -337,13 +347,21 @@ public actor RemoteInbox {
                 try await feed.download(item, to: part, limit: RemoteLimits.fileBytes)
             }
             if let expected = item.sha256?.lowercased(), Self.sha256(part) != expected { throw RemoteError.checksumMismatch }
+            // On an encrypted source only what's inside counts: the job's own name and copies came through the source.
+            var name = entry.name, copies = entry.copies
+            if let keys {
+                let contents = try unseal(part, id: entry.id, keys: keys)
+                name = contents.name ?? "Remote label"
+                copies = contents.copies
+            }
             guard let kind = FileKindSniffer.kind(of: part) else {
                 try? FileManager.default.removeItem(at: part)
                 update(entry.id, .failed, detail: "It isn't a PDF, PNG or JPEG")
                 return nil
             }
             var e = ledger[entry.id] ?? entry
-            e.name = SafeFileName.make(entry.name, fileExtension: kind, fallback: "Remote label")
+            e.name = SafeFileName.make(name, fileExtension: kind, fallback: "Remote label")
+            e.copies = copies
             let target = spoolFile(e)
             try? FileManager.default.removeItem(at: target)
             try FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -358,6 +376,26 @@ public actor RemoteInbox {
             update(entry.id, (error as? RemoteError)?.isPermanentForFile == true ? .failed : .new, detail: RemoteError.describe(error))
             return nil
         }
+    }
+
+    /// Swaps the encrypted download for the label inside. The same job may open its seal again, as after a
+    /// failed download. Another job using that seal is someone replaying it.
+    private func unseal(_ file: URL, id: String, keys: SealedLabel.Keys) throws -> SealedLabel.Contents {
+        let contents = try SealedLabel.open(try Data(contentsOf: file), keys: keys)
+        let job = Self.fileStem(id)
+        if let first = seals[contents.seal] {
+            guard first == job else { throw RemoteError.replayedLabel }
+        } else {
+            if !FileManager.default.fileExists(atPath: sealsFile.path) { FileManager.default.createFile(atPath: sealsFile.path, contents: nil) }
+            let handle = try FileHandle(forWritingTo: sealsFile)
+            defer { try? handle.close() }
+            try handle.seekToEnd()
+            try handle.write(contentsOf: Data("\(contents.seal) \(job)\n".utf8))
+            try handle.synchronize()
+            seals[contents.seal] = job
+        }
+        try contents.file.write(to: file)
+        return contents
     }
 
     /// Its page count, or nil when it can't be opened. Looks at PDFs before they go near a job.

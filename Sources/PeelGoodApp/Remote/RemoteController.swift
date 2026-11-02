@@ -78,6 +78,8 @@ final class RemoteController: ObservableObject {
     private struct PreviewSecrets: SecretStore {
         func secret(for source: UUID) throws -> String? { nil }
         func setSecret(_ secret: String?, for source: UUID) throws {}
+        func privateKey(for source: UUID) throws -> String? { nil }
+        func setPrivateKey(_ key: String?, for source: UUID) throws {}
     }
 
     private var listFile: URL { AppPaths.remote.appendingPathComponent("sources.json") }
@@ -102,12 +104,17 @@ final class RemoteController: ObservableObject {
 
     // MARK: Changing sources
 
-    /// `secret` is an S3 secret key, or the bearer token for a URL, if it needs one.
-    func add(_ source: RemoteSource, secret: String?) async throws {
+    /// `secret` is an S3 secret key, or the bearer token for a URL, if it needs one. `privateKey` goes
+    /// with `source.encryption`.
+    func add(_ source: RemoteSource, secret: String?, privateKey: String? = nil) async throws {
         // Refuse a source that could never start, while the person is here to fix it.
         if case .http(let http) = source.kind { _ = try HTTPFeed(source: http, token: nil) }
+        if let encryption = source.encryption { _ = try SealedLabel.Keys(privateKey: privateKey ?? "", sender: encryption.senderKey) }
         let secrets = secrets, id = source.id
-        try await Task.detached { try secrets.setSecret(secret?.isEmpty == true ? nil : secret, for: id) }.value
+        try await Task.detached {
+            try secrets.setSecret(secret?.isEmpty == true ? nil : secret, for: id)
+            try secrets.setPrivateKey(privateKey, for: id)
+        }.value
         sources.append(source)
         save()
         restart(source)
@@ -123,7 +130,10 @@ final class RemoteController: ObservableObject {
         save()
         try? FileManager.default.removeItem(at: directory(id))
         let secrets = secrets
-        Task.detached { try? secrets.setSecret(nil, for: id) }
+        Task.detached {
+            try? secrets.setSecret(nil, for: id)
+            try? secrets.setPrivateKey(nil, for: id)
+        }
         updateActivity()
     }
 
@@ -167,11 +177,15 @@ final class RemoteController: ObservableObject {
     }
 
     /// Changes a source and keeps its history. A new address starts from now, like a new source.
-    /// A blank `secret` keeps the saved one.
-    func update(_ source: RemoteSource, secret: String?) async throws {
+    /// A blank `secret` keeps the saved one, and no `privateKey` keeps the saved key unless encryption is off.
+    func update(_ source: RemoteSource, secret: String?, privateKey: String? = nil) async throws {
         if case .http(let http) = source.kind { _ = try HTTPFeed(source: http, token: nil) }
-        let secrets = secrets, id = source.id
-        if let secret, !secret.isEmpty { try await Task.detached { try secrets.setSecret(secret, for: id) }.value }
+        if let encryption = source.encryption, !SealedLabel.isValidKey(encryption.senderKey) { throw RemoteError.invalidKey }
+        let secrets = secrets, id = source.id, encrypted = source.encryption != nil
+        try await Task.detached {
+            if let secret, !secret.isEmpty { try secrets.setSecret(secret, for: id) }
+            if !encrypted { try secrets.setPrivateKey(nil, for: id) } else if let privateKey { try secrets.setPrivateKey(privateKey, for: id) }
+        }.value
         guard let i = sources.firstIndex(where: { $0.id == id }) else { return }
         if sources[i].kind != source.kind { try? FileManager.default.removeItem(at: directory(id).appendingPathComponent("cursor.json")) }
         sources[i] = source
@@ -307,6 +321,16 @@ final class RemoteController: ObservableObject {
             }
             defer { notice.cancel() }
             let secret = try await Task.detached(operation: { try secrets.secret(for: id) }).value
+            // An encrypted source without its key stops here, rather than printing anything unchecked.
+            var keys: SealedLabel.Keys?
+            if let encryption = source.encryption {
+                guard let key = try await Task.detached(operation: { try secrets.privateKey(for: id) }).value else {
+                    live[id, default: Live()].status.lastError = "Peel Good has no private key for this source. Turn encryption off and on again, then give the sender the new key."
+                    live[id, default: Live()].status.needsAttention = true
+                    return nil
+                }
+                keys = try SealedLabel.Keys(privateKey: key, sender: encryption.senderKey)
+            }
             let origin = source.origin, name = source.name, sourceID = id.uuidString
             let feed: any RemoteFeed
             switch source.kind {
@@ -321,7 +345,7 @@ final class RemoteController: ObservableObject {
                 // A dry run prints nothing, so it reports nothing either.
                 feed = try HTTPFeed(source: http, token: secret, sendAcknowledgements: !PrintJob.isDryRun)
             }
-            let inbox = try RemoteInbox(feed: feed, directory: directory(id), changed: { [weak self] in
+            let inbox = try RemoteInbox(feed: feed, directory: directory(id), keys: keys, changed: { [weak self] in
                 Task { @MainActor in await self?.refresh(id) }
             }) { [weak self] delivery in
                 await self?.deliver(delivery, origin: origin, source: name, sourceID: sourceID) ?? .notReady("Peel Good is quitting")

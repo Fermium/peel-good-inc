@@ -14,6 +14,11 @@ public enum RemoteError: Error, CustomStringConvertible, Equatable, Sendable {
     case gone
     case tryLater(TimeInterval)
     case streamOnAnotherHost
+    case invalidKey
+    case notEncrypted
+    case cantDecrypt
+    case invalidEncryptedJob
+    case replayedLabel
 
     public var description: String {
         switch self {
@@ -29,6 +34,11 @@ public enum RemoteError: Error, CustomStringConvertible, Equatable, Sendable {
         case .gone: "The file is no longer available"
         case .tryLater(let seconds): "The URL asked Peel Good to wait \(Int(seconds)) s"
         case .streamOnAnotherHost: "The event stream must use the same host and port as the URL."
+        case .invalidKey: "That encryption key isn't valid."
+        case .notEncrypted: "It isn't encrypted, and this source only accepts encrypted labels"
+        case .cantDecrypt: "It can't be decrypted. The sender's key or this Mac's key doesn't match, or the file is damaged"
+        case .invalidEncryptedJob: "The encrypted job has invalid details"
+        case .replayedLabel: "This encrypted label already arrived as another job, so Peel Good won't print it again"
         }
     }
 
@@ -41,7 +51,7 @@ public enum RemoteError: Error, CustomStringConvertible, Equatable, Sendable {
     /// It won't get better by downloading again.
     var isPermanentForFile: Bool {
         switch self {
-        case .tooLarge, .refusedAddress, .checksumMismatch, .gone, .insecureURL: true
+        case .tooLarge, .refusedAddress, .checksumMismatch, .gone, .insecureURL, .notEncrypted, .cantDecrypt, .invalidEncryptedJob, .replayedLabel: true
         case .server(let code, _): code == 404 || code == 410
         default: false
         }
@@ -126,6 +136,8 @@ public struct RemoteSource: Codable, Equatable, Identifiable, Sendable {
     public var isPaused = false
     /// Seconds between checks.
     public var interval: TimeInterval = 30
+    /// Set: everything from this source must be sealed by the paired sender.
+    public var encryption: SourceEncryption?
 
     public init(id: UUID = UUID(), name: String, kind: Kind) {
         self.id = id
@@ -165,6 +177,8 @@ public enum RemoteLimits {
 public protocol SecretStore: Sendable {
     func secret(for source: UUID) throws -> String?
     func setSecret(_ secret: String?, for source: UUID) throws
+    func privateKey(for source: UUID) throws -> String?
+    func setPrivateKey(_ key: String?, for source: UUID) throws
 }
 
 enum SecureURL {

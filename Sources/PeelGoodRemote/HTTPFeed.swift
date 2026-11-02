@@ -209,7 +209,7 @@ public final class HTTPFeed: RemoteFeed, Sendable {
 
     /// A jobs list, or a label itself when the URL simply serves one.
     private func parse(_ body: Data, etag: String?) throws -> (items: [RemoteItem], rejected: Int) {
-        if let kind = FileKindSniffer.kind(of: body) {
+        if let kind = FileKindSniffer.kind(of: body) ?? (SealedLabel.isSealed(body) ? "sealed" : nil) {
             let hash = SHA256.hash(data: body).map { String(format: "%02x", $0) }.joined()
             let name = source.jobsURL.flatMap(URLComponents.init(string:))?.path.split(separator: "/").last.map(String.init) ?? "Remote label.\(kind)"
             return ([RemoteItem(id: "direct#\(etag ?? hash)", key: "inline:direct", name: name, size: body.count, modified: now(), inline: body)], 0)

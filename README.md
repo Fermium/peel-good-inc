@@ -111,7 +111,7 @@ Incoming jobs go through your rules, and Peel Good asks first until a rule says 
 
 ## Privacy
 
-No ads, no tracking, no analytics. Your labels stay on your Mac. A remote source you add, and any download host you list, can see your Mac's IP address and when Peel Good connects. If you turn on "Report each job's result to this URL", Peel Good posts each job's ID, outcome, label count and time to an address under that URL.
+No ads, no tracking, no analytics. Your labels stay on your Mac. Remote sources can be [end-to-end encrypted](docs/REMOTE-SOURCES.md#end-to-end-encryption-optional), so a relay or bucket only holds ciphertext. A remote source you add, and any download host you list, can see your Mac's IP address and when Peel Good connects. If you turn on "Report each job's result to this URL", Peel Good posts each job's ID, outcome, label count and time to an address under that URL.
 
 The HTTP API and MCP server are off by default. When on, they accept connections only from your own Mac, and require the token for everything except the docs page and OpenAPI file.
 

@@ -18,7 +18,7 @@ enum ZebraSetup {
             let (onUSB, found) = await (usb, network)
             Log.info(.app, "Zebra scan: \(found.count) found\(found.isEmpty ? "" : " at " + found.map(\.found.host).joined(separator: ", "))")
             store.refresh()
-            offer(onUSB, store: store)
+            await offer(onUSB, store: store)
             for candidate in found where candidate.isNew { await offer(candidate, store: store) }
         }
     }
@@ -39,19 +39,19 @@ enum ZebraSetup {
         let settings = store.settings
         let found = await Task.detached(priority: .utility) { settings.scanUSB() }.value
         store.refresh()
-        offer(found, store: store)
+        await offer(found, store: store)
     }
 
-    private static func offer(_ found: [USBCandidate], store: Store) {
+    private static func offer(_ found: [USBCandidate], store: Store) async {
         for candidate in found where offeringUSB.insert(candidate.id).inserted {
-            offer(candidate, store: store)
+            await offer(candidate, store: store)
             offeringUSB.remove(candidate.id)
         }
     }
 
     /// "Found Zebra GX420t on USB": Add, Not Now, or Ignore This Printer.
-    private static func offer(_ candidate: USBCandidate, store: Store) {
-        switch askToAdd(title: "Found \(candidate.profile.displayName) on USB") {
+    private static func offer(_ candidate: USBCandidate, store: Store) async {
+        switch await askToAdd(title: "Found \(candidate.profile.displayName) on USB") {
         case .alertFirstButtonReturn:
             store.addZebra(candidate.profile)
             Log.notice(.app, "added Zebra \(candidate.profile.product) \(candidate.profile.serial) on USB")
@@ -62,26 +62,28 @@ enum ZebraSetup {
         }
     }
 
-    private static func askToAdd(title: String) -> NSApplication.ModalResponse {
+    private static func askToAdd(title: String) async -> NSApplication.ModalResponse {
         let alert = NSAlert()
         alert.messageText = title
         alert.informativeText = "Add it to Peel Good Inc. to print labels on it. You can turn off this search in Settings › General."
         alert.addButton(withTitle: "Add")
         alert.addButton(withTitle: "Not Now")
         alert.addButton(withTitle: "Ignore This Printer")
-        NSApp.activate()
-        return alert.runModal()
+        return await ModalAlert.run {
+            NSApp.activate()
+            return alert.runModal()
+        }
     }
 
     /// "Found Zebra GX420t at 192.168.1.216": Add, Not Now, or Ignore This Printer.
     static func offer(_ candidate: ZebraCandidate, store: Store) async {
         let found = candidate.found
-        switch askToAdd(title: "Found \(candidate.product == nil ? "a Zebra printer" : candidate.displayName) at \(found.host)") {
+        switch await askToAdd(title: "Found \(candidate.product == nil ? "a Zebra printer" : candidate.displayName) at \(found.host)") {
         case .alertFirstButtonReturn:
             do {
                 try await add(host: found.host, discoveryID: found.serial, store: store)
             } catch {
-                NSAlert(error: error).runModal()
+                await ModalAlert.show(error)
             }
         case .alertThirdButtonReturn:
             store.ignoreZebra(found.serial)
@@ -122,7 +124,7 @@ enum ZebraSetup {
                 Log.notice(.app, "moved calibration (\(dx), \(dy)) dots to \(printer.name): LEFT POSITION \(result.leftPosition), LABEL TOP \(result.labelTop)")
             } catch {
                 Log.error(.app, "couldn't move calibration to \(printer.name): \(error)")
-                NSAlert(error: error).runModal()
+                await ModalAlert.show(error)
             }
         }
     }
