@@ -115,35 +115,58 @@ extension FolderWatcher {
 final class Notifier: NSObject, UNUserNotificationCenterDelegate {
     static let shared = Notifier()
     var onAction: (URL, _ print: Bool) -> Void = { _, _ in }
+    /// A notification for a remote label: its source and item, and whether Print was pressed.
+    var onRemoteAction: (_ source: String, _ item: String, _ print: Bool) -> Void = { _, _, _ in }
 
     func setUp() {
         let center = UNUserNotificationCenter.current()
         center.delegate = self
         let print = UNNotificationAction(identifier: "print", title: "Print", options: [])
         let preview = UNNotificationAction(identifier: "preview", title: "Preview", options: [.foreground])
-        center.setNotificationCategories([UNNotificationCategory(identifier: "label", actions: [print, preview], intentIdentifiers: [])])
+        let settings = UNNotificationAction(identifier: "settings", title: "Open Settings", options: [.foreground])
+        center.setNotificationCategories([UNNotificationCategory(identifier: "label", actions: [print, preview], intentIdentifiers: []),
+                                          UNNotificationCategory(identifier: "remote", actions: [print, settings], intentIdentifiers: [])])
     }
 
     func ask(_ url: URL, detail: String) {
+        post(title: url.lastPathComponent, body: detail, category: "label", id: url.path, info: ["path": url.path], file: url.lastPathComponent)
+    }
+
+    /// Asks about a remote label. Settings › Remote lists it too, in case notifications are off.
+    func askRemote(name: String, detail: String, source: String, item: String) {
+        post(title: name, body: detail, category: "remote", id: "\(source)#\(item)", info: ["remoteSource": source, "remoteItem": item], file: name)
+    }
+
+    /// Says something went wrong and needs a look, with no buttons.
+    func tell(title: String, body: String) {
+        post(title: title, body: body, category: "", id: title, info: [:], file: title)
+    }
+
+    private func post(title: String, body: String, category: String, id: String, info: [String: String], file: String) {
         let center = UNUserNotificationCenter.current()
         center.requestAuthorization(options: [.alert, .sound]) { granted, error in
             if let error { Log.error(.files, "notifications: \(error.localizedDescription)") }
             guard granted else {
-                Log.warning(.files, "notifications are off; open Peel Good Inc. to print \(url.lastPathComponent)")
+                Log.warning(.files, "notifications are off; open Peel Good Inc. to print \(file)")
                 return
             }
             let content = UNMutableNotificationContent()
-            content.title = url.lastPathComponent
-            content.body = detail
-            content.categoryIdentifier = "label"
-            content.userInfo = ["path": url.path]
-            center.add(UNNotificationRequest(identifier: url.path, content: content, trigger: nil))
+            content.title = title
+            content.body = body
+            content.categoryIdentifier = category
+            content.userInfo = info
+            center.add(UNNotificationRequest(identifier: id, content: content, trigger: nil))
         }
     }
 
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
-        guard let path = response.notification.request.content.userInfo["path"] as? String else { return }
         let print = response.actionIdentifier == "print"
+        let info = response.notification.request.content.userInfo
+        if let source = info["remoteSource"] as? String, let item = info["remoteItem"] as? String {
+            await MainActor.run { onRemoteAction(source, item, print) }
+            return
+        }
+        guard let path = info["path"] as? String else { return }
         await MainActor.run { onAction(URL(fileURLWithPath: path), print) }
     }
 

@@ -2,6 +2,7 @@ import AppKit
 import LabelKit
 import PeelGoodCore
 import MCP
+import PeelGoodRemote
 import XCTest
 @testable import PeelGoodApp
 
@@ -30,7 +31,7 @@ final class JobFlowTests: XCTestCase {
     var sent: Sent!
     var printer: PrinterInfo!
     var file: URL!
-    let keys = ["countdown", "alwaysReview", "playSounds", "last.file", "last.printer", "last.size", "apiHTTPEnabled", "apiMCPEnabled", "historyDays"]
+    let keys = ["newFilesAction", "countdown", "alwaysReview", "playSounds", "last.file", "last.printer", "last.size", "apiHTTPEnabled", "apiMCPEnabled", "historyDays"]
 
     override func setUp() async throws {
         store = Store()
@@ -90,6 +91,48 @@ final class JobFlowTests: XCTestCase {
         func job(review: Bool) -> PrintJob { PrintJob(files: [file], printer: printer, options: LabelOptions(), reviewFirst: review, countdownSeconds: 1) }
         XCTAssertTrue(job(review: true).awaitsAnswer, "review, from composing on")
         XCTAssertFalse(job(review: false).awaitsAnswer, "a countdown goes on by itself")
+    }
+
+    func testARemoteFileGoesThroughTheRulesWithoutShowingAnything() async throws {
+        UserDefaults.standard.set("ask", forKey: "newFilesAction")
+        let sent = sent!
+        let sender: PrintJob.Sender = { file, _, _, copies in sent.add(file, copies); return "test-1" }
+        let delivery = Delivery(id: "a", name: "a.pdf", file: file, copies: nil, forced: false)
+        let engine = RuleEngine(fileURL: nil)
+
+        // Nothing prints unattended until a rule says so.
+        var result = await RemoteController.deliver(delivery, origin: "https://s3.example.com/labels/", store: store, engine: engine, sender: sender)
+        XCTAssertEqual(result, .waiting)
+        XCTAssertEqual(sent.all.count, 0)
+        XCTAssertEqual(FileFacts.whereFroms(file).first?.host, "s3.example.com", "the rules' Source website sees the source")
+
+        // A person pressed Print: the sender's copies count, and every page is a label.
+        var pressed = delivery
+        pressed.forced = true
+        pressed.copies = 3
+        result = await RemoteController.deliver(pressed, origin: "https://s3.example.com/labels/", store: store, engine: engine, sender: sender)
+        XCTAssertEqual(result, .sent(labels: 6), "2 pages, 3 copies")
+        XCTAssertEqual(sent.all.first?.1, 3)
+        XCTAssertTrue(presenter.jobs.isEmpty, "it shows nothing on screen")
+
+        // A rule prints it by itself.
+        var rule = Rule(name: "Remote", conditions: [RuleCondition(field: .trigger, op: .is, values: [RuleTrigger.remote.rawValue])])
+        rule.outcome.action = .print
+        let printing = RuleEngine(fileURL: nil)
+        printing.add(rule)
+        result = await RemoteController.deliver(delivery, origin: "https://s3.example.com/labels/", store: store, engine: printing, sender: sender)
+        XCTAssertEqual(result, .sent(labels: 2))
+        XCTAssertEqual(sent.all.count, 2)
+
+        // The limit counts the copies a rule sets, not only the ones a job asks for.
+        var fifty = rule
+        fifty.outcome.copies = 50
+        let many = RuleEngine(fileURL: nil)
+        many.add(fifty)
+        let limited = Delivery(id: "b", name: "b.pdf", file: file, copies: nil, forced: false, pages: 2, labelsLeft: 30)
+        result = await RemoteController.deliver(limited, origin: "https://s3.example.com/labels/", store: store, engine: many, sender: sender)
+        XCTAssertEqual(result, .overLimit)
+        XCTAssertEqual(sent.all.count, 2, "nothing went out")
     }
 
     func testCancelInThePopover() async throws {

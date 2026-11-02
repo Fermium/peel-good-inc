@@ -87,11 +87,25 @@ enum JobFlow {
         return JobPlan(files: [url], printer: printer, options: options, copies: 1, action: .print, review: review || store.alwaysReview, decision: nil)
     }
 
+    /// Runs a plan with nothing on screen and reports how it ended: for labels nobody handed over, so
+    /// they don't take focus. `labels` is what it printed, copies included.
+    static func runQuietly(_ plan: JobPlan, store: Store, sender: PrintJob.Sender? = nil) async -> (outcome: PrintJob.Outcome, labels: Int) {
+        var plan = plan
+        plan.review = false
+        let job = makeJob(plan, store: store, countdown: 0)
+        if let sender { job.sender = sender }
+        let outcome = await withCheckedContinuation { (done: CheckedContinuation<PrintJob.Outcome, Never>) in
+            job.onOutcome = { done.resume(returning: $0) }
+            job.start()
+        }
+        return (outcome, job.labels.count * max(1, plan.copies))
+    }
+
     /// A job with the app's after-print steps: remember it for reprinting, play the sound,
     /// tag (see `RuleTag`) and rename, move or trash the originals.
     /// Temporary copies (uploads, clipboard, reprints) are never tagged or moved.
-    static func makeJob(_ plan: JobPlan, store: Store) -> PrintJob {
-        let job = PrintJob(files: plan.files, printer: plan.printer, options: plan.options, reviewFirst: plan.review, countdownSeconds: store.countdown)
+    static func makeJob(_ plan: JobPlan, store: Store, countdown: Double? = nil) -> PrintJob {
+        let job = PrintJob(files: plan.files, printer: plan.printer, options: plan.options, reviewFirst: plan.review, countdownSeconds: countdown ?? store.countdown)
         job.copies = plan.copies
         job.notes = plan.decision?.notes ?? []
         let tag = (plan.decision?.tag ?? .general).resolve(store.settings)

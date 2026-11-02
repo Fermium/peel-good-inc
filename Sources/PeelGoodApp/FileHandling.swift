@@ -1,3 +1,4 @@
+import PeelGoodShared
 import AppKit
 import LabelKit
 import PeelGoodCore
@@ -37,6 +38,7 @@ enum AfterPrint {
         let path = url.resolvingSymlinksInPath().path
         let temp = FileManager.default.temporaryDirectory.resolvingSymlinksInPath().path
         return !path.hasPrefix(temp) && !path.contains("/Library/Containers/") && !path.hasPrefix(Store.historyFolder.resolvingSymlinksInPath().path)
+            && !path.hasPrefix(AppPaths.remote.resolvingSymlinksInPath().path)
     }
 
     /// "name.pdf", then "name 2.pdf", "name 3.pdf"…

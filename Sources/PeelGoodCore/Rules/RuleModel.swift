@@ -170,7 +170,7 @@ public enum FileKind: String, Codable, CaseIterable, Sendable {
 /// Drop and the printer tiles are `drop`; Open With, Print File…, Services and Share are `openWith`;
 /// Print Clipboard (menu and MCP) is `clipboard`; HTTP and MCP files are `api`; `peelgood print` is `cli`.
 public enum RuleTrigger: String, Codable, CaseIterable, Sendable {
-    case drop, clipboard, openWith, watchedFolder, api, cli, printDialog
+    case drop, clipboard, openWith, watchedFolder, remote, api, cli, printDialog
     public var title: String {
         switch self {
         // The Peel Good Inc. printer only: the PDF menu item hands the app a file, which counts as openWith.
@@ -179,14 +179,15 @@ public enum RuleTrigger: String, Codable, CaseIterable, Sendable {
         case .clipboard: "From the clipboard"
         case .openWith: "Opened in Finder"
         case .watchedFolder: "In a watched folder"
+        case .remote: "From a remote source"
         case .api: "From another app"
         case .cli: "From the command line"
         }
     }
-    /// Files that turn up on their own, with nobody handing them over: only watched folders.
+    /// Files that turn up on their own, with nobody handing them over: watched folders and remote sources.
     /// They follow Rules > New files when no rule says, and Ask posts a notification.
     /// Every other trigger is a file someone handed over: no action prints, Ask shows the preview.
-    public var isUnattended: Bool { self == .watchedFolder }
+    public var isUnattended: Bool { self == .watchedFolder || self == .remote }
 }
 
 /// Page sizes worth recognising, in either orientation.

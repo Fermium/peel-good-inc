@@ -23,7 +23,7 @@ enum Log {
     }
 
     enum Category: String, CaseIterable, Sendable {
-        case app, drop, intake, job, print, files, rules, api
+        case app, drop, intake, job, print, files, rules, api, remote
     }
 
     static let subsystem = AppIdentity.bundleID

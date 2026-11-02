@@ -14,6 +14,8 @@ public enum AppPaths {
 
     /// Saved copies of printed labels, for Reprint Last Label and `peelgood history`.
     public static var history: URL { support.appendingPathComponent("History", isDirectory: true) }
+    /// Remote sources: their list, and each one's record of what it printed and its downloaded files.
+    public static var remote: URL { support.appendingPathComponent("Remote", isDirectory: true) }
     /// The rule list the app edits and the CLI reads.
     public static var rulesFile: URL { support.appendingPathComponent("rules.json") }
     /// The local API's bearer token (mode 0600).

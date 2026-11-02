@@ -24,6 +24,8 @@ let package = Package(
         // history and limits. Foundation, CoreGraphics and LabelKit only (no AppKit or SwiftUI).
         .target(name: "PeelGoodCore", dependencies: ["LabelKit", "PeelGoodShared"]),
         // The command line's one description (commands, help, completions, man page), shared with Settings > CLI.
+        // Labels from S3 and HTTP sources. Outbound only: no listener, and it doesn't link Hummingbird.
+        .target(name: "PeelGoodRemote", dependencies: ["PeelGoodShared"], swiftSettings: [.swiftLanguageMode(.v6)]),
         .target(name: "PeelGoodCLI", dependencies: ["LabelKit", "PeelGoodCore", "PeelGoodShared"]),
         .executableTarget(name: "peelgood", dependencies: ["LabelKit", "PeelGoodCLI", "PeelGoodCore", "PeelGoodShared"]),
         .executableTarget(name: "make-fixtures"),
@@ -31,6 +33,7 @@ let package = Package(
             "LabelKit",
             "PeelGoodCLI",
             "PeelGoodCore",
+            "PeelGoodRemote",
             "PeelGoodShared",
             .product(name: "Hummingbird", package: "hummingbird"),
             .product(name: "MCP", package: "swift-sdk"),
@@ -40,8 +43,10 @@ let package = Package(
         .executableTarget(name: "peel-good-mcp", dependencies: ["PeelGoodShared"]),
         .testTarget(name: "LabelKitTests", dependencies: ["LabelKit"]),
         .testTarget(name: "PeelGoodCoreTests", dependencies: ["PeelGoodCore", "LabelKit", "PeelGoodShared"]),
+        .target(name: "RemoteTestSupport", dependencies: ["PeelGoodRemote"], path: "Tests/RemoteTestSupport"),
+        .testTarget(name: "PeelGoodRemoteTests", dependencies: ["PeelGoodRemote", "RemoteTestSupport"]),
         .testTarget(name: "PeelGoodCLITests", dependencies: ["PeelGoodCLI", "LabelKit", "PeelGoodCore"]),
-        .testTarget(name: "PeelGoodAppTests", dependencies: ["PeelGoodApp", "PeelGoodCore", "LabelKit", .product(name: "MCP", package: "swift-sdk")]),
+        .testTarget(name: "PeelGoodAppTests", dependencies: ["PeelGoodApp", "PeelGoodCore", "PeelGoodRemote", "RemoteTestSupport", "LabelKit", .product(name: "MCP", package: "swift-sdk")]),
     ],
     swiftLanguageModes: [.v5]
 )

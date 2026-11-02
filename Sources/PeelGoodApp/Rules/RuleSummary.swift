@@ -62,6 +62,7 @@ enum RuleSummary {
             case .clipboard: (yes, no) = ("comes from the clipboard", "doesn't come from the clipboard")
             case .openWith: (yes, no) = ("is opened from Finder", "isn't opened from Finder")
             case .watchedFolder: (yes, no) = ("turns up in a watched folder", "doesn't come from a watched folder")
+            case .remote: (yes, no) = ("comes from a remote source", "doesn't come from a remote source")
             case .api: (yes, no) = ("is sent by another app", "isn't sent by another app")
             case .cli: (yes, no) = ("is printed from the command line", "isn't printed from the command line")
             case .printDialog: (yes, no) = ("is printed to Peel Good Inc.", "isn't printed to Peel Good Inc.")
