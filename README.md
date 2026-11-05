@@ -26,6 +26,7 @@ A small, simple, delightful Mac menu bar app that prints your labels instantly. 
 - Common label sizes: 4 × 6, 4 × 8, 4 × 4, 4 × 3, 4 × 2, 3 × 5, 3 × 3, 3 × 2, 2.5 × 1.5, 2.25 × 2.25, 2.25 × 1.25 and 2 × 2 in, metric rolls such as 100 × 150 mm, and custom sizes.
 - Prints to Zebra printers on USB or your network in ZPL, no driver needed.
 - Watches a folder for new files.
+- Prints from S3 buckets, HTTPS URLs and Server-Sent Events streams, optionally using end-to-end encryption.
 - After printing it can tag the file in Finder, rename it, move it or put it in the Trash, so you always know which labels are done.
 - Native Mac app: Print dialog, Share menu, Services, Open With, the clipboard and the menu bar.
 - Thermal printers only print black and white, and most documents aren't made for that. *Peel Good Inc.* converts them using multiple algorithms (sharp, dithering, halftone).
@@ -108,6 +109,8 @@ Keep in mind that CUPS drivers for thermal printers are utterly broken on the Ma
 Peel Good pulls print jobs from HTTPS feeds, Server-Sent Events streams, and S3-compatible object stores (Amazon S3, Cloudflare R2, Backblaze B2, MinIO). Every connection goes outbound from your Mac; nothing listens on the public internet, and no incoming firewall ports need opening.
 
 Incoming jobs go through your rules, and Peel Good asks first until a rule says Print. It never prints a job twice by itself: if a print is interrupted, the label waits for you. [Full guide](docs/REMOTE-SOURCES.md).
+
+Your bucket or URL doesn't have to see your labels. Turn on encryption for a source and it only ever holds ciphertext: Peel Good decrypts on your Mac, and refuses any file your sender didn't encrypt.
 
 ## Privacy
 
