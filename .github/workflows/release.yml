@@ -180,6 +180,44 @@ jobs:
             --repo "$GITHUB_REPOSITORY" --verify-tag --generate-notes \
             --title "Peel Good Inc. ${{ needs.build.outputs.version }}"
 
+  # Pushes the build to fermium.ltd.uk, which serves it at /apps/peel-good-inc/download
+  # and describes it at /apps/peel-good-inc/latest.json. FERMIUM_PUBLISH_TOKEN can only
+  # publish this app (mint it with scripts/app-token.mjs in Fermium/website).
+  publish-website:
+    needs: build
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    env:
+      TOKEN: ${{ secrets.FERMIUM_PUBLISH_TOKEN }}
+      API: https://fermium.ltd.uk/api/apps/peel-good-inc/releases/${{ needs.build.outputs.version }}
+    steps:
+      - name: Check for the publish token
+        if: env.TOKEN == ''
+        run: echo "::warning::FERMIUM_PUBLISH_TOKEN isn't set, so fermium.ltd.uk wasn't updated."
+      - uses: actions/download-artifact@v8
+        if: env.TOKEN != ''
+        with:
+          name: peel-good-inc-${{ needs.build.outputs.version }}
+          path: dist
+      - name: Upload and publish
+        if: env.TOKEN != ''
+        run: |
+          set -euo pipefail
+          # The disk image when there is one, else the zip.
+          file="$(ls dist/*.dmg 2>/dev/null | head -1 || true)"
+          [[ -n "$file" ]] || file="$(ls dist/*.zip | head -1)"
+          name="$(basename "$file")"
+          # With the hash, the website refuses an upload that arrived damaged.
+          curl -fsS --retry 3 -X PUT "$API/$name" \
+            -H "Authorization: Bearer $TOKEN" \
+            -H "x-sha256: $(sha256sum "$file" | cut -d' ' -f1)" \
+            -H 'content-type: application/octet-stream' \
+            --data-binary @"$file"
+          curl -fsS --retry 3 -X POST "$API/publish" \
+            -H "Authorization: Bearer $TOKEN" \
+            -H 'content-type: application/json' \
+            -d "{\"file\":\"$name\",\"releaseNotes\":\"$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/$GITHUB_REF_NAME\"}"
+
   bump-tap:
     needs: [build, release]
     if: github.ref_type == 'tag'
