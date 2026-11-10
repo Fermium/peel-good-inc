@@ -221,7 +221,7 @@ struct LabelRun {
         if options.nudgeMM != .zero { parts.append(String(format: "nudge %g,%g mm", options.nudgeMM.x, options.nudgeMM.y)) }
         if copies > 1 { parts.append("\(copies) copies") }
         let on = printer.map { " on \(s.bold($0.displayName)) \(s.dim("(\($0.name))"))" } ?? ""
-        ctx.say("\(s.accent("●")) \(parts.joined(separator: " \(s.dot) "))\(on)")
+        ctx.say("\(s.accent("●")) \(parts.joined(separator: "\(s.dot) "))\(on)")
         if ctx.verbose || rule != nil || (!fromApp.isEmpty && kind != .preview) {
             var notes: [String] = []
             if let rule, from != "rule “\(rule)”" { notes.append("rule “\(rule)”") }
@@ -269,17 +269,17 @@ struct LabelRun {
                 line.append(counts.missing.isEmpty ? s.green(codes) : s.red(codes))
             }
             let mark = counts.missing.isEmpty ? s.ok : s.fail
-            ctx.say("  \(mark) \(s.dim("page \(i + 1)"))  " + line.joined(separator: " \(s.dot) "))
+            ctx.say("  \(mark) \(s.dim("page \(i + 1)"))  " + line.joined(separator: "\(s.dot) "))
             for w in warnings { ctx.say("    \(s.warn) \(s.yellow(w))") }
             if ctx.verbose {
                 ctx.say(s.dim("    page \(inches(page.size.width))x\(inches(page.size.height)) in, crop \(inches(c.width))x\(inches(c.height)) at (\(inches(c.minX)), \(inches(c.minY)))"))
                 ctx.say(s.dim("    smooth gray \(String(format: "%.1f", label.smoothGray * 100))%, 1-dot features \(label.oneDotFeatures)"))
                 for d in CodeAnalysis.analyze(label, dpi: options.dpi) {
                     let hist = d.runs.sorted { $0.key < $1.key }.prefix(12).map { "\($0.key):\($0.value)" }.joined(separator: " ")
-                    ctx.say(s.dim("    \(d.symbology) \(d.picketFence ? "picket" : "ladder") · module ≈ \(String(format: "%.2f", d.moduleDots)) dots · runs \(hist)"))
+                    ctx.say(s.dim("    \(d.symbology) \(d.picketFence ? "picket" : "ladder"), module ≈ \(String(format: "%.2f", d.moduleDots)) dots, runs \(hist)"))
                 }
                 for r in label.codeReports {
-                    ctx.say(s.dim("    \(r.symbology) fit · \(String(format: "%.2f", r.moduleDots)) dots/module\(r.redrawn ? ", redrawn" : "") · \(r.severity)"))
+                    ctx.say(s.dim("    \(r.symbology) fit, \(String(format: "%.2f", r.moduleDots)) dots/module\(r.redrawn ? ", redrawn" : ""), \(r.severity)"))
                 }
             }
         }

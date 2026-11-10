@@ -121,7 +121,7 @@ private struct ComponentsSheet: View {
                 TableColumn("License", value: \.license).width(100)
             }
             HStack {
-                Text("\(components.count) packages · CycloneDX 1.5").font(.caption).foregroundStyle(.secondary)
+                Text("\(components.count) packages, CycloneDX 1.5").font(.caption).foregroundStyle(.secondary)
                 Spacer()
                 Button("Save SBOM…", action: save).disabled(Self.sbomURL == nil)
                 Button("Done") { dismiss() }.keyboardShortcut(.defaultAction)

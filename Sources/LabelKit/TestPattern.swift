@@ -51,7 +51,7 @@ public enum TestPattern {
                 NSAttributedString.Key(kCTFontAttributeName as String): font,
                 NSAttributedString.Key(kCTForegroundColorAttributeName as String): CGColor(gray: 0, alpha: 1),
             ]
-            for (i, line) in [title, "border 2 mm in from each edge · numbers in mm"].enumerated() {
+            for (i, line) in [title, "border 2 mm in from each edge, numbers in mm"].enumerated() {
                 let scale: CGFloat = i == 0 ? 1 : 0.55
                 var a = attrs
                 a[NSAttributedString.Key(kCTFontAttributeName as String)] = CTFontCreateCopyWithAttributes(font, CTFontGetSize(font) * scale, nil, nil)

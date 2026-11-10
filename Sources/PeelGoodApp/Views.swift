@@ -147,7 +147,7 @@ struct DropTile: View {
             Image(systemName: printer.isLabelPrinter ? "printer.dotmatrix.fill" : "photo.on.rectangle.angled")
                 .font(.system(size: 28))
             Text(printer.displayName).font(.caption.weight(.medium)).lineLimit(1)
-            Text(printer.isLabelPrinter ? size.display : "\(size.display) · color").font(.caption2).foregroundStyle(.secondary)
+            Text(printer.isLabelPrinter ? size.display : "\(size.display), color").font(.caption2).foregroundStyle(.secondary)
         }
         .frame(width: 120, height: 96)
         .background(RoundedRectangle(cornerRadius: 12).fill(targeted ? Color.accentColor.opacity(0.25) : Color.primary.opacity(0.05)))

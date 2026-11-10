@@ -327,9 +327,9 @@ private struct TestFileBox: View {
                     Text("Matches **\(d.rule.displayName)**.")
                 }
             }
-            Text("\(d.printer.displayName) · \(d.options.size.display) · \(d.options.fit == .fit ? "Fit" : "Fill") · "
-                 + "\(d.printer.isLabelPrinter ? d.options.ink.rawValue.capitalized + " · " : "")\(d.action.title)"
-                 + (d.copies > 1 ? " · \(d.copies) copies" : ""))
+            Text("\(d.printer.displayName), \(d.options.size.display), \(d.options.fit == .fit ? "Fit" : "Fill"), "
+                 + "\(d.printer.isLabelPrinter ? d.options.ink.rawValue.capitalized + ", " : "")\(d.action.title)"
+                 + (d.copies > 1 ? ", \(d.copies) copies" : ""))
                 .font(.callout)
             ForEach(d.notes, id: \.self) { Text($0).font(.caption).foregroundStyle(.orange) }
             Text(RuleSummary.facts(result.context)).font(.caption).foregroundStyle(.secondary).lineLimit(1)

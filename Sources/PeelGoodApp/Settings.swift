@@ -116,7 +116,7 @@ struct GeneralPane: View {
                     set: { name in store.printer = store.eligiblePrinters.first { $0.name == name } }
                 )) {
                     ForEach(store.eligiblePrinters, id: \.name) { p in
-                        Text("\(p.displayName) · \(store.size(for: p).display)").tag(p.name)
+                        Text("\(p.displayName), \(store.size(for: p).display)").tag(p.name)
                     }
                 }
                 Picker("Before printing", selection: Binding(get: { store.alwaysReview ? -1 : store.countdown },
@@ -263,7 +263,7 @@ struct PrintersPane: View {
                         Image(systemName: p.isLabelPrinter ? "printer.dotmatrix" : "photo").frame(width: 20)
                         VStack(alignment: .leading, spacing: 1) {
                             Text(p.displayName).lineLimit(1)
-                            Text(p.name == store.printer?.name ? "Default · \(p.statusText)" : p.statusText)
+                            Text(p.name == store.printer?.name ? "Default, \(p.statusText)" : p.statusText)
                                 .font(.caption).foregroundStyle(.secondary)
                         }
                     }
@@ -397,7 +397,7 @@ struct PrinterDetail: View {
                     if let preview {
                         HStack {
                             Spacer()
-                            ZoomablePreview(image: preview, title: "\(printer.displayName) · \(store.size(for: printer).display)")
+                            ZoomablePreview(image: preview, title: "\(printer.displayName), \(store.size(for: printer).display)")
                                 .frame(height: 120)
                             Spacer()
                         }
@@ -512,7 +512,7 @@ struct AddZebraSheet: View {
                             Image(systemName: "printer.dotmatrix")
                             VStack(alignment: .leading, spacing: 1) {
                                 Text(c.profile.displayName)
-                                Text("USB · \(c.profile.serial)").font(.caption).foregroundStyle(.secondary)
+                                Text("USB, serial \(c.profile.serial)").font(.caption).foregroundStyle(.secondary)
                             }
                             Spacer()
                             Button("Add") {
@@ -527,7 +527,7 @@ struct AddZebraSheet: View {
                             Image(systemName: "printer.dotmatrix")
                             VStack(alignment: .leading, spacing: 1) {
                                 Text(c.displayName)
-                                Text("\(f.host) · \(f.systemName)").font(.caption).foregroundStyle(.secondary)
+                                Text("\(f.host), \(f.systemName)").font(.caption).foregroundStyle(.secondary)
                             }
                             Spacer()
                             Button(known ? "Added" : "Add") { add(f.host, discoveryID: f.serial) }.disabled(known || adding)

@@ -11,7 +11,7 @@ enum RuleSummary {
         return EnglishList.join(parts, conjunction: rule.matchAll ? "and" : "or")
     }
 
-    /// "Label Printer ITPP941AP · 4 × 4 in · Crisp · shows preview". Fields left at Default aren't listed
+    /// "Label Printer ITPP941AP, 4 × 4 in, Crisp, shows preview". Fields left at Default aren't listed
     /// (a Default tag follows General).
     static func outcome(_ o: RuleOutcome, printers: [PrinterInfo]) -> String {
         var parts = [printerName(o.printer, printers: printers)]
@@ -25,7 +25,7 @@ enum RuleSummary {
         case .none: parts.append("no tag")
         case .custom(let tag): parts.append("tags “\(tag.name)”")
         }
-        return parts.joined(separator: " · ")
+        return parts.joined(separator: ", ")
     }
 
     static func printerName(_ name: String?, printers: [PrinterInfo]) -> String {
@@ -91,7 +91,7 @@ enum RuleSummary {
         }
     }
 
-    /// "From amazon.com · Screenshot · 1 page · 1170 × 2532 px · QR"
+    /// "From amazon.com, Screenshot, 1 page, 1170 × 2532 px, QR"
     static func facts(_ c: RuleContext) -> String {
         var parts: [String] = []
         parts.append(c.sourceHosts.first.map { "From \($0)" } ?? "No source website")
@@ -109,7 +109,7 @@ enum RuleSummary {
             let kinds = Set(codes.map(\.symbology)).sorted()
             parts.append(kinds.isEmpty ? "No codes" : kinds.joined(separator: ", "))
         }
-        return parts.joined(separator: " · ")
+        return parts.joined(separator: ", ")
     }
 }
 

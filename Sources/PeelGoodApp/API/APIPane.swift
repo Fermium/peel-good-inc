@@ -278,7 +278,7 @@ struct EndpointRow: View {
                 Heading("Responses")
                 ForEach(endpoint.responses) { r in
                     if r.status == 200 {
-                        ForEach(r.content) { c in SchemaBlock(mediaType: "200 · \(c.mediaType)", schema: c.schema) }
+                        ForEach(r.content) { c in SchemaBlock(mediaType: "200 \(c.mediaType)", schema: c.schema) }
                     } else {
                         HStack(alignment: .firstTextBaseline, spacing: 8) {
                             Text(String(r.status)).font(.system(.caption, design: .monospaced)).foregroundStyle(.secondary)

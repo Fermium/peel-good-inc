@@ -11,9 +11,9 @@ public enum TestLabel: String, CaseIterable, Sendable {
     /// The pattern plus a gray ramp, so each ink mode shows its character.
     case inkSample
 
-    /// "MUNBYN ITPP941AP · 4 × 6 in"
+    /// "MUNBYN ITPP941AP, 4 × 6 in"
     public static func title(printer: PrinterInfo?, size: LabelSize) -> String {
-        "\(printer?.displayName ?? "Peel Good Inc.") · \(size.primary)"
+        "\(printer?.displayName ?? "Peel Good Inc."), \(size.primary)"
     }
 
     public func page(size: LabelSize, title: String) -> SourcePage {

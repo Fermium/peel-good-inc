@@ -129,7 +129,7 @@ struct Doctor {
                 case .ok: s.ok
                 case .warning: s.warn
                 case .failed: s.fail
-                case .info: s.dim("–")
+                case .info: s.dim("i")
                 }
                 print("  \(mark) \(c.message)")
                 if let fix = c.fix, c.status != .ok { print("    \(s.dim(fix))") }

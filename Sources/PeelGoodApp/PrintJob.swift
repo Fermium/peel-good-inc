@@ -79,7 +79,7 @@ final class PrintJob: ObservableObject {
 
     var title: String {
         let n = labels.count
-        return "\(n) label\(n == 1 ? "" : "s") · \(options.size.display)"
+        return "\(n) label\(n == 1 ? "" : "s"), \(options.size.display)"
     }
 
     var codeSummary: String? {

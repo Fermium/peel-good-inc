@@ -61,7 +61,7 @@ final class RuleEngineTests: XCTestCase {
     func testSummaryUsesDefaultPrinterAndShowPreview() {
         var o = RuleOutcome()
         o.action = .review
-        XCTAssertEqual(RuleSummary.outcome(o, printers: printers), "Default printer · shows preview")
+        XCTAssertEqual(RuleSummary.outcome(o, printers: printers), "Default printer, shows preview")
         XCTAssertEqual(RuleAction.review.title, "Show preview")
     }
 }

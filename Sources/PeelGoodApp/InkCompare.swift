@@ -172,7 +172,7 @@ struct InkCompareView: View {
                 Image(systemName: "arrow.right").font(.title).foregroundStyle(.secondary)
                 ForEach(results) { r in
                     column(r.mode.rawValue.capitalized, detail: detail(r)) {
-                        ZoomablePreview(image: r.image, title: "\(name) · \(r.mode.rawValue.capitalized)")
+                        ZoomablePreview(image: r.image, title: "\(name), \(r.mode.rawValue.capitalized)")
                     }
                 }
                 if results.isEmpty {

@@ -233,7 +233,7 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(metric.display, "100 × 150 mm (3.94 × 5.91 in)")
         XCTAssertEqual(LabelSize.fourBySix.primary, "4 × 6 in")
         XCTAssertEqual(LabelSize.fourBySix.display, "4 × 6 in (102 × 152 mm)")
-        XCTAssertEqual(TestLabel.title(printer: Self.label, size: metric), "MUNBYN ITPP941AP · 100 × 150 mm")
+        XCTAssertEqual(TestLabel.title(printer: Self.label, size: metric), "MUNBYN ITPP941AP, 100 × 150 mm")
         XCTAssertEqual(Self.small.displayName, "Tiny 2in")
         XCTAssertEqual(PrinterInfo(name: "My_Printer", presets: []).displayName, "My Printer")
     }

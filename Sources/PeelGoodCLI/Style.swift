@@ -34,7 +34,7 @@ public struct Style: Sendable {
     public var warn: String { yellow(unicode ? "!" : "!") }
     public var fail: String { red(unicode ? "✗" : "x") }
     public var arrow: String { dim(unicode ? "→" : "->") }
-    public var dot: String { dim(unicode ? "·" : "-") }
+    public var dot: String { dim(",") }
 }
 
 /// Text for `peelgood help` and `peelgood <command> --help`.
