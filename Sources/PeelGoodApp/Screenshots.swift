@@ -33,9 +33,15 @@ enum Screenshots {
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         print(useWindowServer ? "capturing with the window server (own windows only)" : "capturing with cacheDisplay (no Screen Recording access)")
         if isolated { await seedLog() }
+        // Screenshots are published: no real paths or printers in them.
+        Snippets.shimPathOverride = "/Applications/Peel Good Inc.app/Contents/MacOS/peel-good-mcp"
+        let fakeUSB = USBCandidate(id: "usb-99J000000002", profile: Zebra.Profile(serial: "99J000000002", host: nil, usbSerial: "99J000000002",
+                                                                              product: "ZD421", dotsPerMM: 8, headDots: 832, maximumLength: 39, discoveryID: nil))
+        let fakeNetwork = ZebraCandidate(found: Zebra.Found(host: "192.168.1.51", server: "ZebraNet Wired PS", firmware: "V93.21.19Z",
+                                                            serial: "000001", systemName: "ZBR11000001"), product: "ZT411")
         let printers = RulesPreviewData.printers
         // A Zebra for its settings, only in a throwaway home: the GX420t this was built against.
-        let zebra = Zebra.Profile(serial: "99J000000001", host: "192.168.1.216", usbSerial: "99J000000001", product: "GX420t", dotsPerMM: 8,
+        let zebra = Zebra.Profile(serial: "99J000000001", host: "192.168.1.50", usbSerial: "99J000000001", product: "GX420t", dotsPerMM: 8,
                                   headDots: 832, maximumLength: 39, discoveryID: "123456")
         if isolated {
             store.addZebra(zebra)
@@ -126,7 +132,7 @@ enum Screenshots {
                 save(windowImage(detail), file("settings-printer-zebra-detail"))
                 detail.close()
 
-                let add = window(NSHostingController(rootView: active(AddZebraSheet(store: store) { _ in })), style: [.titled], appearance: appearance)
+                let add = window(NSHostingController(rootView: active(AddZebraSheet(store: store, done: { _ in }, preview: ([fakeUSB], [fakeNetwork])))), style: [.titled], appearance: appearance)
                 add.title = ""
                 await settle(add, 6)
                 save(windowImage(add), file("settings-add-zebra"))

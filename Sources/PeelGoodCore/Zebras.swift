@@ -144,6 +144,11 @@ extension AppSettings {
 public struct USBCandidate: Sendable, Equatable {
     public var id: String
     public var profile: Zebra.Profile
+
+    public init(id: String, profile: Zebra.Profile) {
+        self.id = id
+        self.profile = profile
+    }
 }
 
 /// A Zebra a scan found.
@@ -155,6 +160,13 @@ public struct ZebraCandidate: Sendable, Equatable {
     public var isKnown: Bool
     /// The user said not to offer it again.
     public var isIgnored: Bool
+
+    public init(found: Zebra.Found, product: String?, isKnown: Bool = false, isIgnored: Bool = false) {
+        self.found = found
+        self.product = product
+        self.isKnown = isKnown
+        self.isIgnored = isIgnored
+    }
 
     /// Not added and not ignored: worth offering.
     public var isNew: Bool { !isKnown && !isIgnored }

@@ -391,6 +391,14 @@ public enum Zebra {
         /// The name set on the printer ("ZBR11123456" by default).
         public var systemName: String
 
+        public init(host: String, server: String, firmware: String, serial: String, systemName: String) {
+            self.host = host
+            self.server = server
+            self.firmware = firmware
+            self.serial = serial
+            self.systemName = systemName
+        }
+
         /// Parses a reply to the 4201 probe. Field offsets as documented by ZPLKit (MIT).
         public init?(reply: [UInt8], from host: String) {
             guard reply.count >= 109, reply[0] == 0x3A, reply[1] == 0x2C, reply[2] == 0x2E else { return nil }

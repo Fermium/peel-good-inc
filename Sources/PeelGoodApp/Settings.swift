@@ -488,6 +488,8 @@ struct PrinterDetail: View {
 struct AddZebraSheet: View {
     @ObservedObject var store: Store
     let done: (PrinterInfo?) -> Void
+    /// What the scan finds, instead of scanning (for screenshots).
+    var preview: (usb: [USBCandidate], network: [ZebraCandidate])?
     @State private var found: [ZebraCandidate] = []
     @State private var onUSB: [USBCandidate] = []
     @State private var scanning = true
@@ -554,6 +556,11 @@ struct AddZebraSheet: View {
     }
 
     private func scan() async {
+        if let preview {
+            (onUSB, found) = preview
+            scanning = false
+            return
+        }
         let settings = store.settings
         async let usb = Task.detached(priority: .userInitiated) { settings.scanUSB(includingIgnored: true) }.value
         async let network = Task.detached(priority: .userInitiated) { settings.scanZebras() }.value

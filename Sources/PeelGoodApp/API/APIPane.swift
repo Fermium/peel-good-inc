@@ -229,8 +229,12 @@ struct APIReferenceSheet: View {
 // MARK: Snippets
 
 enum Snippets {
+    /// Set by the screenshot mode, so a screenshot shows the installed path and no user name.
+    nonisolated(unsafe) static var shimPathOverride: String?
+
     /// The bundled stdio relay, next to the app's executable.
     static var shimPath: String {
+        if let shimPathOverride { return shimPathOverride }
         let bundle = Bundle.main.bundleURL
         if bundle.pathExtension == "app" { return bundle.appendingPathComponent("Contents/MacOS/peel-good-mcp").path }
         return (Bundle.main.executableURL ?? bundle).deletingLastPathComponent().appendingPathComponent("peel-good-mcp").path
