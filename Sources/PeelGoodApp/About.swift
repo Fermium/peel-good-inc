@@ -3,9 +3,13 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct AboutView: View {
+    /// nil in the screenshots mode, which shows the defaults.
+    let updater: Updater?
     @Environment(\.colorScheme) private var scheme
     @State private var showLicense = false
     @State private var showComponents = false
+    @State private var checks = true
+    @State private var installs = false
 
     static let companyURL = URL(string: "https://find-and-update.company-information.service.gov.uk/company/12425065")!
     static let issuesURL = URL(string: "https://github.com/Fermium/peel-good-inc/issues/new")!
@@ -34,6 +38,17 @@ struct AboutView: View {
             }
             Text(version).font(.callout).foregroundStyle(.secondary).textSelection(.enabled).padding(.top, 10)
 
+            VStack(alignment: .leading, spacing: 6) {
+                Toggle("Check for updates automatically", isOn: $checks)
+                    .onChange(of: checks) { _, on in updater?.checksAutomatically = on }
+                Toggle("Install updates automatically", isOn: $installs)
+                    .onChange(of: installs) { _, on in updater?.installsAutomatically = on }
+                    .disabled(!checks)
+            }
+            .toggleStyle(.checkbox)
+            .padding(.top, 18)
+            Button("Check for Updates…") { updater?.checkForUpdates() }.padding(.top, 10)
+
             VStack(spacing: 2) {
                 Text("© 2026 FERMIUM LTD")
                 Link("Company number 12425065", destination: Self.companyURL).font(.callout)
@@ -61,9 +76,14 @@ struct AboutView: View {
         .multilineTextAlignment(.center)
         .frame(maxWidth: .infinity)
         .padding(30)
-        .frame(width: 560, height: 470)
+        .frame(width: 560, height: 570)
         .sheet(isPresented: $showLicense) { LicenseSheet() }
         .sheet(isPresented: $showComponents) { ComponentsSheet() }
+        .onAppear {
+            guard let updater else { return }
+            checks = updater.checksAutomatically
+            installs = updater.installsAutomatically
+        }
     }
 }
 

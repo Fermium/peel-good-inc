@@ -52,8 +52,11 @@ echo "bin path: $BIN"
 # ---------- 2. Bundle layout ----------
 APP="$OUT_DIR/$APP_BUNDLE"
 rm -rf "$APP"
-mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$APP/Contents/Helpers"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$APP/Contents/Helpers" "$APP/Contents/Frameworks"
 cp "$BIN/PeelGoodApp" "$APP/Contents/MacOS/PeelGood"
+# Sparkle, for updates: found through an rpath.
+install_name_tool -add_rpath @executable_path/../Frameworks "$APP/Contents/MacOS/PeelGood"
+ditto "$BIN/Sparkle.framework" "$APP/Contents/Frameworks/Sparkle.framework"
 # The CLI goes to Contents/Helpers, NOT Contents/MacOS: "peelgood" and "PeelGood" collide on
 # case-insensitive APFS. The cask symlinks it onto PATH.
 cp "$BIN/peelgood" "$APP/Contents/Helpers/peelgood"
@@ -109,7 +112,12 @@ sign "$APP/Contents/Helpers/peelgood" "$ENT/Helper.entitlements" "$BUNDLE_ID.cli
 if [[ -f "$APP/Contents/MacOS/peel-good-mcp" ]]; then
   sign "$APP/Contents/MacOS/peel-good-mcp" "$ENT/Helper.entitlements" "$BUNDLE_ID.mcp"
 fi
-# 3b. nested bundles
+# 3b. nested bundles: Sparkle's helpers (the downloader keeps its own entitlements), Sparkle, the Share extension
+SPARKLE="$APP/Contents/Frameworks/Sparkle.framework/Versions/B"
+for part in XPCServices/Installer.xpc XPCServices/Downloader.xpc Autoupdate Updater.app; do
+  codesign "${sign_flags[@]}" --preserve-metadata=entitlements "$SPARKLE/$part"
+done
+codesign "${sign_flags[@]}" "$APP/Contents/Frameworks/Sparkle.framework"
 sign "$APPEX" "$ENT/Share.entitlements"
 # 3c. the app itself, last
 sign "$APP" "$ENT/PeelGood.entitlements"

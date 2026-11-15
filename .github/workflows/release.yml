@@ -27,6 +27,7 @@ jobs:
       version: ${{ steps.version.outputs.version }}
       dmg_sha256: ${{ steps.package.outputs.dmg_sha256 }}
       zip_sha256: ${{ steps.package.outputs.zip_sha256 }}
+      ed_signature: ${{ steps.sparkle.outputs.signature }}
       signed: ${{ steps.signing.outputs.signed }}
     steps:
       - uses: actions/checkout@v7
@@ -147,6 +148,20 @@ jobs:
           echo "dmg_sha256=$(shasum -a 256 "$dmg" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
           echo "zip_sha256=$(shasum -a 256 "$zip" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
 
+      # Sparkle installs an update only when this signature matches SUPublicEDKey in the app. It signs the DMG
+      # as it ships, so after stapling. The private key is the SPARKLE_ED_KEY secret; the signature is public.
+      - name: Sign the update
+        id: sparkle
+        env:
+          SPARKLE_ED_KEY: ${{ secrets.SPARKLE_ED_KEY }}
+        run: |
+          if [[ -z "$SPARKLE_ED_KEY" ]]; then
+            echo "::warning::SPARKLE_ED_KEY isn't set, so this release isn't offered as an update."
+            exit 0
+          fi
+          sig="$(printf '%s' "$SPARKLE_ED_KEY" | .build/artifacts/sparkle/Sparkle/bin/sign_update --ed-key-file - -p "dist/PeelGoodInc-${VERSION}.dmg")"
+          echo "signature=${sig}" >> "$GITHUB_OUTPUT"
+
       - uses: actions/upload-artifact@v7
         with:
           name: peel-good-inc-${{ steps.version.outputs.version }}
@@ -180,8 +195,9 @@ jobs:
             --repo "$GITHUB_REPOSITORY" --verify-tag --generate-notes \
             --title "Peel Good Inc. ${{ needs.build.outputs.version }}"
 
-  # Pushes the build to fermium.ltd.uk, which serves it at /apps/peel-good-inc/download
-  # and describes it at /apps/peel-good-inc/latest.json. FERMIUM_PUBLISH_TOKEN can only
+  # Pushes the build to fermium.ltd.uk, which serves it at /apps/peel-good-inc/download,
+  # describes it at /apps/peel-good-inc/latest.json and, when it is signed, offers it to
+  # the app as an update at /apps/peel-good-inc/appcast.xml. FERMIUM_PUBLISH_TOKEN can only
   # publish this app (mint it with scripts/app-token.mjs in Fermium/website).
   publish-website:
     needs: build
@@ -189,6 +205,8 @@ jobs:
     runs-on: ubuntu-latest
     env:
       TOKEN: ${{ secrets.FERMIUM_PUBLISH_TOKEN }}
+      ED_SIGNATURE: ${{ needs.build.outputs.ed_signature }}
+      BUILD: ${{ github.run_number }}
       API: https://fermium.ltd.uk/api/apps/peel-good-inc/releases/${{ needs.build.outputs.version }}
     steps:
       - name: Check for the publish token
@@ -213,10 +231,14 @@ jobs:
             -H "x-sha256: $(sha256sum "$file" | cut -d' ' -f1)" \
             -H 'content-type: application/octet-stream' \
             --data-binary @"$file"
+          # The build number is the CFBundleVersion release-build.sh stamped, which Sparkle compares.
+          body="$(jq -nc --arg file "$name" --arg notes "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/$GITHUB_REF_NAME" \
+            --arg build "$BUILD" --arg sig "$ED_SIGNATURE" \
+            '{file: $file, releaseNotes: $notes} + (if $sig != "" then {build: $build, edSignature: $sig} else {} end)')"
           curl -fsS --retry 3 -X POST "$API/publish" \
             -H "Authorization: Bearer $TOKEN" \
             -H 'content-type: application/json' \
-            -d "{\"file\":\"$name\",\"releaseNotes\":\"$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/$GITHUB_REF_NAME\"}"
+            -d "$body"
 
   bump-tap:
     needs: [build, release]

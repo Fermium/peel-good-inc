@@ -53,6 +53,9 @@ PLIST
     <key>LSMinimumSystemVersion</key><string>$MIN_OS</string>
     <key>LSApplicationCategoryType</key><string>public.app-category.productivity</string>
     <key>NSHumanReadableCopyright</key><string>© $(date +%Y) Fermium LABS</string>
+    <key>SUFeedURL</key><string>https://fermium.ltd.uk/apps/peel-good-inc/appcast.xml</string>
+    <key>SUPublicEDKey</key><string>9HEdeAVzYsklaz817K6Op9HiVG1/My0D0F4m4c3gCAE=</string>
+    <key>SUEnableAutomaticChecks</key><true/>
     <key>LSUIElement</key><true/>
     <key>NSHighResolutionCapable</key><true/>
     <key>NSLocalNetworkUsageDescription</key><string>Peel Good Inc. looks for Zebra label printers on your network and prints to them directly.</string>
