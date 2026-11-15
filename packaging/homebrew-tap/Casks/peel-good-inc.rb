@@ -14,8 +14,6 @@ cask "peel-good-inc" do
 
   depends_on macos: :sequoia
 
-  auto_updates true
-
   app "Peel Good Inc.app"
   # The CLI lives in Contents/Helpers: "peelgood" and the app's "PeelGood" executable clash on APFS.
   binary "#{appdir}/Peel Good Inc.app/Contents/Helpers/peelgood"
