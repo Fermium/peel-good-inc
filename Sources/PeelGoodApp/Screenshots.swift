@@ -66,7 +66,7 @@ enum Screenshots {
             tabs.addTabViewItem(tab("Remote", "tray.and.arrow.down", RemotePane(remote: .shared)))
             tabs.addTabViewItem(tab("API", "point.3.connected.trianglepath.dotted", APIPane(api: .shared)))
             tabs.addTabViewItem(tab("CLI", "terminal", CLIPane(installer: .preview(), expanded: ["print"])))
-            tabs.addTabViewItem(tab("About", "info.circle", AboutView()))
+            tabs.addTabViewItem(tab("About", "info.circle", AboutView(updater: nil)))
             let settings = window(tabs, style: [.titled, .closable], appearance: appearance)
             settings.toolbarStyle = .preference
             // Visit every tab once first, so lazily built content (the Printers preview) is ready.

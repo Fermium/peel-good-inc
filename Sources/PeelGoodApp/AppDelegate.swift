@@ -22,6 +22,7 @@ final class AppDelegate: NSObject, JobPresenter, NSApplicationDelegate, NSPopove
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         if Screenshots.runIfRequested(store: store) { return }
+        Updater.current = Updater()
         Log.notice(.app, "Peel Good Inc. \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?") started, \(store.printers.count) printers, default \(store.printer?.name ?? "none")")
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         statusItem.button?.wantsLayer = true
@@ -422,6 +423,7 @@ final class AppDelegate: NSObject, JobPresenter, NSApplicationDelegate, NSPopove
         logs.keyEquivalentModifierMask = [.command, .option]
         logs.isAlternate = true
         menu.addItem(logs)
+        menu.addItem(item("Check for Updates…", #selector(checkForUpdates), "", symbol: "arrow.triangle.2.circlepath"))
         menu.addItem(item("Quit Peel Good Inc.", #selector(NSApplication.terminate(_:)), "q", target: NSApp, symbol: "power"))
     }
 
@@ -434,6 +436,8 @@ final class AppDelegate: NSObject, JobPresenter, NSApplicationDelegate, NSPopove
 
     /// Target for items that only open a submenu.
     @objc private func noop() {}
+
+    @objc private func checkForUpdates() { Updater.current?.checkForUpdates() }
 
     @objc private func choosePrinter(_ sender: NSMenuItem) {
         store.printer = store.eligiblePrinters.first { $0.name == sender.representedObject as? String }

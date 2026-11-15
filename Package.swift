@@ -14,6 +14,8 @@ let package = Package(
         .package(url: "https://github.com/modelcontextprotocol/swift-sdk.git", from: "0.12.1"),
         .package(url: "https://github.com/apple/swift-http-types.git", from: "1.0.0"),
         .package(url: "https://github.com/apple/swift-log.git", from: "1.5.0"),
+        // Updates, from the feed at fermium.ltd.uk/apps/peel-good-inc/appcast.xml, checked with the EdDSA key.
+        .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.10.1"),
     ],
     targets: [
         .systemLibrary(name: "CCups", path: "Sources/CCups"),
@@ -38,6 +40,7 @@ let package = Package(
             .product(name: "Hummingbird", package: "hummingbird"),
             .product(name: "MCP", package: "swift-sdk"),
             .product(name: "HTTPTypes", package: "swift-http-types"),
+            .product(name: "Sparkle", package: "Sparkle"),
             .product(name: "Logging", package: "swift-log"),
         ]),
         .executableTarget(name: "peel-good-mcp", dependencies: ["PeelGoodShared"]),

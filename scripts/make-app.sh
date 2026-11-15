@@ -8,8 +8,11 @@ swift build -c release --product peel-good-mcp
 swift build -c release --product peelgood
 app="build/Peel Good Inc.app"
 rm -rf "$app"
-mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources/completions" "$app/Contents/Helpers"
+mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources/completions" "$app/Contents/Helpers" "$app/Contents/Frameworks"
 cp .build/release/PeelGoodApp "$app/Contents/MacOS/PeelGood"
+# Sparkle, for updates: found through an rpath.
+install_name_tool -add_rpath @executable_path/../Frameworks "$app/Contents/MacOS/PeelGood"
+ditto .build/release/Sparkle.framework "$app/Contents/Frameworks/Sparkle.framework"
 cp .build/release/peel-good-mcp "$app/Contents/MacOS/peel-good-mcp"
 # The CLI goes to Contents/Helpers: "peelgood" and "PeelGood" collide on case-insensitive APFS.
 cp .build/release/peelgood "$app/Contents/Helpers/peelgood"
@@ -31,6 +34,11 @@ swiftc -O -parse-as-library -application-extension -module-name PeelGoodShare \
 source scripts/info-plists.sh
 write_info_plists "$app/Contents" "$appex/Contents"
 
+sparkle="$app/Contents/Frameworks/Sparkle.framework/Versions/B"
+for part in XPCServices/Installer.xpc XPCServices/Downloader.xpc Autoupdate Updater.app; do
+    codesign --force --sign - --preserve-metadata=entitlements "$sparkle/$part" >/dev/null
+done
+codesign --force --sign - "$app/Contents/Frameworks/Sparkle.framework" >/dev/null
 codesign --force --sign - --entitlements Extensions/Share/Share.entitlements "$appex"
 codesign --force --sign - "$app/Contents/MacOS/peel-good-mcp"
 codesign --force --sign - --identifier com.fermium.peelgood.cli "$app/Contents/Helpers/peelgood"

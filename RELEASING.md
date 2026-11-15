@@ -30,9 +30,10 @@ Peel Good Inc.app/Contents/
   MacOS/peel-good-mcp        MCP stdio shim, copied when Package.swift has that product
   Helpers/peelgood          CLI. It can't go in MacOS/: "peelgood" and "PeelGood" are the same name on case-insensitive APFS
   PlugIns/PeelGoodShare.appex   Share extension (sandboxed, as all app extensions must be)
+  Frameworks/Sparkle.framework  updates, from fermium.ltd.uk/apps/peel-good-inc/appcast.xml
 ```
 
-Signing goes from the inside out, without `--deep`: helpers, then the appex, then the app.
+Signing goes from the inside out, without `--deep`: helpers, then Sparkle (its helpers first), then the appex, then the app.
 Each piece gets its own entitlements, plus `--options runtime --timestamp`. Outside the
 sandbox, printing (`lp`, `lpadmin`, CUPS) and a local Hummingbird listener need no
 entitlements. `com.apple.security.print` and `network.server` only apply to sandboxed code.
@@ -65,6 +66,7 @@ entitlements. `com.apple.security.print` and `network.server` only apply to sand
 | `ASC_API_KEY_ID` | Key ID, e.g. `ABC123DEFG` |
 | `ASC_API_ISSUER_ID` | Issuer UUID |
 | `TAP_GITHUB_TOKEN` | the fine-grained PAT from step 5 |
+| `SPARKLE_ED_KEY` | the EdDSA key that signs updates: `generate_keys --account peel-good-inc -x key` from Sparkle's `bin`, then `gh secret set SPARKLE_ED_KEY < key` and delete the file. Without it a release is a download only, not offered as an update |
 
 The workflow generates the temporary keychain's password at random, so it needs no secret.
 Optionally, move the secrets into a protected `release` environment that only accepts `v*` tags.
