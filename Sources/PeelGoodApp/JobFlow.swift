@@ -84,6 +84,7 @@ enum JobFlow {
         var options = store.options(for: printer)
         options.size = printer.resolve(last.size) ?? last.size
         options.crop = .none
+        options.fit = .fit   // the saved PDF is label-sized: 1:1 whatever the printer's Scaling
         options.nudgeMM = .zero
         return JobPlan(files: [last.file], printer: printer, options: options, copies: try OptionOverrides.copies(copies),
                        action: .print, review: review || store.alwaysReview, decision: nil)

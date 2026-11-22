@@ -203,6 +203,14 @@ final class JobFlowTests: XCTestCase {
         XCTAssertTrue(name.hasSuffix(" two-pages.label.pdf"), name)
         XCTAssertEqual(name.components(separatedBy: "Z ").count, 2, name)
         XCTAssertNotNil(first.savedPDF)
+        XCTAssertTrue(again.labelDetails!.allSatisfy { $0.scalePercent == 100 && $0.trimmed == false }, "reprints are 1:1")
+
+        // With the printer on As is and a nudge, the reprint is still 1:1 (#8).
+        store.setFit(.asIs, for: try XCTUnwrap(printer))
+        store.setNudge(CGPoint(x: 2, y: 0), for: try XCTUnwrap(printer))
+        defer { ["nudgeX", "nudgeY"].forEach { UserDefaults.standard.removeObject(forKey: "\($0).\(printer!.name)") } }
+        let asIs = try await service.reprintLast(copies: nil)
+        XCTAssertTrue(asIs.labelDetails!.allSatisfy { $0.scalePercent == 100 && $0.fit == "fit" }, "\(asIs.labelDetails!)")
 
         XCTAssertEqual(History.baseName(URL(fileURLWithPath: "/h/2026-10-29T20-57-08Z 2026-10-29T20-56-58Z test-label.label.label.pdf")), "test-label")
         XCTAssertEqual(History.baseName(URL(fileURLWithPath: "/h/order 1459.pdf")), "order 1459")

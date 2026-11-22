@@ -36,8 +36,8 @@ func placed(_ label: ComposedLabel) -> CGRect { label.page.bounds.applying(label
     // The whole page, nudge included, lands on the 4x6 label: nothing is cut at the edges.
     let r = placed(label), target = CGRect(origin: .zero, size: o.size.points)
     #expect(target.insetBy(dx: -0.01, dy: -0.01).contains(r), "page lands at \(r)")
-    // Only as far down as the nudge needs: 288 pt less 2 mm each side and a dot, across 305 pt.
-    #expect(abs(label.scale - (288 - 4 * mm - 2 / (200.0 / 72)) / 305) < 0.002)
+    // Only as far down as the nudge needs: 288 pt less 2 mm each side, across 305 pt.
+    #expect(abs(label.scale - (288 - 4 * mm) / 305) < 0.002)
     #expect(label.placementSummary.hasPrefix("as-is, whole page, no trim"))
 }
 
@@ -71,6 +71,29 @@ func placed(_ label: ComposedLabel) -> CGRect { label.page.bounds.applying(label
     #expect(!label.rotated, "a page that fits isn't turned")
     let r = placed(label)
     #expect(abs(r.midX - 144) < 0.01 && abs(r.midY - 216) < 0.01, "centred: \(r)")
+}
+
+@Test func asIsPrintsALabelSizedPageOneToOne() {
+    var o = LabelOptions()
+    o.fit = .asIs
+    let page = SourcePage(size: CGSize(width: 288, height: 432)) { ctx in
+        ctx.setFillColor(gray: 0, alpha: 1)
+        ctx.fill(CGRect(x: 0, y: 0, width: 288, height: 4))
+        ctx.fill(CGRect(x: 60, y: 200, width: 160, height: 40))
+    }
+    let label = LabelComposer.compose(page, o)
+    #expect(label.scale == 1)
+    #expect(!label.rotated)
+    #expect(!label.trimmed)
+    #expect(placed(label) == CGRect(x: 0, y: 0, width: 288, height: 432))
+}
+
+@Test func testLabelsStayOneToOneWhenThePrinterIsAsIs() {
+    var o = LabelOptions()
+    o.fit = .asIs
+    o.nudgeMM = CGPoint(x: 2, y: 0)
+    TestLabel.pattern.adjust(&o)
+    #expect(o.fit == .fit)
 }
 
 @Test func asIsCodesOnlyShrinkToWholeDots() {

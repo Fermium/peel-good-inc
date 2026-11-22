@@ -158,10 +158,10 @@ public enum LabelComposer {
         let c = crop.rect
         let target = o.size.points
 
-        // As is keeps the whole page on the label even after the nudge shifts it, with a dot to spare
-        // for the shift that lines codes up with the dots; it never scales up.
-        let room = asIs ? CGSize(width: max(1, target.width - 2 * abs(o.nudgeMM.x) * mm - 2 / dots),
-                                 height: max(1, target.height - 2 * abs(o.nudgeMM.y) * mm - 2 / dots)) : target
+        // As is keeps the whole page on the label even after the nudge shifts it; it never scales up,
+        // so a label-sized page prints 1:1 when there's no nudge.
+        let room = asIs ? CGSize(width: max(1, target.width - 2 * abs(o.nudgeMM.x) * mm),
+                                 height: max(1, target.height - 2 * abs(o.nudgeMM.y) * mm)) : target
         let cap: (CGFloat) -> CGFloat = { asIs ? min(1, $0) : $0 }
         let straight = cap(min(room.width / c.width, room.height / c.height))
         let turned = cap(min(room.width / c.height, room.height / c.width))
