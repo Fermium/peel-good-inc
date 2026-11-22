@@ -106,7 +106,7 @@ enum APIRoutes {
             }
         } catch let e as APIError {
             // Print-system errors can name files in the history folder; keep them out of HTTP replies.
-            return .error(e.status >= 500 ? APIError(status: e.status, code: e.code, message: "Printing failed. See the Peel Good Inc. log for details.") : e)
+            return .error(e.status >= 500 && e.code != "preview_timeout" ? APIError(status: e.status, code: e.code, message: "Printing failed. See the Peel Good Inc. log for details.") : e)
         } catch {
             return .error(.failed("Printing failed. See the Peel Good Inc. log for details.", code: "internal"))
         }

@@ -31,14 +31,31 @@ public enum FileFacts {
         return page
     }
 
-    /// PDF text from the first three pages, or Vision text recognition for images.
-    public static func text(in url: URL, raster: Bool) -> String {
+    /// Vision text recognition for rules on images. Once a call runs over, images get no text until it returns.
+    public static let textRecognition = Lane("text-recognition", limit: 20)
+    /// Vision code detection for rules.
+    public static let codeDetection = Lane("code-detection", limit: 20)
+    /// Images are read for text at this long side at most: labels need far less, and full-size photos are slow.
+    static let maxTextPixels = 3000
+
+    /// PDF text from the first three pages, or Vision text recognition for images (`textRecognition`).
+    /// nil when the text couldn't be read in time.
+    public static func text(in url: URL, raster: Bool) -> String? {
         if url.pathExtension.lowercased() == "pdf" {
             guard let doc = PDFDocument(url: url) else { return "" }
             return (0..<min(3, doc.pageCount)).compactMap { doc.page(at: $0)?.string }.joined(separator: "\n")
         }
-        guard raster, let src = CGImageSourceCreateWithURL(url as CFURL, nil),
-              let image = CGImageSourceCreateImageAtIndex(src, 0, nil) else { return "" }
+        guard raster else { return "" }
+        return textRecognition.run { recognizedText(url) }
+    }
+
+    /// Text Vision finds in an image, scaled down to `maxTextPixels` and turned upright first.
+    static func recognizedText(_ url: URL) -> String {
+        let options: [CFString: Any] = [kCGImageSourceCreateThumbnailFromImageAlways: true,
+                                        kCGImageSourceCreateThumbnailWithTransform: true,
+                                        kCGImageSourceThumbnailMaxPixelSize: maxTextPixels]
+        guard let src = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let image = CGImageSourceCreateThumbnailAtIndex(src, 0, options as CFDictionary) else { return "" }
         let request = VNRecognizeTextRequest()
         request.recognitionLevel = .fast
         try? VNImageRequestHandler(cgImage: image).perform([request])
@@ -46,7 +63,15 @@ public enum FileFacts {
     }
 
     /// Codes on the first page, rendered at about 150 dpi (long side capped at 2400 px), as (symbology, payload).
-    public static func codes(in url: URL) -> [(symbology: String, payload: String)] {
+    /// nil when detection didn't finish in time (`codeDetection`).
+    public static func codes(in url: URL) -> [(symbology: String, payload: String)]? {
+        codeDetection.run { detectedCodes(url).map { Found(symbology: $0.symbology, payload: $0.payload) } }?
+            .map { ($0.symbology, $0.payload) }
+    }
+
+    private struct Found: Sendable { var symbology: String, payload: String }
+
+    static func detectedCodes(_ url: URL) -> [(symbology: String, payload: String)] {
         guard let page = try? DocumentLoader.load(url).first else { return [] }
         let scale = min(150.0 / 72, 2400 / max(page.size.width, page.size.height, 1))
         let scaleUp = page.isRaster ? 1 : scale

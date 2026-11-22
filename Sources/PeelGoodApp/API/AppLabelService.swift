@@ -20,6 +20,8 @@ final class AppLabelService: LabelService {
     weak var presenter: JobPresenter?
     var rules: RuleEngine = .shared
     var waitLimit: Duration = .seconds(120)
+    /// A preview gives up after this many seconds with error preview_timeout, so an MCP or HTTP call always returns.
+    var previewLimit: TimeInterval = 60
     private var recent: [APIJob] = []
     private var waiters: [String: CheckedContinuation<Void, Never>] = [:]
     nonisolated static let maxJobs = 50
@@ -62,6 +64,14 @@ final class AppLabelService: LabelService {
 
     func preview(files: [URL], request: APIPrintRequest) async throws -> APIPreview {
         guard !files.isEmpty else { throw APIError.badRequest("No file to preview.", code: "no_file") }
+        let limit = previewLimit
+        return try await Deadline.run(limit, orThrow: APIError(status: 504, code: "preview_timeout",
+            message: "The preview took longer than \(Int(limit)) seconds and was stopped. Nothing printed. Try a smaller file or fewer pages; if it keeps happening, quit and reopen Peel Good Inc.")) {
+            try await self.composePreview(files, request)
+        }
+    }
+
+    private func composePreview(_ files: [URL], _ request: APIPrintRequest) async throws -> APIPreview {
         let plan = try await plan(files, request)
         let printer = plan.printer, options = plan.options
         let labels = try await Self.compose(files, options)

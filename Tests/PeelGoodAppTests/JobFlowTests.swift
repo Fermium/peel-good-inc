@@ -212,6 +212,39 @@ final class JobFlowTests: XCTestCase {
         XCTAssertTrue(sent.all.isEmpty, "preview never prints")
     }
 
+    /// Issue #6: preview_label by path, with a PDF of several MB (an uncompressed photo-sized image), returns.
+    func testPreviewByPathOfALargePDF() async throws {
+        let api = APIController.shared
+        api.attach(service, configurator: AppConfigurator(store: store, rules: service.rules, folders: .inMemory()))
+        let saved = api.mcpCanUseLocalFiles
+        api.mcpCanUseLocalFiles = true
+        defer { api.mcpCanUseLocalFiles = saved }
+        let big = try Self.largePDF()
+        defer { try? FileManager.default.removeItem(at: big) }
+        let bytes = try XCTUnwrap(try FileManager.default.attributesOfItem(atPath: big.path)[.size] as? Int)
+        XCTAssertGreaterThan(bytes, 4_000_000)
+        let started = Date()
+        let r = await MCPTools.call(CallTool.Parameters(name: "preview_label", arguments: ["path": .string(big.path)]))
+        let text = r.content.compactMap { if case .text(let t, _, _) = $0 { t } else { nil } }.joined()
+        XCTAssertNotEqual(r.isError, true, text)
+        XCTAssertEqual(r.content.filter { if case .image = $0 { true } else { false } }.count, 1)
+        XCTAssertLessThan(Date().timeIntervalSince(started), 30, "a \(bytes / 1_000_000) MB PDF")
+        XCTAssertTrue(sent.all.isEmpty, "preview never prints")
+    }
+
+    /// A preview that runs over its limit returns preview_timeout instead of hanging.
+    func testPreviewThatRunsOverReturnsAnError() async throws {
+        service.previewLimit = 0
+        let big = try Self.largePDF()
+        defer { try? FileManager.default.removeItem(at: big) }
+        do {
+            _ = try await service.preview(files: [big], request: APIPrintRequest())
+            XCTFail("should have run over")
+        } catch let e as APIError {
+            XCTAssertEqual(e.code, "preview_timeout")
+        }
+    }
+
     func testInkInSettingsIsWhatPrintUses() async throws {
         store.setInk(.photo, for: printer)
         XCTAssertEqual(service.printers().first { $0.name == printer.name }?.ink, "photo")
@@ -249,6 +282,30 @@ final class JobFlowTests: XCTestCase {
     }
 
     // MARK: Helpers
+
+    /// A 6x4 PDF holding one 2400x1600 RGB image with noise, so it stays several MB.
+    static func largePDF() throws -> URL {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("large-\(UUID().uuidString).pdf")
+        let w = 2400, h = 1600
+        var pixels = [UInt8](repeating: 0, count: w * h * 4)
+        var seed: UInt32 = 6
+        for i in stride(from: 0, to: pixels.count, by: 4) {
+            seed = seed &* 1_664_525 &+ 1_013_904_223
+            pixels[i] = UInt8(truncatingIfNeeded: seed >> 24); pixels[i + 1] = UInt8(truncatingIfNeeded: seed >> 16)
+            pixels[i + 2] = UInt8(truncatingIfNeeded: seed >> 8); pixels[i + 3] = 255
+        }
+        let image = try XCTUnwrap(pixels.withUnsafeMutableBytes { raw in
+            CGContext(data: raw.baseAddress, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
+                      space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)?.makeImage()
+        })
+        var box = CGRect(x: 0, y: 0, width: 432, height: 288)
+        let ctx = try XCTUnwrap(CGContext(url as CFURL, mediaBox: &box, nil))
+        ctx.beginPDFPage(nil)
+        ctx.draw(image, in: box)
+        ctx.endPDFPage()
+        ctx.closePDF()
+        return url
+    }
 
     /// A 4x6 PDF with two pages of text and a box.
     static func twoPagePDF() throws -> URL {

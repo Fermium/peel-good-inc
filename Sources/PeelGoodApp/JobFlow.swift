@@ -33,16 +33,31 @@ enum JobFlow {
     static func decide(_ files: [URL], trigger: RuleTrigger, store: Store, engine: RuleEngine,
                        forcedPrinter: PrinterInfo? = nil) async -> RuleDecision? {
         guard let first = files.first else { return nil }
-        let needsCodes = engine.needsCodes, needsText = engine.needsText
-        let context = await Task.detached { RuleContext.inspect(first, trigger: trigger, detectCodes: needsCodes, readText: needsText) }.value
-        let decision = engine.decide(context, printers: store.eligiblePrinters, current: store.printer,
+        let context = await inspect(first, trigger: trigger, codes: engine.needsCodes, text: engine.needsText)
+        var decision = engine.decide(context, printers: store.eligiblePrinters, current: store.printer,
                                      defaults: { [store] in store.options(for: $0) }, forcedPrinter: forcedPrinter,
                                      unattended: store.newFilesAction)
+        decision?.notes.insert(contentsOf: context.unread, at: 0)
         if let d = decision {
             Log.info(.rules, "\(first.lastPathComponent): rule \"\(d.rule.name)\" → \(d.printer.name), \(d.options.size), \(d.action.rawValue), \(d.copies) cop\(d.copies == 1 ? "y" : "ies")")
             for note in d.notes { Log.warning(.rules, note) }
         }
         return decision
+    }
+
+    /// Reading a file for the rules blocks (Spotlight, PDFKit, Vision), so it runs on its own queue: on the Swift
+    /// concurrency pool, a batch of calls that never return took every thread and hung the whole app (issue #6).
+    nonisolated static let inspection = DispatchQueue(label: "PeelGood.inspection", qos: .userInitiated, attributes: .concurrent)
+    /// After this, the rules go on with the quick facts only (`RuleContext.quick`) and say so in the notes.
+    nonisolated(unsafe) static var inspectionLimit: TimeInterval = 30
+
+    nonisolated static func inspect(_ url: URL, trigger: RuleTrigger, codes: Bool, text: Bool) async -> RuleContext {
+        await Bounded.run(on: inspection, limit: inspectionLimit) {
+            RuleContext.inspect(url, trigger: trigger, detectCodes: codes, readText: text)
+        } fallback: {
+            Log.warning(.rules, "\(url.lastPathComponent): reading it for the rules took over \(Int(inspectionLimit)) s; going on without codes and text")
+            return RuleContext.quick(url, trigger: trigger, wanted: (codes, text))
+        }
     }
 
     /// The rule's decision with the request's options on top: the one plan for every way a file arrives.
