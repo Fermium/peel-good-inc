@@ -28,6 +28,8 @@ public struct RuleContext: Sendable {
     public var codes: [Code]?
     /// Text of the first pages (PDF text, or recognised text in images); nil when not read.
     public var pageText: String?
+    /// Facts that couldn't be read in time, said in a sentence for the job's notes. Conditions on them don't match.
+    public var unread: [String] = []
 
     public init(trigger: RuleTrigger, fileName: String, kind: FileKind? = nil, sources: [URL] = [], folder: URL? = nil,
                 pageCount: Int = 1, firstPageSize: CGSize? = nil, isScreenshot: Bool = false, isRaster: Bool = false,
@@ -80,8 +82,35 @@ extension RuleContext {
             ctx.pageCount = page.count
             ctx.firstPageSize = page.size
         }
-        if detectCodes { ctx.codes = FileFacts.codes(in: url).map { Code(symbology: $0.symbology, payload: $0.payload) } }
-        if readText { ctx.pageText = FileFacts.text(in: url, raster: ctx.isRaster) }
+        if detectCodes {
+            ctx.codes = FileFacts.codes(in: url)?.map { Code(symbology: $0.symbology, payload: $0.payload) }
+            if ctx.codes == nil { ctx.unread.append(unreadCodes) }
+        }
+        if readText {
+            ctx.pageText = FileFacts.text(in: url, raster: ctx.isRaster)
+            if ctx.pageText == nil { ctx.unread.append(unreadText) }
+        }
         return ctx
     }
+
+    /// What's known without reading the file (name, folder, type from the extension), for when `inspect` ran over.
+    public static func quick(_ url: URL, trigger: RuleTrigger, wanted: (codes: Bool, text: Bool)) -> RuleContext {
+        var ctx = RuleContext(trigger: trigger, fileName: url.lastPathComponent, folder: url.deletingLastPathComponent())
+        switch url.pathExtension.lowercased() {
+        case "pdf": ctx.kind = .pdf
+        case "svg": ctx.kind = .svg
+        default:
+            ctx.kind = .image
+            ctx.isRaster = true
+        }
+        ctx.unread.append(unreadFile)
+        if wanted.codes { ctx.unread.append(unreadCodes) }
+        if wanted.text { ctx.unread.append(unreadText) }
+        return ctx
+    }
+
+    public static let unreadFile = "The file took too long to read, so the rules only saw its name, folder and type."
+
+    public static let unreadCodes = "Barcodes couldn't be read in time, so rules that look at codes were skipped."
+    public static let unreadText = "The text on the page couldn't be read in time, so rules that look at text were skipped."
 }

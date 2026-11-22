@@ -54,14 +54,17 @@ extension RuleCondition {
             default: return c.pageCount == number
             }
         case .code:
+            guard !c.unread.contains(RuleContext.unreadCodes) else { return false }   // unread: neither includes nor doesn't
             let kind = CodeKind(rawValue: value) ?? .any
             let hit = (c.codes ?? []).contains { kind.matches($0.symbology) }
             return op == .includes ? hit : !hit
         case .pageText:
+            guard !c.unread.contains(RuleContext.unreadText) else { return false }
             let text = (c.pageText ?? "").lowercased()
             let hit = tokens.contains { text.contains($0.lowercased()) }
             return op == .contains ? hit : !hit
         case .codeText:
+            guard !c.unread.contains(RuleContext.unreadCodes) else { return false }
             let t = tokens.map { $0.lowercased() }
             let hit = (c.codes ?? []).contains { code in t.contains { code.payload.lowercased().contains($0) } }
             return op == .contains ? hit : !hit
