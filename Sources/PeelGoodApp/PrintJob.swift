@@ -121,6 +121,7 @@ final class PrintJob: ObservableObject {
             }
             let counts = labels.codeCounts
             Log.info(.job, "composed \(labels.count) label(s) at \(options.size), \(counts.expected) code(s), \(counts.missing.count) unreadable")
+            for (i, l) in labels.enumerated() { Log.info(.job, "label \(i + 1): \(l.placementSummary)") }
             for w in labels.reportableWarnings { Log.warning(.job, w) }
             if labels.isEmpty {
                 Log.error(.job, "nothing to print in \(files.map(\.lastPathComponent).joined(separator: ", "))")

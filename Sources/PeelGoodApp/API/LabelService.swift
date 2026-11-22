@@ -58,7 +58,7 @@ struct APIPrintRequest: Codable, Sendable, Equatable {
     var path: String?
     var printer: String?
     var size: String?
-    /// fit or fill.
+    /// fit, fill or as-is. Wins over the rule's, which wins over the printer's.
     var fit: String?
     /// auto, crisp, photo or halftone.
     var ink: String?
@@ -132,7 +132,7 @@ struct APIJob: Codable, Sendable, Equatable, Identifiable {
     var rule: String?
     /// countdown (cancellable in the popover) or review (waits for Print).
     var action: String?
-    /// Per label, once composed: ink used, scale, rotation and codes.
+    /// Per label, once composed: ink used, placement (fit, trim, scale, rotation) and codes.
     var labelDetails: [APILabelInfo]?
 }
 
@@ -143,8 +143,27 @@ struct APILabelInfo: Codable, Sendable, Equatable {
     /// Source points to label points, in percent.
     var scalePercent: Double
     var rotated: Bool
+    /// The placement used: fit, fill or as-is.
+    var fit: String?
+    /// White margins were cut off (never in as-is).
+    var trimmed: Bool?
+    /// Mode, trim, scale and rotation in words (`ComposedLabel.placementSummary`).
+    var placement: String?
     var codes: [APICode]
     var warnings: [String]
+
+    init(index: Int, ink: String, scalePercent: Double, rotated: Bool, fit: String? = nil, trimmed: Bool? = nil,
+         placement: String? = nil, codes: [APICode], warnings: [String]) {
+        self.index = index
+        self.ink = ink
+        self.scalePercent = scalePercent
+        self.rotated = rotated
+        self.fit = fit
+        self.trimmed = trimmed
+        self.placement = placement
+        self.codes = codes
+        self.warnings = warnings
+    }
 }
 
 /// A label's `APILabelInfo` plus its image. Encodes flat: the info's fields, then width, height and png.

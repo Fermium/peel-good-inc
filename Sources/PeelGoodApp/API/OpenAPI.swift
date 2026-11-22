@@ -155,6 +155,9 @@ enum OpenAPI {
         Field("ink", .string("The ink used. Auto picks one per label.", values: Limits.inks.filter { $0 != InkMode.auto.rawValue }), required: true),
         Field("scalePercent", .number("Source to label scale."), required: true),
         Field("rotated", .boolean(), required: true),
+        Field("fit", .string("The placement used.", values: Limits.fits)),
+        Field("trimmed", .boolean("White margins were cut off. Never in as-is.")),
+        Field("placement", .string("Mode, trim, scale and rotation in words, for example \"as-is, whole page, no trim, 90.7%, turned clockwise\".")),
         Field("codes", .array(.ref("Code")), required: true),
         Field("warnings", .array(.string()), required: true),
     ]
@@ -192,7 +195,7 @@ enum OpenAPI {
             Field("file", .array(.string(format: "binary")), required: true),
             Field("printer", .string()),
             Field("size", .string()),
-            Field("fit", .string(values: Limits.fits)),
+            Field("fit", .string(Limits.fitDescription, values: Limits.fits)),
             Field("ink", .string(values: Limits.inks)),
             Field("copies", .integer(min: Limits.copies.lowerBound, max: Limits.copies.upperBound)),
         ], "Up to \(APILimits.maxFiles) files, each sent as a part named file, up to \(APILimits.maxFileBytes / 1_048_576) MB each and \(APILimits.maxLabels) pages in all. Every page of every file prints.")),
@@ -268,7 +271,8 @@ enum OpenAPI {
                                 printerJobID: "MUNBYN_ITPP941AP-42", error: nil, rule: "Everything else", action: "countdown",
                                 labelDetails: [info(0), info(1)])
         static func info(_ i: Int) -> APILabelInfo {
-            APILabelInfo(index: i, ink: "crisp", scalePercent: 100, rotated: false, codes: [code], warnings: [])
+            APILabelInfo(index: i, ink: "crisp", scalePercent: 100, rotated: false, fit: "fit", trimmed: true,
+                         placement: "fit, trimmed (trimmed to content), 100.0%, not turned", codes: [code], warnings: [])
         }
         static let code = APICode(symbology: "QR", payload: "1Z999AA10123456784", scannable: true, severity: "ok", message: nil)
         static let preview = APIPreview(printer: "MUNBYN_ITPP941AP", size: "4x6", rule: "Everything else", copies: 1, action: "countdown",
@@ -302,7 +306,7 @@ enum OpenAPI {
     private static let optionParameters: [Parameter] = [
         Parameter(name: "printer", location: .query, required: false, schema: .string("Queue name or display name. Defaults to the default printer set in Peel Good Inc."), example: "MUNBYN_ITPP941AP"),
         Parameter(name: "size", location: .query, required: false, schema: .string("Label size like 4x6, 2.25x1.25 or 100x150mm. Defaults to the printer's size."), example: "4x6"),
-        Parameter(name: "fit", location: .query, required: false, schema: .string(values: Limits.fits), example: "fit"),
+        Parameter(name: "fit", location: .query, required: false, schema: .string(Limits.fitDescription, values: Limits.fits), example: "as-is"),
         Parameter(name: "ink", location: .query, required: false, schema: .string(values: Limits.inks), example: "auto"),
         Parameter(name: "copies", location: .query, required: false, schema: .integer(min: Limits.copies.lowerBound, max: Limits.copies.upperBound), example: "1"),
         Parameter(name: "filename", location: .query, required: false, schema: .string("Name for a raw body, shown in jobs."), example: "label.pdf"),

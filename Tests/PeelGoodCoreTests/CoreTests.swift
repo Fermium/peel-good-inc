@@ -205,6 +205,36 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(RuleOutcome().tag, .general, "a new rule follows General")
     }
 
+    /// Issue #8: the call's fit wins over the rule's, which wins over the printer's.
+    func testAsIsPrecedence() throws {
+        var rule = Rule(name: "As designed", conditions: [RuleCondition(field: .trigger, op: .is, values: [RuleTrigger.api.rawValue])])
+        rule.outcome.fit = .asIs
+        let book = RuleBook(rules: [rule])
+        func decide(_ t: RuleTrigger, printerFit: FitMode) -> RuleDecision? {
+            book.decide(RuleContext(trigger: t, fileName: "label.pdf", kind: .pdf), printers: Self.printers, current: Self.label,
+                        defaults: { _ in var o = LabelOptions(); o.fit = printerFit; return o })
+        }
+        let byRule = try XCTUnwrap(decide(.api, printerFit: .fit))
+        XCTAssertEqual(byRule.options.fit, .asIs, "the rule's as-is wins over the printer's fit")
+        XCTAssertEqual(decide(.drop, printerFit: .asIs)?.options.fit, .asIs, "Everything else uses the printer's setting")
+        XCTAssertEqual(decide(.drop, printerFit: .fit)?.options.fit, .fit, "default unchanged")
+        XCTAssertEqual(try OptionOverrides(fit: "fit").apply(to: byRule.options, on: nil).fit, .fit, "the call wins over the rule")
+        XCTAssertEqual(try OptionOverrides(fit: "As Is").apply(to: LabelOptions(), on: nil).fit, .asIs)
+        XCTAssertThrowsError(try OptionOverrides(fit: "stretch").apply(to: LabelOptions(), on: nil)) { e in
+            XCTAssertEqual((e as? OptionError)?.message, "Fit must be fit, fill or as-is.")
+        }
+        // Rules and printer settings save it by its raw value.
+        let json = String(decoding: try JSONEncoder().encode(rule.outcome), as: UTF8.self)
+        XCTAssertTrue(json.contains(#""fit":"as-is""#), json)
+        XCTAssertEqual(try JSONDecoder().decode(RuleOutcome.self, from: Data(json.utf8)).fit, .asIs)
+        let domain = "test.peelgood.asis.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: domain))
+        defer { defaults.removePersistentDomain(forName: domain) }
+        let settings = AppSettings.userDefaults(defaults, source: domain)
+        settings.setFit(.asIs, for: Self.label.name)
+        XCTAssertEqual(settings.savedFit(Self.label.name), .asIs)
+    }
+
     func testTagJSONIsCompatible() throws {
         func outcome(_ json: String) throws -> RuleOutcome { try JSONDecoder().decode(RuleOutcome.self, from: Data(json.utf8)) }
         XCTAssertEqual(try outcome(#"{"copies": 1}"#).tag, .none, "old files without a tag had it turned off")

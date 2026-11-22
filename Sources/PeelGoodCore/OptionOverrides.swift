@@ -96,7 +96,10 @@ public struct OptionOverrides: Sendable, Equatable {
         return size
     }
 
-    public static func fit(_ text: String) throws -> FitMode { try choice(text, "fit", FitMode.self) }
+    public static func fit(_ text: String) throws -> FitMode {
+        if let v = FitMode(parsing: text) { return v }
+        return try choice(text, "fit", FitMode.self)
+    }
     public static func ink(_ text: String) throws -> InkMode { try choice(text, "ink", InkMode.self) }
 
     public static func copies(_ n: Int?) throws -> Int {

@@ -74,6 +74,20 @@ final class JobFlowTests: XCTestCase {
         XCTAssertEqual(job.printerJobID, "test-1")
     }
 
+    /// Issue #8: fit as-is over the API, and the job and the preview report the same placement.
+    func testAsIsIsReportedAndPreviewMatchesThePrint() async throws {
+        let request = APIPrintRequest(fit: "as-is")
+        let preview = try await service.preview(files: [file], request: request)
+        let job = try await service.print(files: [file], request: request, source: APIJob.Source.upload)
+        XCTAssertEqual(job.status, .printed)
+        let details = try XCTUnwrap(job.labelDetails)
+        XCTAssertTrue(details.allSatisfy { $0.fit == "as-is" && $0.trimmed == false && $0.scalePercent <= 100 }, "\(details)")
+        XCTAssertTrue(details.allSatisfy { $0.placement?.hasPrefix("as-is, whole page, no trim") == true })
+        XCTAssertEqual(preview.images.map(\.info), details, "the preview reports exactly what printed")
+        let fallback = try await service.preview(files: [file], request: APIPrintRequest())
+        XCTAssertTrue(fallback.images.allSatisfy { $0.info.fit == "fit" }, "the default is unchanged")
+    }
+
     func testAskFirstWaitsForPrint() async throws {
         UserDefaults.standard.set(true, forKey: "alwaysReview")
         let task = Task { try await service.print(files: [file], request: APIPrintRequest(), source: APIJob.Source.upload) }

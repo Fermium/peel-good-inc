@@ -53,6 +53,14 @@ Conditions: source website, file name, file type, folder, origin (drop, clipboar
 
 A rule sets the printer, label size, scaling, ink, copies, whether to print, preview or ask first, and a Finder tag after printing.
 
+### Scaling: Fit, Fill or As is
+
+- **Fit** (the default) trims white margins and scales the label up or down until it touches the edges.
+- **Fill** trims white margins and covers the whole label; what overflows is cut off.
+- **As is** prints the page exactly as designed: no trim, turned only when it has to be, never scaled up, and scaled down only as far as the whole page (and the printer's nudge) needs to fit. Use it for labels whose margins matter.
+
+The scaling used is the first of these that says one: the `fit` given to `print_label` / `preview_label` (MCP), the HTTP API or `peelgood --fit`; the matching rule's Scaling; the printer's Scaling in Settings → Printers. The preview is the label exactly as it prints, nudge included, and every job reports each label's `fit`, `trimmed`, `scalePercent`, `rotated` and a one-line `placement`.
+
 Templates for Amazon returns, Royal Mail Click & Drop and shipping labels on Letter pages. Test a File in Settings → Rules shows which rule a file matches without printing.
 
 <p align="center">

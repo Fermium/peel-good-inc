@@ -159,7 +159,7 @@ public enum Manual {
 
     public static let layout: [CLIOption] = [
         printer, size,
-        CLIOption("fit", value: "MODE", help: "fit shows everything, fill covers the label. Default fit.", choices: choices(FitMode.self)),
+        CLIOption("fit", value: "MODE", help: "fit trims white margins and fills the label, fill covers it, as-is prints the whole page as designed (no trim, never scaled up). Default: the rule's, else the printer's, else fit.", choices: choices(FitMode.self)),
         CLIOption("crop", value: "MODE", help: "auto finds the label or code on the page, content trims margins, none keeps the page.",
                   choices: choices(CropMode.self)),
         CLIOption("pad", value: "MM", help: "Padding around the crop in mm. Default 2."),

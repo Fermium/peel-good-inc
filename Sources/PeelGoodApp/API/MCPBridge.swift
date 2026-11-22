@@ -180,7 +180,7 @@ enum MCPTools {
     private static let options: [String: Value] = [
         "printer": ["type": "string", "description": "Queue name or display name from list_printers. Defaults to the default printer set in Peel Good Inc."],
         "size": ["type": "string", "description": "Label size like 4x6, 2.25x1.25 or 100x150mm. Defaults to the printer's size."],
-        "fit": ["type": "string", "enum": .array(Limits.fits.map { .string($0) })],
+        "fit": ["type": "string", "enum": .array(Limits.fits.map { .string($0) }), "description": .string(Limits.fitDescription)],
         "ink": ["type": "string", "enum": .array(Limits.inks.map { .string($0) }), "description": .string(inkDescription)],
     ]
 
@@ -223,7 +223,8 @@ enum MCPTools {
     private static let printerProps: [String: Value] = [
         "printer": ["type": "string", "description": "Queue name or display name."],
         "size": ["type": "string", "description": "Label size, like 4x6."],
-        "fit": ["type": "string", "enum": .array(Limits.fits.map { .string($0) })],
+        "fit": ["type": "string", "enum": .array(Limits.fits.map { .string($0) }),
+                "description": "The printer's default placement, used when neither the call nor the matching rule gives one. as-is prints the whole page as designed (no trim, never scaled up)."],
         "ink": ["type": "string", "enum": .array(Limits.inks.map { .string($0) })],
         "cutoff": ["type": "number", "minimum": .double(Limits.cutoff.lowerBound), "maximum": .double(Limits.cutoff.upperBound), "description": "Gray level below which a dot prints black."],
         "toneGamma": ["type": "number", "minimum": .double(Limits.toneGamma.lowerBound), "maximum": .double(Limits.toneGamma.upperBound), "description": "Dot gain for photo and halftone. 1 turns tone correction off."],
@@ -239,7 +240,7 @@ enum MCPTools {
         }.joined(separator: "; ")
         return """
         A rule is {name, isEnabled, matchAll, conditions: [{field, op, values: [text], number}], \
-        outcome: {printer, size, fit, ink, action: print|review|ask, copies, tag: default|none|{name, color}}}. \
+        outcome: {printer, size, fit: fit|fill|as-is, ink, action: print|review|ask, copies, tag: default|none|{name, color}}}. \
         Outcome fields left out use the default printer and its settings; action review shows the preview. \
         tag default uses the tag in General, none adds no tag; nothing is tagged while General's Finder tag is off. \
         Rules run top to bottom; the first match wins, else Everything else, which always uses the default printer and its settings. \

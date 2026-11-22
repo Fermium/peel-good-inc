@@ -19,6 +19,9 @@ public enum Limits {
     public static let tagNameLength = 64
     public static let inks = InkMode.allCases.map(\.rawValue)
     public static let fits = FitMode.allCases.map(\.rawValue)
+    /// What each placement does and which one wins, for schemas and help.
+    public static let fitDescription = "Placement. " + FitMode.allCases.map { "\($0.rawValue): \($0.help)" }.joined(separator: "; ")
+        + ". A value given here wins over the matching rule's, which wins over the printer's setting. Defaults to the printer's setting (fit unless changed)."
 
     /// "Immediately", "After 1.5 s".
     public static func countdownTitle(_ seconds: Double) -> String {

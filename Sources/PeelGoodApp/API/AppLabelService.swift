@@ -235,10 +235,10 @@ final class AppLabelService: LabelService {
         }
     }
 
-    /// How one label came out: the ink actually used, its scale, rotation and codes.
+    /// How one label came out: the ink actually used, its placement (fit, trim, scale, rotation) and codes.
     nonisolated static func detail(_ label: ComposedLabel, index: Int) -> APILabelInfo {
         APILabelInfo(index: index, ink: label.ink.rawValue, scalePercent: percent(label), rotated: label.rotated,
-                     codes: codes(label), warnings: label.reportableWarnings)
+                     fit: label.fit.rawValue, trimmed: label.trimmed, placement: label.placementSummary, codes: codes(label), warnings: label.reportableWarnings)
     }
 
     nonisolated static func percent(_ label: ComposedLabel) -> Double { (Double(label.scale) * 1000).rounded() / 10 }

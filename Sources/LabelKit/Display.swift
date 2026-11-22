@@ -51,5 +51,19 @@ extension InkMode {
 }
 
 extension FitMode {
-    public var title: String { rawValue.capitalized }
+    public var title: String {
+        switch self {
+        case .fit: "Fit"
+        case .fill: "Fill"
+        case .asIs: "As is"
+        }
+    }
+
+    public var help: String {
+        switch self {
+        case .fit: "trims white margins and scales to the label edges"
+        case .fill: "trims white margins and covers the label, cutting off what overflows"
+        case .asIs: "prints the whole page as designed: no trim, never scaled up, scaled down only to fit, centred"
+        }
+    }
 }

@@ -327,7 +327,7 @@ private struct TestFileBox: View {
                     Text("Matches **\(d.rule.displayName)**.")
                 }
             }
-            Text("\(d.printer.displayName), \(d.options.size.display), \(d.options.fit == .fit ? "Fit" : "Fill"), "
+            Text("\(d.printer.displayName), \(d.options.size.display), \(d.options.fit.title), "
                  + "\(d.printer.isLabelPrinter ? d.options.ink.rawValue.capitalized + ", " : "")\(d.action.title)"
                  + (d.copies > 1 ? ", \(d.copies) copies" : ""))
                 .font(.callout)
