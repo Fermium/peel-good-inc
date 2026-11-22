@@ -39,7 +39,7 @@ final class AppLabelService: LabelService {
         return store.eligiblePrinters.map { p in
             APIPrinter(name: p.name, displayName: p.displayName, model: p.makeAndModel, isDefault: p.name == current,
                        isLabelPrinter: p.isLabelPrinter, state: p.state.rawValue, size: store.size(for: p).description,
-                       fit: store.fit(for: p).rawValue, ink: store.ink(for: p).rawValue)
+                       fit: store.fit(for: p).rawValue, ink: store.ink(for: p).rawValue, scale: store.scale(for: p))
         }
     }
 
@@ -238,7 +238,9 @@ final class AppLabelService: LabelService {
     /// How one label came out: the ink actually used, its placement (fit, trim, scale, rotation) and codes.
     nonisolated static func detail(_ label: ComposedLabel, index: Int) -> APILabelInfo {
         APILabelInfo(index: index, ink: label.ink.rawValue, scalePercent: percent(label), rotated: label.rotated,
-                     fit: label.fit.rawValue, trimmed: label.trimmed, placement: label.placementSummary, codes: codes(label), warnings: label.reportableWarnings)
+                     fit: label.fit.rawValue, trimmed: label.trimmed, placement: label.placementSummary,
+                     clippedMM: label.clip.isEmpty ? nil : APIClip(left: label.clip.left, right: label.clip.right, top: label.clip.top, bottom: label.clip.bottom),
+                     codes: codes(label), warnings: label.reportableWarnings)
     }
 
     nonisolated static func percent(_ label: ComposedLabel) -> Double { (Double(label.scale) * 1000).rounded() / 10 }

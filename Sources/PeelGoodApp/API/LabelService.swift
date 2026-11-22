@@ -36,6 +36,8 @@ struct APIPrinter: Codable, Sendable, Equatable {
     var size: String
     var fit: String
     var ink: String
+    /// Direct placement's scale, in percent.
+    var scale: Double? = nil
 }
 
 struct APISize: Codable, Sendable, Equatable {
@@ -58,13 +60,20 @@ struct APIPrintRequest: Codable, Sendable, Equatable {
     var path: String?
     var printer: String?
     var size: String?
-    /// fit, fill or as-is. Wins over the rule's, which wins over the printer's.
+    /// fill, fit-page, direct or cover (fit and as-is still work). Wins over the rule's, which wins over the printer's.
     var fit: String?
     /// auto, crisp, photo or halftone.
     var ink: String?
     var copies: Int?
+    /// Percent of physical size for direct placement. Wins over the rule's, which wins over the printer's.
+    var scale: Double?
+    /// auto, none, cw or ccw. auto turns the page when the placement needs it; none keeps it as drawn.
+    var rotate: String?
 
-    init(path: String? = nil, printer: String? = nil, size: String? = nil, fit: String? = nil, ink: String? = nil, copies: Int? = nil) {
+    init(path: String? = nil, printer: String? = nil, size: String? = nil, fit: String? = nil, ink: String? = nil, copies: Int? = nil,
+         scale: Double? = nil, rotate: String? = nil) {
+        self.scale = scale
+        self.rotate = Self.given(rotate)
         self.path = Self.given(path)
         self.printer = Self.given(printer)
         self.size = Self.given(size)
@@ -80,7 +89,9 @@ struct APIPrintRequest: Codable, Sendable, Equatable {
     }
 
     /// Every text value through `given`.
-    var normalized: APIPrintRequest { APIPrintRequest(path: path, printer: printer, size: size, fit: fit, ink: ink, copies: copies) }
+    var normalized: APIPrintRequest {
+        APIPrintRequest(path: path, printer: printer, size: size, fit: fit, ink: ink, copies: copies, scale: scale, rotate: rotate)
+    }
 }
 
 struct APICode: Codable, Sendable, Equatable {
@@ -143,9 +154,11 @@ struct APILabelInfo: Codable, Sendable, Equatable {
     /// Source points to label points, in percent.
     var scalePercent: Double
     var rotated: Bool
-    /// The placement used: fit, fill or as-is.
+    /// The placement used: fill, fit-page, direct or cover.
     var fit: String?
-    /// White margins were cut off (never in as-is).
+    /// Millimetres of the drawn page that fall off each edge of the label; nil when nothing does.
+    var clippedMM: APIClip?
+    /// White margins were cut off (never in fit-page or direct).
     var trimmed: Bool?
     /// Mode, trim, scale and rotation in words (`ComposedLabel.placementSummary`).
     var placement: String?
@@ -153,7 +166,8 @@ struct APILabelInfo: Codable, Sendable, Equatable {
     var warnings: [String]
 
     init(index: Int, ink: String, scalePercent: Double, rotated: Bool, fit: String? = nil, trimmed: Bool? = nil,
-         placement: String? = nil, codes: [APICode], warnings: [String]) {
+         placement: String? = nil, clippedMM: APIClip? = nil, codes: [APICode], warnings: [String]) {
+        self.clippedMM = clippedMM
         self.index = index
         self.ink = ink
         self.scalePercent = scalePercent
@@ -164,6 +178,14 @@ struct APILabelInfo: Codable, Sendable, Equatable {
         self.codes = codes
         self.warnings = warnings
     }
+}
+
+/// How far the page runs off each edge of the label, in mm, as the label prints.
+struct APIClip: Codable, Sendable, Equatable {
+    var left: Double
+    var right: Double
+    var top: Double
+    var bottom: Double
 }
 
 /// A label's `APILabelInfo` plus its image. Encodes flat: the info's fields, then width, height and png.
@@ -249,8 +271,8 @@ extension APIError {
 }
 
 extension APIPrintRequest {
-    /// The size, fit and ink asked for, checked when applied.
-    var overrides: OptionOverrides { OptionOverrides(size: size, fit: fit, ink: ink) }
+    /// The size, fit, scale, rotation and ink asked for, checked when applied.
+    var overrides: OptionOverrides { OptionOverrides(size: size, fit: fit, ink: ink, rotation: rotate, scalePercent: scale) }
 }
 
 struct APIErrorBody: Codable, Sendable {

@@ -53,17 +53,19 @@ extension InkMode {
 extension FitMode {
     public var title: String {
         switch self {
-        case .fit: "Fit"
-        case .fill: "Fill"
-        case .asIs: "As is"
+        case .fill: "Fill label"
+        case .fitPage: "Fit page"
+        case .direct: "Direct"
+        case .cover: "Cover"
         }
     }
 
     public var help: String {
         switch self {
-        case .fit: "trims white margins and scales to the label edges"
-        case .fill: "trims white margins and covers the label, cutting off what overflows"
-        case .asIs: "prints the whole page as designed: no trim, never scaled up, scaled down only to fit, centred"
+        case .fill: "trims white margins and enlarges (or shrinks) the label to the edges"
+        case .fitPage: "prints the whole page as designed: no trim, never scaled up, scaled down only to fit, centred"
+        case .cover: "trims white margins and covers the label, cutting off what overflows"
+        case .direct: "physical size, 1 mm on the page is 1 mm on the label (times scale): no trim, no auto-scaling, turned only to match the label's orientation, centred; what falls off the label is clipped and reported"
         }
     }
 }

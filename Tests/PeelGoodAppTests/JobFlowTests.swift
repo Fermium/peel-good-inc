@@ -74,18 +74,29 @@ final class JobFlowTests: XCTestCase {
         XCTAssertEqual(job.printerJobID, "test-1")
     }
 
-    /// Issue #8: fit as-is over the API, and the job and the preview report the same placement.
+    /// Issue #8: fit-page over the API, and the job and the preview report the same placement.
     func testAsIsIsReportedAndPreviewMatchesThePrint() async throws {
-        let request = APIPrintRequest(fit: "as-is")
+        let request = APIPrintRequest(fit: "fit-page")
         let preview = try await service.preview(files: [file], request: request)
         let job = try await service.print(files: [file], request: request, source: APIJob.Source.upload)
         XCTAssertEqual(job.status, .printed)
         let details = try XCTUnwrap(job.labelDetails)
-        XCTAssertTrue(details.allSatisfy { $0.fit == "as-is" && $0.trimmed == false && $0.scalePercent <= 100 }, "\(details)")
-        XCTAssertTrue(details.allSatisfy { $0.placement?.hasPrefix("as-is, whole page, no trim") == true })
+        XCTAssertTrue(details.allSatisfy { $0.fit == "fit-page" && $0.trimmed == false && $0.scalePercent <= 100 }, "\(details)")
+        XCTAssertTrue(details.allSatisfy { $0.placement?.hasPrefix("fit-page, whole page, no trim") == true })
         XCTAssertEqual(preview.images.map(\.info), details, "the preview reports exactly what printed")
         let fallback = try await service.preview(files: [file], request: APIPrintRequest())
-        XCTAssertTrue(fallback.images.allSatisfy { $0.info.fit == "fit" }, "the default is unchanged")
+        XCTAssertTrue(fallback.images.allSatisfy { $0.info.fit == "fill" }, "the default is unchanged")
+    }
+
+    /// Direct over the API: physical size, scale on top, clipping reported in the job and the preview alike.
+    func testDirectReportsScaleAndClipping() async throws {
+        let request = APIPrintRequest(fit: "direct", scale: 150)
+        let preview = try await service.preview(files: [file], request: request)
+        let job = try await service.print(files: [file], request: request, source: APIJob.Source.upload)
+        let details = try XCTUnwrap(job.labelDetails)
+        XCTAssertTrue(details.allSatisfy { $0.fit == "direct" && $0.scalePercent == 150 && $0.trimmed == false }, "\(details)")
+        XCTAssertTrue(details.allSatisfy { $0.clippedMM != nil && $0.placement?.contains("clipped") == true }, "150% of a 4x6 page runs off")
+        XCTAssertEqual(preview.images.map(\.info), details)
     }
 
     func testAskFirstWaitsForPrint() async throws {
@@ -205,12 +216,12 @@ final class JobFlowTests: XCTestCase {
         XCTAssertNotNil(first.savedPDF)
         XCTAssertTrue(again.labelDetails!.allSatisfy { $0.scalePercent == 100 && $0.trimmed == false }, "reprints are 1:1")
 
-        // With the printer on As is and a nudge, the reprint is still 1:1 (#8).
-        store.setFit(.asIs, for: try XCTUnwrap(printer))
+        // With the printer on Fit page and a nudge, the reprint is still 1:1 (#8).
+        store.setFit(.fitPage, for: try XCTUnwrap(printer))
         store.setNudge(CGPoint(x: 2, y: 0), for: try XCTUnwrap(printer))
         defer { ["nudgeX", "nudgeY"].forEach { UserDefaults.standard.removeObject(forKey: "\($0).\(printer!.name)") } }
         let asIs = try await service.reprintLast(copies: nil)
-        XCTAssertTrue(asIs.labelDetails!.allSatisfy { $0.scalePercent == 100 && $0.fit == "fit" }, "\(asIs.labelDetails!)")
+        XCTAssertTrue(asIs.labelDetails!.allSatisfy { $0.scalePercent == 100 && $0.fit == "fill" }, "\(asIs.labelDetails!)")
 
         XCTAssertEqual(History.baseName(URL(fileURLWithPath: "/h/2026-10-29T20-57-08Z 2026-10-29T20-56-58Z test-label.label.label.pdf")), "test-label")
         XCTAssertEqual(History.baseName(URL(fileURLWithPath: "/h/order 1459.pdf")), "order 1459")

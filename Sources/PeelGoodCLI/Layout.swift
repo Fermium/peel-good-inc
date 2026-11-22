@@ -4,10 +4,17 @@ import LabelKit
 import PeelGoodCore
 
 public enum Layout {
-    /// --size, --fit, --crop, --pad, --rotate, --ink, --cutoff, --tone-gamma, --nudge and --no-snap, as overrides.
+    /// --size, --fit, --scale, --crop, --pad, --rotate, --ink, --cutoff, --tone-gamma, --nudge and --no-snap, as overrides.
     /// Values are checked against `Limits` when they're applied.
     public static func overrides(_ inv: Invocation) throws -> OptionOverrides {
         var o = OptionOverrides(size: inv["size"], fit: inv["fit"], ink: inv["ink"], crop: inv["crop"], rotation: inv["rotate"])
+        if let v = inv["scale"] {
+            guard let pct = Double(v.replacingOccurrences(of: "%", with: "")), Limits.scalePercent.contains(pct) else {
+                throw CLIError.usage("--scale needs a percentage from \(Int(Limits.scalePercent.lowerBound)) to \(Int(Limits.scalePercent.upperBound))",
+                                     hint: "100 is physical size; it applies with --fit direct.")
+            }
+            o.scalePercent = pct
+        }
         if let v = inv["pad"] {
             guard let mm = Double(v), Limits.paddingMM.contains(mm) else { throw CLIError.usage("--pad needs millimetres, like 2") }
             o.paddingMM = mm

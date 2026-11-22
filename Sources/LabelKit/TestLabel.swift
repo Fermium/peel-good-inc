@@ -29,9 +29,9 @@ public enum TestLabel: String, CaseIterable, Sendable {
     public func adjust(_ o: inout LabelOptions, keepInk: Bool = false, keepToneGamma: Bool = false) {
         o.crop = .none
         o.rotation = .none
-        // Label-sized and edge to edge: always 1:1, even when the printer's Scaling is As is (which would
+        // Label-sized and edge to edge: always 1:1, even when the printer's Scaling is Fit page (which would
         // shrink it inside the nudge and hide where the edges fall).
-        o.fit = .fit
+        o.fit = .fill
         switch self {
         case .pattern: if !keepInk { o.ink = .crisp }
         case .stepWedge:

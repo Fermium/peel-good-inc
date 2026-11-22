@@ -10,9 +10,9 @@ final class MockLabelService: LabelService {
 
     let mockPrinters: [APIPrinter] = [
         APIPrinter(name: "Mock_Label_Printer", displayName: "Mock Label Printer", model: "Mock 4in Thermal", isDefault: true,
-                   isLabelPrinter: true, state: "idle", size: "4x6", fit: "fit", ink: "auto"),
+                   isLabelPrinter: true, state: "idle", size: "4x6", fit: "fill", ink: "auto"),
         APIPrinter(name: "Mock_Office_Printer", displayName: "Mock Office Printer", model: "Mock Laser", isDefault: false,
-                   isLabelPrinter: false, state: "idle", size: "4x6", fit: "fit", ink: "auto"),
+                   isLabelPrinter: false, state: "idle", size: "4x6", fit: "fill", ink: "auto"),
     ]
 
     func printers() -> [APIPrinter] { mockPrinters }

@@ -1,21 +1,40 @@
 import CoreGraphics
 import Foundation
 
+/// Where the page goes on the label. API values are the raw values; `init(parsing:)` also takes the old names.
 public enum FitMode: String, CaseIterable, Sendable {
-    /// Trim white margins, then scale (up or down) until the content touches the label's edges.
-    case fit
-    /// Trim white margins, then scale until the label is covered; the overflow is cut off.
+    /// Fill label (the default): trim white margins, then scale (up or down) until the content touches
+    /// the label's edges. Called "fit" up to 0.5.4, still accepted as an alias.
     case fill
-    /// The whole page exactly as designed: no trim, rotated only when it needs to be, never scaled up,
+    /// Fit page: the whole page as designed: no trim, turned only when it needs to be, never scaled up,
     /// scaled down only as far as the whole page (and the printer's nudge) needs to fit, centred.
-    case asIs = "as-is"
+    case fitPage = "fit-page"
+    /// Direct: physical size, 1:1: a millimetre on the page is a millimetre on the label (times
+    /// `LabelOptions.scalePercent`). No trim, no auto-scaling, turned only when the page's orientation
+    /// doesn't match the label's, centred; whatever falls off the label is clipped and reported (`ComposedLabel.clip`).
+    case direct
+    /// Cover: trim white margins, then scale until the label is covered; the overflow is cut off.
+    /// Called "fill" up to 0.5.4: saved settings and rules from then are read as cover (`init(legacy:)`).
+    case cover
 
-    /// Accepts "as is", "as_is", "asis" and "actual" for `asIs`, in any case.
+    /// A value from a request, a rule sent over MCP or the command line, in any case. Old names still work:
+    /// "fit" is Fill label; "as-is", "actual" are Fit page; "1:1" is Direct.
     public init?(parsing text: String) {
         let t = text.trimmingCharacters(in: .whitespaces).lowercased()
         if let v = FitMode(rawValue: t) { self = v; return }
         switch t.replacingOccurrences(of: " ", with: "").replacingOccurrences(of: "_", with: "").replacingOccurrences(of: "-", with: "") {
-        case "asis", "actual", "actualsize": self = .asIs
+        case "fit", "filllabel": self = .fill
+        case "fitpage", "asis", "actual", "actualsize": self = .fitPage
+        case "1:1", "physical", "realsize": self = .direct
+        default: return nil
+        }
+    }
+
+    /// A value saved by 0.5.4 or earlier, which had only fit (now Fill label) and fill (now Cover).
+    public init?(legacy text: String) {
+        switch text {
+        case "fit": self = .fill
+        case "fill": self = .cover
         default: return nil
         }
     }
@@ -36,9 +55,11 @@ public enum InkMode: String, CaseIterable, Sendable {
 
 public struct LabelOptions: Sendable {
     public var size: LabelSize = .fourBySix
-    public var fit: FitMode = .fit
-    /// Ignored in `FitMode.asIs`, which always uses the whole page.
+    public var fit: FitMode = .fill
+    /// Ignored in `FitMode.fitPage` and `FitMode.direct`, which always use the whole page.
     public var crop: CropMode = .auto
+    /// In `FitMode.direct` only: 100 is physical size, 95 a little smaller, 105 a little bigger.
+    public var scalePercent: Double = 100
     public var paddingMM: Double = 2
     public var rotation: RotationMode = .auto
     public var ink: InkMode = .auto
@@ -58,6 +79,38 @@ public struct LabelOptions: Sendable {
     public var snapCodes = true
 
     public init() {}
+}
+
+/// How far a drawing runs off each edge of the label, in millimetres (0 where it fits). Edges are the
+/// label's as it prints: top is the end with the label's top row of dots.
+public struct Clip: Sendable, Equatable, CustomStringConvertible {
+    public var left = 0.0, right = 0.0, top = 0.0, bottom = 0.0
+    /// Below this, a clip is rounding or the half-dot shift that lines codes up with the dots (about a dot at 203 dpi).
+    static let tolerance = 0.1
+
+    public init(left: Double = 0, right: Double = 0, top: Double = 0, bottom: Double = 0) {
+        (self.left, self.right, self.top, self.bottom) = (left, right, top, bottom)
+    }
+
+    /// `drawn` in label points (origin bottom-left) against a label `target` points big.
+    public init(drawn r: CGRect, on target: CGSize) {
+        let mm = 25.4 / 72
+        func cut(_ v: CGFloat) -> Double { let d = Double(max(0, v)) * mm; return d < Self.tolerance ? 0 : (d * 10).rounded() / 10 }
+        self.init(left: cut(-r.minX), right: cut(r.maxX - target.width), top: cut(r.maxY - target.height), bottom: cut(-r.minY))
+    }
+
+    public var isEmpty: Bool { left == 0 && right == 0 && top == 0 && bottom == 0 }
+
+    /// "3.0 mm left/right, 3.0 mm top/bottom", "1.0 mm left, 5.0 mm right".
+    public var description: String {
+        func pair(_ a: Double, _ b: Double, _ na: String, _ nb: String) -> [String] {
+            func mm(_ v: Double) -> String { String(format: "%.1f mm", v) }
+            if a > 0 && a == b { return ["\(mm(a)) \(na)/\(nb)"] }
+            return [(a, na), (b, nb)].filter { $0.0 > 0 }.map { "\(mm($0.0)) \($0.1)" }
+        }
+        let parts = pair(left, right, "left", "right") + pair(top, bottom, "top", "bottom")
+        return parts.isEmpty ? "nothing" : parts.joined(separator: ", ")
+    }
 }
 
 /// Where the cropped page lands on the label.
@@ -99,6 +152,8 @@ public struct ComposedLabel {
     public let scale: CGFloat
     /// The placement mode used.
     public let fit: FitMode
+    /// How much of the drawn page (the crop) falls off each edge of the label, in mm.
+    public let clip: Clip
     /// Lines or gaps exactly one printer dot wide.
     public let oneDotFeatures: Int
     /// Codes found inside the crop on the source page.
@@ -118,11 +173,13 @@ public struct ComposedLabel {
         return c.minX > p.minX + 0.5 || c.minY > p.minY + 0.5 || c.maxX < p.maxX - 0.5 || c.maxY < p.maxY - 0.5
     }
 
-    /// "as-is, whole page, no trim, 90.7%, turned clockwise": how the page landed on the label.
+    /// "direct, whole page, no trim, 100.0%, turned clockwise, clipped 3.0 mm left/right":
+    /// how the page landed on the label.
     public var placementSummary: String {
         var parts = [fit.rawValue, trimmed ? "trimmed (\(crop.reason))" : "whole page, no trim",
                      String(format: "%.1f%%", Double(scale) * 100)]
         parts.append(rotated ? (placement.counterClockwise ? "turned counter-clockwise" : "turned clockwise") : "not turned")
+        if !clip.isEmpty { parts.append("clipped \(clip)") }
         return parts.joined(separator: ", ")
     }
 
@@ -149,16 +206,16 @@ public enum LabelComposer {
     static func compose(_ page: SourcePage, _ o: LabelOptions, redraw: Bool) -> ComposedLabel {
         let mm: CGFloat = 72 / 25.4
         let dots = CGFloat(o.dpi) / 72
-        let asIs = o.fit == .asIs
-        var crop = Cropper.crop(page, mode: asIs ? .none : o.crop, padding: CGFloat(o.paddingMM) * mm, target: o.size)
+        let asIs = o.fit == .fitPage, direct = o.fit == .direct
+        var crop = Cropper.crop(page, mode: asIs || direct ? .none : o.crop, padding: CGFloat(o.paddingMM) * mm, target: o.size)
         let expected = crop.barcodes.filter { crop.rect.intersects($0.rect) }
         let geometry = expected.compactMap { CodeFit.measure($0, on: page) }
         let primary = o.snapCodes ? CodeFit.primary(geometry) : nil
-        if o.snapCodes && !geometry.isEmpty && !asIs { crop.rect = CodeFit.withQuietZones(crop.rect, geometry, page: page.bounds) }
+        if o.snapCodes && !geometry.isEmpty && !asIs && !direct { crop.rect = CodeFit.withQuietZones(crop.rect, geometry, page: page.bounds) }
         let c = crop.rect
         let target = o.size.points
 
-        // As is keeps the whole page on the label even after the nudge shifts it; it never scales up,
+        // Fit page keeps the whole page on the label even after the nudge shifts it; it never scales up,
         // so a label-sized page prints 1:1 when there's no nudge.
         let room = asIs ? CGSize(width: max(1, target.width - 2 * abs(o.nudgeMM.x) * mm),
                                  height: max(1, target.height - 2 * abs(o.nudgeMM.y) * mm)) : target
@@ -168,29 +225,33 @@ public enum LabelComposer {
         var rotated: Bool = switch o.rotation {
         case .none: false
         case .cw, .ccw: true
-        case .auto: turned > straight * 1.05
+        // Direct turns only to match the label's orientation (landscape page, portrait label).
+        case .auto: direct ? (c.width > c.height) != (target.width > target.height) && c.width != c.height
+                           : turned > straight * 1.05
         }
         // Near a tie, turn so 1D bars run along the feed (picket fence): each bar edge then sits on
         // fixed head elements, while bars across the feed blur with paper stepping and heat build-up.
-        // As is turns only when the page needs it to fit.
-        if o.rotation == .auto, !asIs, let p = primary, p.isLinear, max(straight, turned) <= min(straight, turned) * 1.1 {
+        // Fit page turns only when the page needs it to fit.
+        if o.rotation == .auto, !asIs, !direct, let p = primary, p.isLinear, max(straight, turned) <= min(straight, turned) * 1.1 {
             rotated = !p.scanAlongX
         }
         let (cw, ch) = rotated ? (c.height, c.width) : (c.width, c.height)
         var scale: CGFloat = switch o.fit {
-        case .fit: min(target.width / cw, target.height / ch)
-        case .fill: max(target.width / cw, target.height / ch)
-        case .asIs: min(1, room.width / cw, room.height / ch)
+        case .fill: min(target.width / cw, target.height / ch)
+        case .cover: max(target.width / cw, target.height / ch)
+        case .fitPage: min(1, room.width / cw, room.height / ch)
+        case .direct: CGFloat(o.scalePercent / 100)
         }
-        if let p = primary {
+        // Direct keeps its exact scale: codes print at their designed size.
+        if let p = primary, !direct {
             // Scaling up is fine while the ink (with its padding) still fits; white margins may go.
             let content = geometry.reduce(crop.ink) { $0.union($1.bounds) }
                 .insetBy(dx: -CGFloat(o.paddingMM) * mm, dy: -CGFloat(o.paddingMM) * mm).intersection(c)
-            // As is may only shrink to whole-dot modules, so the page never grows past 100% or off the label.
+            // Fit page may only shrink to whole-dot modules, so the page never grows past 100% or off the label.
             let limit: CGFloat = switch o.fit {
-            case .fit: max(scale, CodeFit.fitLimit(content: content, crop: c, rotated: rotated, target: target, margin: 1 / dots))
-            case .fill: .infinity
-            case .asIs: scale
+            case .fill: max(scale, CodeFit.fitLimit(content: content, crop: c, rotated: rotated, target: target, margin: 1 / dots))
+            case .cover: .infinity
+            case .fitPage, .direct: scale
             }
             scale = CodeFit.snappedScale(scale, module: p.narrow, dotsPerPoint: dots, limit: limit,
                                          floor: CGFloat(p.isLinear ? CodeFit.minLinear : CodeFit.minGrid))
@@ -260,12 +321,17 @@ public enum LabelComposer {
             warnings.append("\(code.symbology) won't scan at this size. Use a bigger label.")
         }
         warnings += reports.compactMap(\.message)
+        let clip = Clip(drawn: c.applying(placement.transform), on: target)
+        if direct {
+            let inkClip = Clip(drawn: crop.ink.applying(placement.transform), on: target)
+            if !inkClip.isEmpty { warnings.append("At this size the design doesn't fit: \(inkClip) of it is cut off.") }
+        }
         if scale < 0.5 && !page.isRaster {
             warnings.append("Shrunk to \(Int(scale * 100))%. Small text may be hard to read.")
         }
 
         return ComposedLabel(page: page, placement: placement, bitmap: bitmap, ink: ink, smoothGray: smoothGray, crop: crop, rotated: rotated,
-                             scale: scale, fit: o.fit, oneDotFeatures: thin, expectedCodes: expected,
+                             scale: scale, fit: o.fit, clip: clip, oneDotFeatures: thin, expectedCodes: expected,
                              scannableCodes: scannable, codeReports: reports, codeAreas: codeAreas, warnings: warnings)
     }
 
