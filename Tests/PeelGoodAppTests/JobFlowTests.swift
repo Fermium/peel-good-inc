@@ -55,7 +55,7 @@ final class JobFlowTests: XCTestCase {
 
     override func tearDown() async throws {
         keys.forEach { UserDefaults.standard.removeObject(forKey: $0) }
-        if let printer { ["ink", "size", "fit"].forEach { UserDefaults.standard.removeObject(forKey: "\($0).\(printer.name)") } }
+        if let printer { ["ink", "size", "fit", "placement", "scale", "nudgeX", "nudgeY"].forEach { UserDefaults.standard.removeObject(forKey: "\($0).\(printer.name)") } }
         // Labels the stand-in "printed" went to the history folder; take them back out.
         for job in service?.jobs() ?? [] { if let path = job.savedPDF { try? FileManager.default.removeItem(atPath: path) } }
     }
@@ -75,7 +75,7 @@ final class JobFlowTests: XCTestCase {
     }
 
     /// Issue #8: fit-page over the API, and the job and the preview report the same placement.
-    func testAsIsIsReportedAndPreviewMatchesThePrint() async throws {
+    func testFitPageIsReportedAndPreviewMatchesThePrint() async throws {
         let request = APIPrintRequest(fit: "fit-page")
         let preview = try await service.preview(files: [file], request: request)
         let job = try await service.print(files: [file], request: request, source: APIJob.Source.upload)
