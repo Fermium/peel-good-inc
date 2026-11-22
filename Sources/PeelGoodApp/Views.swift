@@ -87,6 +87,12 @@ struct JobView: View {
                 Picker("Fit", selection: Binding(get: { job.options.fit }, set: { f in job.update { $0.fit = f } })) {
                     ForEach(FitMode.allCases, id: \.self) { Text($0.title).tag($0) }
                 }.pickerStyle(.segmented)
+                if job.options.fit == .direct {
+                    LabeledContent("Scale") {
+                        NumberField(value: Binding(get: { job.options.scalePercent }, set: { z in job.update { $0.scalePercent = z } }),
+                                    range: Limits.scalePercent, step: 1, decimals: 0, unit: "%")
+                    }
+                }
                 Picker("Ink", selection: Binding(get: { job.options.ink }, set: { i in job.update { $0.ink = i } })) {
                     ForEach(InkMode.allCases, id: \.self) { Text($0.title).tag($0) }
                 }.pickerStyle(.segmented)

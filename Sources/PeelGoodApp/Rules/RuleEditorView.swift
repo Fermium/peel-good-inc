@@ -232,6 +232,21 @@ struct OutcomeSections: View {
                 ForEach(FitMode.allCases, id: \.self) { Text($0.title).tag(Optional($0)) }
             }
 
+            if outcome.fit == .direct {
+                LabeledContent("Scale") {
+                    HStack {
+                        Toggle("Printer's", isOn: Binding(get: { outcome.scale == nil }, set: { outcome.scale = $0 ? nil : 100 }))
+                            .toggleStyle(.checkbox)
+                        if outcome.scale != nil {
+                            NumberField(value: Binding(get: { outcome.scale ?? 100 },
+                                                       set: { outcome.scale = min(max($0, Limits.scalePercent.lowerBound), Limits.scalePercent.upperBound) }),
+                                        range: Limits.scalePercent, step: 1, decimals: 0, unit: "%")
+                        }
+                    }
+                }
+                .help("100% prints 1 mm on the page as 1 mm on the label.")
+            }
+
             Picker("Ink", selection: $outcome.ink) {
                 Text(inherited { $0.ink.title }).tag(InkMode?.none)
                 Divider()

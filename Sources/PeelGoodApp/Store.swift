@@ -186,8 +186,12 @@ final class Store: ObservableObject {
     func size(for p: PrinterInfo) -> LabelSize { settings.options(for: p).options.size }
     func setSize(_ size: LabelSize, for p: PrinterInfo) { change { settings.setSize(size, for: p.name) } }
 
-    func fit(for p: PrinterInfo) -> FitMode { settings.savedFit(p.name) ?? .fit }
+    func fit(for p: PrinterInfo) -> FitMode { settings.savedFit(p.name) ?? .fill }
     func setFit(_ fit: FitMode, for p: PrinterInfo) { change { settings.setFit(fit, for: p.name) } }
+
+    /// Direct placement's scale in percent; 100 unless set.
+    func scale(for p: PrinterInfo) -> Double { settings.savedScale(p.name) ?? 100 }
+    func setScale(_ v: Double, for p: PrinterInfo) { change { settings.setScale(v, for: p.name) } }
 
     func ink(for p: PrinterInfo) -> InkMode { settings.savedInk(p.name) ?? .auto }
     func setInk(_ ink: InkMode, for p: PrinterInfo) { change { settings.setInk(ink, for: p.name) } }

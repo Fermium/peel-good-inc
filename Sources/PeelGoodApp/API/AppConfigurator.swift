@@ -60,7 +60,7 @@ final class AppConfigurator {
                 let n = store.nudge(for: p)
                 return ["name": p.name, "displayName": p.displayName, "isLabelPrinter": p.isLabelPrinter,
                         "hidden": store.hiddenPrinters.contains(p.name), "size": store.size(for: p).description,
-                        "fit": store.fit(for: p).rawValue, "ink": store.ink(for: p).rawValue,
+                        "fit": store.fit(for: p).rawValue, "scale": store.scale(for: p), "ink": store.ink(for: p).rawValue,
                         "cutoff": store.cutoff(for: p), "toneGamma": store.toneGamma(for: p), "nudgeXmm": Double(n.x), "nudgeYmm": Double(n.y)]
             },
             "watchedFolders": folders.get().map(\.path),
@@ -184,6 +184,9 @@ final class AppConfigurator {
             case "fit":
                 let v = try Self.option { try OptionOverrides.fit(try Self.string(value, key)) }
                 steps.append { self.change(label, self.store.fit(for: p).rawValue, v.rawValue) { self.store.setFit(v, for: p) } }
+            case "scale":
+                let v = try Self.number(value, key, Limits.scalePercent)
+                steps.append { self.change(label, self.store.scale(for: p), v) { self.store.setScale(v, for: p) } }
             case "ink":
                 let v = try Self.option { try OptionOverrides.ink(try Self.string(value, key)) }
                 steps.append { self.change(label, self.store.ink(for: p).rawValue, v.rawValue) { self.store.setInk(v, for: p) } }
@@ -313,6 +316,9 @@ final class AppConfigurator {
         if let v = o["fit"], !(v is NSNull) {
             let text = try Self.string(v, "fit")
             o["fit"] = try Self.option { try OptionOverrides.fit(text) }.rawValue
+        }
+        if let v = o["scale"], !(v is NSNull) {
+            o["scale"] = try Self.number(v, "scale", Limits.scalePercent)
         }
         if let v = o["ink"], !(v is NSNull) {
             let text = try Self.string(v, "ink")

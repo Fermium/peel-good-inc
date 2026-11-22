@@ -55,7 +55,7 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(s.tagColor, .green)
         XCTAssertTrue(s.tagAfterPrint)
         XCTAssertEqual(s.newFilesAction, .ask)
-        XCTAssertEqual(s.options(for: Self.label).options.fit, .fill, "the old app-wide fit still applies")
+        XCTAssertEqual(s.options(for: Self.label).options.fit, .cover, "the old app-wide fit still applies, read with 0.5.4's names")
         XCTAssertEqual(s.options(for: Self.label).options.cutoff, 0.5)
     }
 
@@ -203,6 +203,78 @@ final class CoreTests: XCTestCase {
         }
         XCTAssertNil(RuleTag.general.resolve(generalOn: true, general: FinderTag(name: " ", color: .green)))
         XCTAssertEqual(RuleOutcome().tag, .general, "a new rule follows General")
+    }
+
+    /// Issue #8: the call's fit and scale win over the rule's, which win over the printer's.
+    func testPlacementPrecedence() throws {
+        var rule = Rule(name: "As designed", conditions: [RuleCondition(field: .trigger, op: .is, values: [RuleTrigger.api.rawValue])])
+        rule.outcome.fit = .direct
+        rule.outcome.scale = 95
+        let book = RuleBook(rules: [rule])
+        func decide(_ t: RuleTrigger, printerFit: FitMode, printerScale: Double = 100) -> RuleDecision? {
+            book.decide(RuleContext(trigger: t, fileName: "label.pdf", kind: .pdf), printers: Self.printers, current: Self.label,
+                        defaults: { _ in var o = LabelOptions(); o.fit = printerFit; o.scalePercent = printerScale; return o })
+        }
+        let byRule = try XCTUnwrap(decide(.api, printerFit: .fill, printerScale: 105))
+        XCTAssertEqual(byRule.options.fit, .direct, "the rule's direct wins over the printer's fill")
+        XCTAssertEqual(byRule.options.scalePercent, 95, "and its scale over the printer's")
+        XCTAssertEqual(decide(.drop, printerFit: .fitPage)?.options.fit, .fitPage, "Everything else uses the printer's setting")
+        XCTAssertEqual(decide(.drop, printerFit: .direct, printerScale: 105)?.options.scalePercent, 105)
+        XCTAssertEqual(LabelOptions().fit, .fill, "default unchanged: trim and enlarge")
+        let call = try OptionOverrides(fit: "fill", scalePercent: 110).apply(to: byRule.options, on: nil)
+        XCTAssertEqual(call.fit, .fill, "the call wins over the rule")
+        XCTAssertEqual(call.scalePercent, 110)
+        XCTAssertEqual(try OptionOverrides(fit: "Fit Page").apply(to: LabelOptions(), on: nil).fit, .fitPage)
+        XCTAssertEqual(try OptionOverrides(fit: "fit").apply(to: LabelOptions(), on: nil).fit, .fill, "0.5.4's fit is a quiet alias")
+        XCTAssertEqual(try OptionOverrides(fit: "as-is").apply(to: LabelOptions(), on: nil).fit, .fitPage)
+        XCTAssertThrowsError(try OptionOverrides(fit: "stretch").apply(to: LabelOptions(), on: nil)) { e in
+            XCTAssertEqual((e as? OptionError)?.message, "Fit must be fill, fit-page, direct or cover.")
+        }
+        XCTAssertThrowsError(try OptionOverrides(scalePercent: 1000).apply(to: LabelOptions(), on: nil)) { e in
+            XCTAssertEqual((e as? OptionError)?.code, "invalid_scale")
+        }
+        // Rules and printer settings save today's names.
+        let json = String(decoding: try JSONEncoder().encode(rule.outcome), as: UTF8.self)
+        XCTAssertTrue(json.contains(#""fit":"direct""#) && json.contains(#""scale":95"#), json)
+        XCTAssertEqual(try JSONDecoder().decode(RuleOutcome.self, from: Data(json.utf8)).fit, .direct)
+        let settings = AppSettings.memory([:])
+        settings.setFit(.direct, for: Self.label.name)
+        settings.setScale(97, for: Self.label.name)
+        XCTAssertEqual(settings.options(for: Self.label).options.fit, .direct)
+        XCTAssertEqual(settings.options(for: Self.label).options.scalePercent, 97)
+    }
+
+    /// Placements were renamed after 0.5.4: its fit is now fill, its fill is now cover. Saved settings and
+    /// rules from then keep printing exactly as before.
+    func testPlacementNamesMigrate() throws {
+        // Printer settings: the old key is read with the old meaning; the new key wins once written.
+        let old = AppSettings.memory(["fit.\(Self.label.name)": "fill", "fit.\(Self.small.name)": "fit"])
+        XCTAssertEqual(old.savedFit(Self.label.name), .cover, "0.5.4's fill covers the label, as before")
+        XCTAssertEqual(old.savedFit(Self.small.name), .fill, "0.5.4's fit trims and enlarges, as before")
+        XCTAssertEqual(AppSettings.memory(["fit": "fill"]).savedFit(Self.office.name), .cover, "the old app-wide key too")
+        old.setFit(.fitPage, for: Self.label.name)
+        XCTAssertEqual(old.savedFit(Self.label.name), .fitPage)
+
+        // rules.json version 1: fill → cover, fit → fill; saved again as version 2 with the new names.
+        let v1 = #"""
+        {"version": 1, "fallback": {"id": "00000000-0000-0000-0000-000000000001", "name": "Everything else", "isEnabled": true, "matchAll": true, "conditions": [], "outcome": {"copies": 1}},
+         "rules": [
+          {"id": "00000000-0000-0000-0000-000000000002", "name": "Photos", "isEnabled": true, "matchAll": true, "conditions": [], "outcome": {"fit": "fill", "copies": 1}},
+          {"id": "00000000-0000-0000-0000-000000000003", "name": "Labels", "isEnabled": true, "matchAll": true, "conditions": [], "outcome": {"fit": "fit", "copies": 1}}]}
+        """#
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("rules-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let url = dir.appendingPathComponent("rules.json")
+        try Data(v1.utf8).write(to: url)
+        XCTAssertTrue(RuleBook.needsMigration(url))
+        let book = try XCTUnwrap(RuleBook.load(from: url, setAsideBroken: false), "a version 1 file still loads")
+        XCTAssertEqual(book.rules.map(\.outcome.fit), [.cover, .fill])
+        try book.save(to: url)
+        XCTAssertFalse(RuleBook.needsMigration(url))
+        let saved = String(decoding: try Data(contentsOf: url), as: UTF8.self)
+        XCTAssertTrue(saved.contains(#""fit" : "cover""#) && saved.contains(#""version" : 2"#), saved)
+        XCTAssertEqual(RuleBook.load(from: url, setAsideBroken: false)?.rules.map(\.outcome.fit), [.cover, .fill], "read back the same")
     }
 
     func testTagJSONIsCompatible() throws {

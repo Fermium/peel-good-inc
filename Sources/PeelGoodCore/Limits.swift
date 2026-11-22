@@ -16,9 +16,18 @@ public enum Limits {
     public static let nudgeMM: ClosedRange<Double> = -10...10
     public static let toneGamma: ClosedRange<Double> = 0.1...2
     public static let paddingMM: ClosedRange<Double> = 0...50
+    /// Direct placement's scale, in percent of physical size.
+    public static let scalePercent: ClosedRange<Double> = 25...400
     public static let tagNameLength = 64
     public static let inks = InkMode.allCases.map(\.rawValue)
     public static let fits = FitMode.allCases.map(\.rawValue)
+    /// What each placement does and which one wins, for schemas and help.
+    public static let fitDescription = "Placement. " + FitMode.allCases.map { "\($0.rawValue): \($0.help)" }.joined(separator: "; ")
+        + ". A value given here wins over the matching rule's, which wins over the printer's setting. Defaults to the printer's setting (fill unless changed). "
+        + "Older names still work: fit means fill, as-is means fit-page."
+    public static let scaleDescription = "Direct placement only: percent of physical size, \(Int(scalePercent.lowerBound)) to \(Int(scalePercent.upperBound)). "
+        + "100 prints 1 mm on the page as 1 mm on the label; 95 or 105 nudge it smaller or bigger. "
+        + "A value given here wins over the matching rule's, which wins over the printer's setting (100 unless changed)."
 
     /// "Immediately", "After 1.5 s".
     public static func countdownTitle(_ seconds: Double) -> String {

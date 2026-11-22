@@ -14,6 +14,12 @@ struct LabelRun {
         var cropReason: String
         var rotated: Bool
         var scalePercent: Int
+        /// fill, fit-page, direct or cover.
+        var fit: String
+        /// White margins were cut off (never in fit-page or direct).
+        var trimmed: Bool
+        /// What falls off the label, like "3.0 mm left/right"; nil when nothing does.
+        var clipped: String?
         var ink: String
         var codes: Int
         var codesReadable: Int
@@ -252,7 +258,8 @@ struct LabelRun {
             let warnings = label.reportableWarnings
             var entry = Page(page: i + 1, sourceInches: [round3(page.size.width / 72), round3(page.size.height / 72)],
                              crop: [c.minX, c.minY, c.width, c.height].map { round3($0 / 72) }, cropReason: label.crop.reason,
-                             rotated: label.rotated, scalePercent: Int((label.scale * 100).rounded()), ink: label.ink.rawValue,
+                             rotated: label.rotated, scalePercent: Int((label.scale * 100).rounded()),
+                             fit: label.fit.rawValue, trimmed: label.trimmed, clipped: label.clip.isEmpty ? nil : label.clip.description, ink: label.ink.rawValue,
                              codes: counts.expected, codesReadable: readable,
                              codeKinds: label.expectedCodes.map(\.symbology), warnings: warnings)
             if writesPreviews {

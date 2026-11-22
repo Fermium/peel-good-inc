@@ -24,6 +24,12 @@ final class RuleEngine: ObservableObject {
         let loaded = fileURL.flatMap { RuleBook.load(from: $0) }
         rules = loaded?.rules ?? []
         fallback = loaded?.fallback ?? RuleBook.defaultFallback
+        // One-time: a rules.json from 0.5.4 or earlier is saved again with today's placement names
+        // (its fit becomes fill, its fill becomes cover), so it prints exactly as before.
+        if let url = fileURL, loaded != nil, RuleBook.needsMigration(url) {
+            do { try book.save(to: url); Log.info(.rules, "rules.json moved to the new placement names") }
+            catch { Log.warning(.rules, "couldn't save rules.json with the new placement names: \(error)") }
+        }
     }
 
     nonisolated static var defaultFileURL: URL { AppPaths.rulesFile }
@@ -138,7 +144,7 @@ enum RuleTemplate: CaseIterable, Identifiable {
         case .photosToColor:
             o.printer = color
             o.size = "4x6"
-            o.fit = .fill
+            o.fit = .cover
             o.ink = .photo
             o.action = .review
             let name = printers.first { $0.name == color }.map { "Photos to \($0.displayName)" } ?? title

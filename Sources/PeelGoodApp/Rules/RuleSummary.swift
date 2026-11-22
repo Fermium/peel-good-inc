@@ -16,7 +16,7 @@ enum RuleSummary {
     static func outcome(_ o: RuleOutcome, printers: [PrinterInfo]) -> String {
         var parts = [printerName(o.printer, printers: printers)]
         if let size = o.labelSize { parts.append(size.display) }
-        if let fit = o.fit { parts.append(fit.title) }
+        if let fit = o.fit { parts.append(fit == .direct && o.scale != nil ? "\(fit.title) \(Int(o.scale!.rounded()))%" : fit.title) }
         if let ink = o.ink { parts.append(ink.title) }
         if let action = o.action { parts.append(action.shortTitle) }
         if o.copies > 1 { parts.append("\(o.copies) copies") }

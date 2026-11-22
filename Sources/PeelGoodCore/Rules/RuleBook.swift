@@ -106,7 +106,9 @@ public struct RuleDecision {
 /// The rule list and "Everything else", as saved in rules.json, and how a file is matched against them.
 /// The app's `RuleEngine` edits one; `peelgood print` reads one.
 public struct RuleBook: Codable {
-    public var version = 1
+    /// 2 since placements were renamed (fit → fill, fill → cover); older files are read with the old names.
+    public static let currentVersion = 2
+    public var version = RuleBook.currentVersion
     public var rules: [Rule]
     /// "Everything else": always last, never deleted, has no conditions. Its saved outcome is ignored.
     public var fallback: Rule
@@ -124,7 +126,7 @@ public struct RuleBook: Codable {
     /// rather than overwritten later; readers that must not write (the CLI) leave it.
     public static func load(from url: URL, setAsideBroken: Bool = true) -> RuleBook? {
         guard let data = try? Data(contentsOf: url) else { return nil }
-        if let book = try? JSONDecoder().decode(RuleBook.self, from: data) { return book }
+        if let book = try? decode(data) { return book }
         if setAsideBroken {
             let aside = url.appendingPathExtension("broken")
             try? FileManager.default.removeItem(at: aside)
@@ -133,10 +135,31 @@ public struct RuleBook: Codable {
         return nil
     }
 
+    /// A rules.json, reading files older than version 2 with 0.5.4's placement names. The result is always
+    /// the current version, so the next save writes today's names (the one-time migration).
+    public static func decode(_ data: Data) throws -> RuleBook {
+        struct Header: Decodable { var version: Int? }
+        let version = (try? JSONDecoder().decode(Header.self, from: data))?.version ?? 1
+        let decoder = JSONDecoder()
+        decoder.userInfo[RuleOutcome.legacyNames] = version < 2
+        var book = try decoder.decode(RuleBook.self, from: data)
+        book.version = currentVersion
+        return book
+    }
+
+    /// True when the file on disk predates version 2 and should be saved again with today's names.
+    public static func needsMigration(_ url: URL) -> Bool {
+        struct Header: Decodable { var version: Int? }
+        guard let data = try? Data(contentsOf: url), let h = try? JSONDecoder().decode(Header.self, from: data) else { return false }
+        return (h.version ?? 1) < currentVersion
+    }
+
     public func save(to url: URL) throws {
+        var book = self
+        book.version = Self.currentVersion
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        let data = try encoder.encode(self)
+        let data = try encoder.encode(book)
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try data.write(to: url, options: .atomic)
     }
@@ -186,6 +209,7 @@ public struct RuleBook: Codable {
             else { notes.append("\(printer.displayName) can't take \(size.display) labels, so this uses \(options.size.display).") }
         }
         if let fit = o.fit { options.fit = fit }
+        if let scale = o.scale { options.scalePercent = min(max(scale, Limits.scalePercent.lowerBound), Limits.scalePercent.upperBound) }
         if let ink = o.ink { options.ink = ink }
 
         var action = o.action ?? (context.trigger.isUnattended ? unattended : .print)

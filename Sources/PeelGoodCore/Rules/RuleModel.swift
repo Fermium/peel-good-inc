@@ -252,6 +252,8 @@ public struct RuleOutcome: Codable, Hashable, Sendable {
     /// "4x6"; nil means that printer's label size.
     public var size: String?
     public var fit: FitMode?
+    /// Percent of physical size for direct placement; nil uses the printer's.
+    public var scale: Double?
     public var ink: InkMode?
     /// nil follows General > Before printing for files you hand over, Rules > New files for watched folders.
     public var action: RuleAction?
@@ -264,13 +266,19 @@ public struct RuleOutcome: Codable, Hashable, Sendable {
     public init() {}
 
     /// Older files also have `playSound`; it's ignored, since sounds follow General.
-    public enum CodingKeys: String, CodingKey { case printer, size, fit, ink, action, copies, tag }
+    public enum CodingKeys: String, CodingKey { case printer, size, fit, scale, ink, action, copies, tag }
+
+    /// Set in a decoder's `userInfo` (by `RuleBook.load`) for a rules.json older than version 2, whose
+    /// fit values are 0.5.4's names: fit (now fill) and fill (now cover).
+    public static let legacyNames = CodingUserInfoKey(rawValue: "PeelGood.legacyPlacementNames")!
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         printer = try c.decodeIfPresent(String.self, forKey: .printer)
         size = try c.decodeIfPresent(String.self, forKey: .size)
-        fit = try c.decodeIfPresent(String.self, forKey: .fit).flatMap(FitMode.init(rawValue:))
+        let legacy = decoder.userInfo[Self.legacyNames] as? Bool == true
+        fit = try c.decodeIfPresent(String.self, forKey: .fit).flatMap { legacy ? FitMode(legacy: $0) : FitMode(parsing: $0) }
+        scale = try c.decodeIfPresent(Double.self, forKey: .scale)
         ink = try c.decodeIfPresent(String.self, forKey: .ink).flatMap(InkMode.init(rawValue:))
         action = try c.decodeIfPresent(RuleAction.self, forKey: .action)
         copies = max(1, try c.decodeIfPresent(Int.self, forKey: .copies) ?? 1)
@@ -283,6 +291,7 @@ public struct RuleOutcome: Codable, Hashable, Sendable {
         try c.encodeIfPresent(printer, forKey: .printer)
         try c.encodeIfPresent(size, forKey: .size)
         try c.encodeIfPresent(fit?.rawValue, forKey: .fit)
+        try c.encodeIfPresent(scale, forKey: .scale)
         try c.encodeIfPresent(ink?.rawValue, forKey: .ink)
         try c.encodeIfPresent(action, forKey: .action)
         try c.encode(copies, forKey: .copies)

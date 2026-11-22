@@ -374,6 +374,15 @@ struct PrinterDetail: View {
                     ForEach(FitMode.allCases, id: \.self) { Text($0.title).tag($0) }
                 }
                 .pickerStyle(.segmented)
+                .help(store.fit(for: printer).help.prefix(1).uppercased() + store.fit(for: printer).help.dropFirst() + ".")
+                if store.fit(for: printer) == .direct {
+                    LabeledContent("Scale") {
+                        NumberField(value: Binding(get: { store.scale(for: printer) },
+                                                   set: { store.setScale(min(max($0, Limits.scalePercent.lowerBound), Limits.scalePercent.upperBound), for: printer) }),
+                                    range: Limits.scalePercent, step: 1, decimals: 0, unit: "%")
+                    }
+                    .help("100% prints 1 mm on the page as 1 mm on the label.")
+                }
             }
             if printer.isLabelPrinter {
                 Section {

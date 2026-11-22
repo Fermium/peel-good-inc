@@ -33,9 +33,13 @@ public struct OptionOverrides: Sendable, Equatable {
     public var rotation: String?
     public var paddingMM: Double?
     public var snapCodes: Bool?
+    /// Percent of physical size, for direct placement.
+    public var scalePercent: Double?
 
     public init(size: String? = nil, fit: String? = nil, ink: String? = nil, cutoff: Double? = nil, toneGamma: Double? = nil,
-                nudgeMM: CGPoint? = nil, crop: String? = nil, rotation: String? = nil, paddingMM: Double? = nil, snapCodes: Bool? = nil) {
+                nudgeMM: CGPoint? = nil, crop: String? = nil, rotation: String? = nil, paddingMM: Double? = nil, snapCodes: Bool? = nil,
+                scalePercent: Double? = nil) {
+        self.scalePercent = scalePercent
         self.size = size
         self.fit = fit
         self.ink = ink
@@ -57,6 +61,7 @@ public struct OptionOverrides: Sendable, Equatable {
         if cutoff != nil { s.insert("cutoff") }
         if toneGamma != nil { s.insert("toneGamma") }
         if nudgeMM != nil { s.insert("nudge") }
+        if scalePercent != nil { s.insert("scale") }
         return s
     }
 
@@ -77,6 +82,7 @@ public struct OptionOverrides: Sendable, Equatable {
             o.nudgeMM = nudgeMM
         }
         if let snapCodes { o.snapCodes = snapCodes }
+        if let scalePercent { o.scalePercent = try Self.scale(scalePercent) }
         return o
     }
 
@@ -96,7 +102,12 @@ public struct OptionOverrides: Sendable, Equatable {
         return size
     }
 
-    public static func fit(_ text: String) throws -> FitMode { try choice(text, "fit", FitMode.self) }
+    public static func fit(_ text: String) throws -> FitMode {
+        if let v = FitMode(parsing: text) { return v }
+        return try choice(text, "fit", FitMode.self)
+    }
+    public static func scale(_ percent: Double) throws -> Double { try number(percent, "scale", Limits.scalePercent) }
+    public static func rotation(_ text: String) throws -> RotationMode { try choice(text, "rotate", RotationMode.self) }
     public static func ink(_ text: String) throws -> InkMode { try choice(text, "ink", InkMode.self) }
 
     public static func copies(_ n: Int?) throws -> Int {

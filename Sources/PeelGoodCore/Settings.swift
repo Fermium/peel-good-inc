@@ -15,7 +15,8 @@ public enum SettingsKey: String, CaseIterable, Sendable {
 }
 
 public enum PrinterSettingsKey: String, CaseIterable, Sendable {
-    case size, fit, ink, cutoff, nudgeX, nudgeY, toneGamma
+    /// `fit` holds 0.5.4's names (fit, fill) and is only read; `placement` holds today's (`FitMode` raw values).
+    case size, fit, placement, ink, cutoff, nudgeX, nudgeY, toneGamma, scale
     public func key(_ printer: String) -> String { "\(rawValue).\(printer)" }
 }
 
@@ -205,8 +206,11 @@ public struct AppSettings: @unchecked Sendable {
         string(PrinterSettingsKey.size.key(printer)).flatMap(LabelSize.init(parsing:))
     }
 
+    /// Today's `placement` key, else 0.5.4's `fit` (per printer, then app-wide) read with its old meaning:
+    /// fit is Fill label, fill is Cover. Nothing is rewritten, so the app and the CLI agree whoever reads first.
     public func savedFit(_ printer: String) -> FitMode? {
-        (string(PrinterSettingsKey.fit.key(printer)) ?? string(SettingsKey.legacyFit.rawValue)).flatMap(FitMode.init(rawValue:))
+        if let v = string(PrinterSettingsKey.placement.key(printer)).flatMap(FitMode.init(rawValue:)) { return v }
+        return (string(PrinterSettingsKey.fit.key(printer)) ?? string(SettingsKey.legacyFit.rawValue)).flatMap(FitMode.init(legacy:))
     }
 
     public func savedInk(_ printer: String) -> InkMode? {
@@ -223,12 +227,16 @@ public struct AppSettings: @unchecked Sendable {
         return CGPoint(x: x ?? 0, y: y ?? 0)
     }
 
+    /// Direct placement's scale in percent; nil is 100.
+    public func savedScale(_ printer: String) -> Double? { double(PrinterSettingsKey.scale.key(printer)) }
+
     /// Dot gain for photo and halftone; nil uses LabelKit's default.
     public func savedToneGamma(_ printer: String) -> Double? { double(PrinterSettingsKey.toneGamma.key(printer)) }
 
     public func setSize(_ size: LabelSize, for printer: String) { set(size.description, PrinterSettingsKey.size.key(printer)) }
-    public func setFit(_ fit: FitMode, for printer: String) { set(fit.rawValue, PrinterSettingsKey.fit.key(printer)) }
+    public func setFit(_ fit: FitMode, for printer: String) { set(fit.rawValue, PrinterSettingsKey.placement.key(printer)) }
     public func setInk(_ ink: InkMode, for printer: String) { set(ink.rawValue, PrinterSettingsKey.ink.key(printer)) }
+    public func setScale(_ v: Double, for printer: String) { set(v, PrinterSettingsKey.scale.key(printer)) }
     public func setCutoff(_ v: Double, for printer: String) { set(v, PrinterSettingsKey.cutoff.key(printer)) }
     public func setToneGamma(_ v: Double?, for printer: String) { set(v, PrinterSettingsKey.toneGamma.key(printer)) }
     public func setNudge(_ v: CGPoint, for printer: String) {
@@ -239,7 +247,7 @@ public struct AppSettings: @unchecked Sendable {
     /// A printer's options as the app prints them, and which came from saved settings.
     public struct PrinterOptions {
         public var options: LabelOptions
-        /// "size", "fit", "ink", "cutoff", "nudge", "toneGamma": the ones that were saved.
+        /// "size", "fit", "scale", "ink", "cutoff", "nudge", "toneGamma": the ones that were saved.
         public var saved: Set<String>
         /// Set when the saved size doesn't fit the printer and another was used.
         public var note: String?
@@ -265,6 +273,7 @@ public struct AppSettings: @unchecked Sendable {
             o.size = size
         }
         if let fit = savedFit(p.name) { o.fit = fit; saved.insert("fit") }
+        if let scale = savedScale(p.name) { o.scalePercent = scale; saved.insert("scale") }
         if let ink = savedInk(p.name) { o.ink = ink; saved.insert("ink") }
         if let cutoff = savedCutoff(p.name) { o.cutoff = cutoff; saved.insert("cutoff") } else { o.cutoff = Default.cutoff }
         if let nudge = savedNudge(p.name) { o.nudgeMM = nudge; saved.insert("nudge") }

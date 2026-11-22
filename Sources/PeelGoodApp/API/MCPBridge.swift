@@ -180,7 +180,11 @@ enum MCPTools {
     private static let options: [String: Value] = [
         "printer": ["type": "string", "description": "Queue name or display name from list_printers. Defaults to the default printer set in Peel Good Inc."],
         "size": ["type": "string", "description": "Label size like 4x6, 2.25x1.25 or 100x150mm. Defaults to the printer's size."],
-        "fit": ["type": "string", "enum": .array(Limits.fits.map { .string($0) })],
+        "fit": ["type": "string", "enum": .array(Limits.fits.map { .string($0) }), "description": .string(Limits.fitDescription)],
+        "scale": ["type": "number", "minimum": .double(Limits.scalePercent.lowerBound), "maximum": .double(Limits.scalePercent.upperBound),
+                 "description": .string(Limits.scaleDescription)],
+        "rotate": ["type": "string", "enum": .array(RotationMode.allCases.map { .string($0.rawValue) }),
+                   "description": "auto (default) turns the page when the placement needs it; none keeps it as drawn; cw or ccw always turn it."],
         "ink": ["type": "string", "enum": .array(Limits.inks.map { .string($0) }), "description": .string(inkDescription)],
     ]
 
@@ -223,7 +227,10 @@ enum MCPTools {
     private static let printerProps: [String: Value] = [
         "printer": ["type": "string", "description": "Queue name or display name."],
         "size": ["type": "string", "description": "Label size, like 4x6."],
-        "fit": ["type": "string", "enum": .array(Limits.fits.map { .string($0) })],
+        "fit": ["type": "string", "enum": .array(Limits.fits.map { .string($0) }),
+                "description": "The printer's default placement, used when neither the call nor the matching rule gives one. fit-page prints the whole page as designed (no trim, never scaled up); direct prints it at physical size, 1:1, times scale."],
+        "scale": ["type": "number", "minimum": .double(Limits.scalePercent.lowerBound), "maximum": .double(Limits.scalePercent.upperBound),
+                 "description": "The printer's default scale for direct placement, in percent (100 is physical size)."],
         "ink": ["type": "string", "enum": .array(Limits.inks.map { .string($0) })],
         "cutoff": ["type": "number", "minimum": .double(Limits.cutoff.lowerBound), "maximum": .double(Limits.cutoff.upperBound), "description": "Gray level below which a dot prints black."],
         "toneGamma": ["type": "number", "minimum": .double(Limits.toneGamma.lowerBound), "maximum": .double(Limits.toneGamma.upperBound), "description": "Dot gain for photo and halftone. 1 turns tone correction off."],
@@ -239,7 +246,7 @@ enum MCPTools {
         }.joined(separator: "; ")
         return """
         A rule is {name, isEnabled, matchAll, conditions: [{field, op, values: [text], number}], \
-        outcome: {printer, size, fit, ink, action: print|review|ask, copies, tag: default|none|{name, color}}}. \
+        outcome: {printer, size, fit: fill|fit-page|direct|cover, scale: percent for direct, ink, action: print|review|ask, copies, tag: default|none|{name, color}}}. \
         Outcome fields left out use the default printer and its settings; action review shows the preview. \
         tag default uses the tag in General, none adds no tag; nothing is tagged while General's Finder tag is off. \
         Rules run top to bottom; the first match wins, else Everything else, which always uses the default printer and its settings. \
@@ -418,7 +425,16 @@ enum MCPTools {
 
     private static func request(_ args: [String: Value]) throws -> APIPrintRequest {
         APIPrintRequest(path: args["path"]?.stringValue, printer: args["printer"]?.stringValue, size: args["size"]?.stringValue,
-                        fit: args["fit"]?.stringValue, ink: args["ink"]?.stringValue, copies: try int(args["copies"], "copies"))
+                        fit: args["fit"]?.stringValue, ink: args["ink"]?.stringValue, copies: try int(args["copies"], "copies"),
+                        scale: try number(args["scale"], "scale"), rotate: args["rotate"]?.stringValue)
+    }
+
+    private static func number(_ value: Value?, _ name: String) throws -> Double? {
+        guard let value, !value.isNull else { return nil }
+        if let d = value.doubleValue { return d }
+        if let n = value.intValue { return Double(n) }
+        if let s = value.stringValue { return try APIPrintRequest.given(s).map { try APIRoutes.number($0, name) } }
+        throw APIError.badRequest("\(name) must be a number.", code: "invalid_\(name)")
     }
 
     private static func int(_ value: Value?, _ name: String) throws -> Int? {

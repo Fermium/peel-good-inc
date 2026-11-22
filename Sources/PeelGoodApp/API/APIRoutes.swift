@@ -167,6 +167,8 @@ enum APIRoutes {
             request.size = form.field("size")
             request.fit = form.field("fit")
             request.ink = form.field("ink")
+            request.scale = try APIPrintRequest.given(form.field("scale")).map { try number($0, "scale") }
+            request.rotate = form.field("rotate")
             request.copies = try APIPrintRequest.given(form.field("copies")).map { try int($0, "copies") }
             for (i, part) in form.files.enumerated() {
                 uploads.append((try uploadName(part.filename, contentType: part.contentType, index: i), part.data))
@@ -256,8 +258,17 @@ enum APIRoutes {
         r.size = r.size ?? given(query["size"])
         r.fit = r.fit ?? given(query["fit"])
         r.ink = r.ink ?? given(query["ink"])
+        r.rotate = r.rotate ?? given(query["rotate"])
+        if r.scale == nil, let z = given(query["scale"]) { r.scale = try number(z, "scale") }
         if r.copies == nil, let c = given(query["copies"]) { r.copies = try int(c, "copies") }
         return r
+    }
+
+    nonisolated static func number(_ text: String, _ name: String) throws -> Double {
+        guard let n = Double(text.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: "%", with: "")) else {
+            throw APIError.badRequest("\(name) must be a number.", code: "invalid_\(name)")
+        }
+        return n
     }
 
     nonisolated static func int(_ text: String, _ name: String) throws -> Int {
