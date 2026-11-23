@@ -72,13 +72,27 @@ enum APIRoutes {
         var port: Int
     }
 
+    /// `/v1/health` and `/v1/jobs`, answered without the main thread, so they still answer while a job holds it
+    /// (issue #10). nil for every other request. Health answers even before the app is ready (`jobs` nil).
+    nonisolated static func answerNow(_ r: APIRequest, flags: ServerFlags, jobs: JobBoard?) -> APIReply? {
+        guard r.method == "GET" else { return nil }
+        switch r.path.split(separator: "/", omittingEmptySubsequences: true) {
+        case ["v1", "health"]:
+            return .json(APIHealth(status: "ok", version: OpenAPI.appVersion, http: flags.http, mcp: flags.mcp, port: flags.port))
+        case ["v1", "jobs"]:
+            guard let jobs else { return nil }
+            return .json(jobs.jobs.filter { $0.source == APIJob.Source.upload }.map(\.redacted))
+        default:
+            return nil
+        }
+    }
+
     @MainActor
     static func handle(_ r: APIRequest, service: LabelService, flags: ServerFlags) async -> APIReply {
+        if let reply = answerNow(r, flags: flags, jobs: service.board) { return reply }
         let parts = r.path.split(separator: "/", omittingEmptySubsequences: true).map { $0.removingPercentEncoding ?? String($0) }
         do {
             switch (r.method, parts) {
-            case ("GET", ["v1", "health"]):
-                return .json(APIHealth(status: "ok", version: OpenAPI.appVersion, http: flags.http, mcp: flags.mcp, port: flags.port))
             case ("GET", ["v1", "printers"]):
                 return .json(service.printers())
             case ("GET", let p) where p.count == 4 && p[0] == "v1" && p[1] == "printers" && p[3] == "sizes":
@@ -94,8 +108,6 @@ enum APIRoutes {
                 defer { input.cleanUp() }
                 let preview = try await service.preview(files: input.files, request: input.request)
                 return try previewReply(preview, r)
-            case ("GET", ["v1", "jobs"]):
-                return .json(service.jobs().filter { $0.source == APIJob.Source.upload }.map(\.redacted))
             default:
                 let known = OpenAPI.endpoints.contains { e in
                     e.path.split(separator: "/").count == parts.count
@@ -106,7 +118,7 @@ enum APIRoutes {
             }
         } catch let e as APIError {
             // Print-system errors can name files in the history folder; keep them out of HTTP replies.
-            return .error(e.status >= 500 && e.code != "preview_timeout" ? APIError(status: e.status, code: e.code, message: "Printing failed. See the Peel Good Inc. log for details.") : e)
+            return .error(e.status >= 500 && !["preview_timeout", "compose_timeout"].contains(e.code) ? APIError(status: e.status, code: e.code, message: "Printing failed. See the Peel Good Inc. log for details.") : e)
         } catch {
             return .error(.failed("Printing failed. See the Peel Good Inc. log for details.", code: "internal"))
         }

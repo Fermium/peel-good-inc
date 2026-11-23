@@ -51,6 +51,9 @@ final class APIController: ObservableObject {
         set { objectWillChange.send(); defaults.set(newValue, forKey: Key.mcpLocalFiles); Log.notice(.api, "MCP local files \(newValue ? "allowed" : "not allowed")") }
     }
 
+    /// `mcpCanUseLocalFiles` from any thread (UserDefaults is thread-safe), for list_jobs off the main thread.
+    nonisolated static var mcpCanUseLocalFilesNow: Bool { UserDefaults.standard.bool(forKey: Key.mcpLocalFiles) }
+
     /// "Let MCP change settings": Off, For 45 Minutes, or Always.
     enum SettingsGrant: String, CaseIterable {
         case off, timed, always
@@ -182,6 +185,7 @@ final class APIController: ObservableObject {
             }
             self.service = service
         }
+        state.update { [board = self.service!.board] in $0.jobs = board }
         // Development runs edit rules and watched folders in memory, never the real rules.json.
         let store = (service as? AppLabelService)?.store ?? Store()
         configurator = custom ?? (dev ? AppConfigurator(store: store, rules: RuleEngine(fileURL: nil), folders: .inMemory())

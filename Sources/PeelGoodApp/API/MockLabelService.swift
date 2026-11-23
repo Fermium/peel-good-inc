@@ -6,7 +6,8 @@ import PeelGoodCore
 @MainActor
 final class MockLabelService: LabelService {
     private(set) var printed: [(files: [URL], request: APIPrintRequest)] = []
-    private var recent: [APIJob] = []
+    private var recent: [APIJob] = [] { didSet { board.set(recent) } }
+    nonisolated let board = JobBoard()
 
     let mockPrinters: [APIPrinter] = [
         APIPrinter(name: "Mock_Label_Printer", displayName: "Mock Label Printer", model: "Mock 4in Thermal", isDefault: true,

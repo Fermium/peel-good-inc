@@ -19,11 +19,15 @@ actor MCPSessions {
     }
 
     private let port: Int
+    private let state: APIServerState?
     private var sessions: [String: Session] = [:]
     private var reaper: Task<Void, Never>?
     static let idleTimeout: TimeInterval = 3600
 
-    init(port: Int) { self.port = port }
+    init(port: Int, state: APIServerState? = nil) {
+        self.port = port
+        self.state = state
+    }
 
     func handle(_ r: APIRequest) async -> APIReply {
         if reaper == nil { reaper = Task { [weak self] in await self?.reapLoop() } }
@@ -73,7 +77,7 @@ actor MCPSessions {
             ])
         )
         do {
-            let server = await MCPTools.makeServer()
+            let server = await MCPTools.makeServer(state: state)
             try await server.start(transport: transport)
             sessions[id] = Session(server: server, transport: transport, lastUsed: Date())
             let response = await transport.handleRequest(request)
@@ -167,11 +171,11 @@ enum MCPTools {
     Both are in Peel Good Inc. Settings > API. Tools that need a permission say so in their error.
     """
 
-    static func makeServer() async -> Server {
+    static func makeServer(state: APIServerState? = nil) async -> Server {
         let server = Server(name: "peel-good", version: OpenAPI.appVersion, title: "Peel Good Inc.", instructions: instructions,
                             capabilities: .init(tools: .init(listChanged: false)))
         await server.withMethodHandler(ListTools.self) { _ in ListTools.Result(tools: tools) }
-        await server.withMethodHandler(CallTool.self) { params in await call(params) }
+        await server.withMethodHandler(CallTool.self) { params in await call(params, jobs: state?.snapshot.jobs) }
         return server
     }
 
@@ -311,6 +315,24 @@ enum MCPTools {
 
     // MARK: Calling
 
+    /// list_jobs answers from `jobs` without the main thread, so it still answers while a job holds it (issue #10).
+    /// Every other tool runs on the main actor.
+    static func call(_ params: CallTool.Parameters, jobs: JobBoard?) async -> CallTool.Result {
+        guard params.name == "list_jobs", let jobs else { return await call(params) }
+        let result: CallTool.Result
+        do {
+            result = try listJobs(jobs.jobs, localFiles: APIController.mcpCanUseLocalFilesNow)
+        } catch {
+            result = CallTool.Result(content: [.text(text: "\(error)", annotations: nil, _meta: nil)], isError: true)
+        }
+        Log.info(.api, "MCP tool list_jobs \(result.isError == true ? "failed" : "ok")")
+        return result
+    }
+
+    private static func listJobs(_ jobs: [APIJob], localFiles: Bool) throws -> CallTool.Result {
+        try encoded(localFiles ? jobs : jobs.map { var j = $0; j.savedPDF = nil; return j })
+    }
+
     @MainActor
     static func call(_ params: CallTool.Parameters) async -> CallTool.Result {
         let started = Date()
@@ -351,14 +373,14 @@ enum MCPTools {
             }
             return try encoded(try service.sizes(printer: printer))
         case "print_label":
-            let input = try fileInput(args)
+            let input = try await fileInput(args)
             var job: APIJob?
             defer { input.cleanUp(after: job) }
             let source = input.scratch == nil ? APIJob.Source.localFile : APIJob.Source.upload
             job = try await service.print(files: input.files, request: input.request, source: source)
             return try encoded(job!)
         case "preview_label":
-            let input = try fileInput(args)
+            let input = try await fileInput(args)
             defer { input.cleanUp() }
             let preview = try await service.preview(files: input.files, request: input.request)
             var summary = preview
@@ -373,8 +395,7 @@ enum MCPTools {
         case "reprint_last":
             return try encoded(try await service.reprintLast(copies: try int(args["copies"], "copies")))
         case "list_jobs":
-            let jobs = service.jobs()
-            return try encoded(api.mcpCanUseLocalFiles ? jobs : jobs.map { var j = $0; j.savedPDF = nil; return j })
+            return try listJobs(service.jobs(), localFiles: api.mcpCanUseLocalFiles)
         case "get_settings":
             return text(AppConfigurator.json(try config().settings()))
         case "update_settings":
@@ -445,9 +466,12 @@ enum MCPTools {
         throw APIError.badRequest("\(name) must be a whole number.", code: "invalid_\(name)")
     }
 
-    /// Uploads (content_base64) always; a path only with the local files permission.
+    /// Uploads (content_base64) always; a path only with the local files permission. A path is opened first with
+    /// `FileAccess` (bounded, off the main thread): macOS can hold `open()` while it asks whether the app may read
+    /// the folder, and with the main thread in there nothing else answered (issue #10). Files are then read for
+    /// their page count off the main thread too.
     @MainActor
-    private static func fileInput(_ args: [String: Value]) throws -> APIRoutes.PrintInput {
+    private static func fileInput(_ args: [String: Value]) async throws -> APIRoutes.PrintInput {
         var r = try request(args)
         var local: [URL] = []
         if let path = r.path, !path.isEmpty {
@@ -468,7 +492,9 @@ enum MCPTools {
         guard !uploads.isEmpty || !local.isEmpty else {
             throw APIError.badRequest("Pass content_base64 with filename, or a path.", code: "no_file")
         }
-        return try APIRoutes.save(uploads, request: r, local: local)
+        try await FileAccess.check(local)
+        let request = r, files = uploads, paths = local
+        return try await Task.detached(priority: .userInitiated) { try APIRoutes.save(files, request: request, local: paths) }.value
     }
 
     /// Content type from the first bytes, for uploads without a usable file name.

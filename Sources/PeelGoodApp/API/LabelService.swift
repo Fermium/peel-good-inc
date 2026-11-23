@@ -1,4 +1,5 @@
 import Foundation
+import os
 import PeelGoodCore
 
 /// What the HTTP API and the MCP server can ask the app to do. The API layer only talks to this.
@@ -18,6 +19,16 @@ protocol LabelService: AnyObject {
     func reprintLast(copies: Int?) async throws -> APIJob
     /// Most recent first.
     func jobs() -> [APIJob]
+    /// The same list, readable from any thread: `/v1/health`, `/v1/jobs` and MCP list_jobs answer from it without
+    /// waiting for the main thread, so they still answer while a job is stuck (issue #10).
+    nonisolated var board: JobBoard { get }
+}
+
+/// The recent jobs behind a lock.
+final class JobBoard: Sendable {
+    private let lock = OSAllocatedUnfairLock(initialState: [APIJob]())
+    var jobs: [APIJob] { lock.withLock { $0 } }
+    func set(_ jobs: [APIJob]) { lock.withLock { $0 = jobs } }
 }
 
 // MARK: DTOs
