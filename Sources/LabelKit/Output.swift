@@ -167,10 +167,15 @@ public enum LabelPrint {
             try Zebra.holding(link) { held in
                 // Once the labels are sent, darkness and speed go back whatever happens to them (queued
                 // behind them if the printer stopped), so the next app's labels don't print with Peel Good's.
+                // Only a printer that refuses the job before any byte goes out is left alone.
                 var sent = false
                 defer { if sent, let restore = job.restore { try? held.write(restore, timeout: 10) } }
-                try Zebra.send(job.data, to: held)
+                let status = try Zebra.status(held)
+                if !status.problems.isEmpty {
+                    throw Failed(description: "\(held.label) can't print: \(status.problems.joined(separator: ", "))")
+                }
                 sent = true
+                try held.write(job.data, timeout: 10)
                 try Zebra.waitUntilPrinted(held, timeout: 15 + 3 * Double(job.labels))
             }
             return "\(job.data.count) bytes of ZPL, printed on \(printer.displayName) (\(link.label))"

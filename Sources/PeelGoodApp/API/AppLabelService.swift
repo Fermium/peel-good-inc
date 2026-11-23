@@ -40,7 +40,8 @@ final class AppLabelService: LabelService {
         return store.eligiblePrinters.map { p in
             APIPrinter(name: p.name, displayName: p.displayName, model: p.makeAndModel, isDefault: p.name == current,
                        isLabelPrinter: p.isLabelPrinter, state: p.state.rawValue, size: store.size(for: p).description,
-                       fit: store.fit(for: p).rawValue, ink: store.ink(for: p).rawValue, scale: store.scale(for: p))
+                       fit: store.fit(for: p).rawValue, ink: store.ink(for: p).rawValue, scale: store.scale(for: p),
+                       darkness: p.speaksZPL ? store.darkness(for: p) : nil, printSpeed: p.speaksZPL ? store.printSpeed(for: p) : nil)
         }
     }
 

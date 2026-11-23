@@ -50,6 +50,8 @@ struct LabelRun {
         /// A Zebra's darkness adjustment (^MD) and print speed (^PR) for this job; nil leaves the printer's.
         var darkness: Int?
         var printSpeed: Int?
+        /// Sent after the labels have printed to put the printer's darkness and speed back.
+        var zplRestore: String?
         var fromApp: [String]
         var copies: Int
         /// The app's rule that matched the first file, when rules were applied.
@@ -344,13 +346,15 @@ struct LabelRun {
         }
         report.pdf = pdf.path
         let args = LabelPrint.lpArguments(file: pdf, printer: printer.name, size: options.size, copies: copies)
-        // A Zebra gets ZPL, built once: the file written is exactly what is (or would be) sent.
+        // A Zebra gets ZPL, built once: the file written is exactly what is (or would be) sent, except that
+        // a job with darkness or speed is followed, once it has printed, by `zplRestore`.
         var zpl: LabelPrint.ZPLJob?
         if printer.speaksZPL {
             let url = pdf.deletingPathExtension().appendingPathExtension("zpl")
             do {
                 zpl = try LabelPrint.zplJob(file: pdf, printer: printer, copies: copies, tuning: tuning)
                 try zpl?.data.write(to: url)
+                report.zplRestore = zpl?.restore.map { String(decoding: $0, as: UTF8.self) }
             } catch { throw CLIError("\(error)", hint: "`\(ctx.tool) doctor` checks the printer.", code: .printer) }
             report.zpl = url.path
         } else {
