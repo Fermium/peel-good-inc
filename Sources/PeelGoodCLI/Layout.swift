@@ -45,6 +45,31 @@ public enum Layout {
         return o
     }
 
+    /// A Zebra's darkness and speed: `base` (the app's for the printer) with --darkness and --print-speed
+    /// on top. --darkness 0 and --print-speed printer go back to the printer's own.
+    public static func tuning(_ inv: Invocation, base: ZPL.Tuning = .init()) throws -> ZPL.Tuning {
+        var t = base
+        if let v = inv["darkness"] {
+            guard let d = Int(v), Limits.darkness.contains(d) else {
+                throw CLIError.usage("--darkness needs a whole number from \(Limits.darkness.lowerBound) to \(Limits.darkness.upperBound)",
+                                     hint: "It's added to the printer's own darkness: +5 is darker, 0 leaves it.")
+            }
+            t.darkness = d == 0 ? nil : d
+        }
+        if let v = inv["print-speed"] {
+            if v.lowercased() == "printer" {
+                t.speed = nil
+            } else {
+                guard let n = Int(v), Limits.printSpeed.contains(n) else {
+                    throw CLIError.usage("--print-speed needs inches per second from \(Limits.printSpeed.lowerBound) to \(Limits.printSpeed.upperBound), or printer",
+                                         hint: "Slower prints darker.")
+                }
+                t.speed = n
+            }
+        }
+        return t
+    }
+
     /// The command line's options on top of `base`. With a printer, a --size it can't take is an error
     /// (a saved size it can't take falls back instead: see `AppSettings.options(for:)`).
     public static func apply(_ inv: Invocation, to base: LabelOptions, on printer: PrinterInfo? = nil, tool: String = Manual.tool) throws -> LabelOptions {

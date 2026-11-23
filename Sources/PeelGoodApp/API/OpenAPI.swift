@@ -182,6 +182,10 @@ enum OpenAPI {
             Field("fit", .string(values: Limits.fits), required: true),
             Field("ink", .string(values: Limits.inks), required: true),
             Field("scale", .number("Direct placement's scale, in percent.")),
+            Field("darkness", .integer("Zebra only, when set: added to the printer's own darkness for Peel Good's labels (^MD).",
+                                       min: Limits.darkness.lowerBound, max: Limits.darkness.upperBound)),
+            Field("printSpeed", .integer("Zebra only, when set: print speed for Peel Good's labels, in/s (^PR).",
+                                         min: Limits.printSpeed.lowerBound, max: Limits.printSpeed.upperBound)),
         ])),
         ("Clip", .object([
             Field("left", .number("mm"), required: true),

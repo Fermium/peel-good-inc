@@ -18,6 +18,13 @@ public enum Limits {
     public static let paddingMM: ClosedRange<Double> = 0...50
     /// Direct placement's scale, in percent of physical size.
     public static let scalePercent: ClosedRange<Double> = 25...400
+    /// A Zebra's darkness adjustment for Peel Good's labels (^MD, added to the printer's own) and print speed.
+    public static let darkness = ZPL.Tuning.darknessRange
+    public static let printSpeed = ZPL.Tuning.speedRange
+    public static let darknessDescription = "Zebra only: added to the printer's own darkness for Peel Good's labels (ZPL ^MD), \(darkness.lowerBound) to \(darkness.upperBound). "
+        + "Applied while printing, then reset. Not saved to the printer. 0 or null: no change."
+    public static let printSpeedDescription = "Zebra only: print speed for Peel Good's labels in inches per second (ZPL ^PR), \(printSpeed.lowerBound) to \(printSpeed.upperBound); "
+        + "slower prints darker. Applied while printing, then reset. Not saved to the printer. null uses the printer's own speed."
     public static let tagNameLength = 64
     public static let inks = InkMode.allCases.map(\.rawValue)
     public static let fits = FitMode.allCases.map(\.rawValue)

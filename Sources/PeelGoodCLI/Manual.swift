@@ -156,6 +156,10 @@ public enum Manual {
     public static let cutoff = CLIOption("cutoff", value: "\(Int(Limits.cutoff.lowerBound * 100))-\(Int(Limits.cutoff.upperBound * 100))", help: "Black and white cutoff in percent. Default 50.")
     public static let toneGamma = CLIOption("tone-gamma", value: "G", help: "Printer dot gain for photo and halftone: coverage c prints as c^G. Default 0.65, 1 turns it off.")
     public static let nudge = CLIOption("nudge", value: "X,Y", help: "Shift in mm, +x right, +y down. Default: the app's calibration.")
+    public static let darkness = CLIOption("darkness", value: "N",
+                                           help: "Zebra only: added to the printer's own darkness for these labels, \(Limits.darkness.lowerBound) to \(Limits.darkness.upperBound) (ZPL ^MD). Applied while printing, then reset. Not saved to the printer. Default: the app's setting, else 0.")
+    public static let printSpeed = CLIOption("print-speed", value: "IPS",
+                                             help: "Zebra only: print speed for these labels in inches per second, \(Limits.printSpeed.lowerBound) to \(Limits.printSpeed.upperBound), or printer for its own (ZPL ^PR). Slower prints darker. Applied while printing, then reset. Not saved to the printer. Default: the app's setting, else the printer's.")
 
     public static let layout: [CLIOption] = [
         printer, size,
@@ -165,7 +169,7 @@ public enum Manual {
                   choices: choices(CropMode.self)),
         CLIOption("pad", value: "MM", help: "Padding around the crop in mm. Default 2."),
         CLIOption("rotate", value: "MODE", help: "Turn the page to match the label: auto, none, cw or ccw. Default auto.", choices: choices(RotationMode.self)),
-        ink, cutoff, toneGamma, nudge,
+        ink, cutoff, toneGamma, nudge, darkness, printSpeed,
         CLIOption("no-snap", help: "Don't fit barcodes to the printer's dot grid."),
     ]
 
@@ -206,14 +210,14 @@ public enum Manual {
                    ]),
         CLICommand("test-label", group: .labels, summary: "Print a calibration label",
                    discussion: "A border 2 mm in, rulers and a QR code. Use it to check offset and scale, then set a nudge in the app.",
-                   options: [printer, size, nudge, copies, dryRun, out],
+                   options: [printer, size, nudge, darkness, printSpeed, copies, dryRun, out],
                    examples: [
                        CLIExample("peelgood test-label", "On your label printer at its size"),
                        CLIExample("peelgood test-label --size 2x1 --dry-run", "Check a small roll without printing"),
                    ]),
         CLICommand("step-wedge", aliases: ["wedge"], group: .labels, summary: "Print a gray ramp to compare ink modes",
                    discussion: "Steps from white to black in 10% stops, plus a smooth gradient. Print it once per ink mode to pick one for photos.",
-                   options: [printer, size, ink, cutoff, toneGamma, nudge, copies, dryRun, out],
+                   options: [printer, size, ink, cutoff, toneGamma, nudge, darkness, printSpeed, copies, dryRun, out],
                    examples: [
                        CLIExample("peelgood step-wedge --ink photo", "See how dithering renders grays"),
                        CLIExample("peelgood step-wedge --ink crisp --cutoff 40 --dry-run", "Try a lower cutoff without printing"),

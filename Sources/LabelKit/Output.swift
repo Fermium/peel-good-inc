@@ -107,10 +107,11 @@ public enum LabelPrint {
     }
 
     /// Sends the job and returns lp's output (the job id), or a summary for a Zebra on the network
-    /// once it has printed.
+    /// once it has printed. `tuning` (darkness and speed) only reaches a Zebra; other printers print
+    /// as their driver is set.
     @discardableResult
-    public static func send(file: URL, printer: PrinterInfo, size: LabelSize, copies: Int = 1) throws -> String {
-        if printer.speaksZPL { return try send(zplJob(file: file, printer: printer, copies: copies), to: printer) }
+    public static func send(file: URL, printer: PrinterInfo, size: LabelSize, copies: Int = 1, tuning: ZPL.Tuning = .init()) throws -> String {
+        if printer.speaksZPL { return try send(zplJob(file: file, printer: printer, copies: copies, tuning: tuning), to: printer) }
         do {
             return try Command.run("/usr/bin/lp", lpArguments(file: file, printer: printer.name, size: size, copies: copies))
         } catch let e as Command.Failed {
@@ -124,16 +125,37 @@ public enum LabelPrint {
         public var data: Data
         /// Labels printed in all, copies included.
         public var labels: Int
+        /// Sent once the labels have printed, to put back the darkness and speed the job changed.
+        public var restore: Data?
+
+        public init(data: Data, labels: Int, restore: Data? = nil) {
+            self.data = data
+            self.labels = labels
+            self.restore = restore
+        }
     }
 
-    public static func zplJob(file: URL, printer: PrinterInfo, copies: Int) throws -> ZPLJob {
+    public static func zplJob(file: URL, printer: PrinterInfo, copies: Int, tuning: ZPL.Tuning = .init()) throws -> ZPLJob {
         guard let first = printer.zebraLink, let dpi = printer.dpi else { throw Failed(description: "\(printer.name) doesn't take ZPL") }
         let bitmaps = try LabelRaster.bitmaps(pdf: file, dpi: dpi)
         var options = ZPL.Options(copies: copies)
-        // On the connection the job goes to, waiting for its turn: this decides ^LL.
+        options.tuning = tuning
+        // On the connection the job goes to, waiting for its turn: this decides ^LL, and a speed
+        // change needs the speeds to put back afterwards (without them, no speed is sent).
         let link = (try? Zebra.route(printer.zebraLinks)) ?? first
-        options.labelLength = (try? Zebra.holding(link) { try Zebra.setup($0) })??.isContinuous ?? false
-        return ZPLJob(data: ZPL.job(bitmaps, options: options), labels: bitmaps.count * max(1, copies))
+        let read = try? Zebra.holding(link) { held -> (Zebra.Setup?, [String: String]) in
+            let setup = try Zebra.setup(held)
+            let diagnostic = tuning.speed != nil && setup != nil ? (try? Zebra.headDiagnostic(held)) ?? [:] : [:]
+            return (setup, diagnostic)
+        }
+        options.labelLength = read?.0?.isContinuous ?? false
+        if let setup = read?.0 {
+            let config = Zebra.Config(setup, diagnostic: read?.1 ?? [:])
+            if let print = config.speed, let slew = config.slew, let backfeed = config.backfeed {
+                options.printerSpeeds = ZPL.Speeds(print: print, slew: slew, backfeed: backfeed)
+            }
+        }
+        return ZPLJob(data: ZPL.job(bitmaps, options: options), labels: bitmaps.count * max(1, copies), restore: ZPL.restore(options))
     }
 
     /// Sends a ZPL job and waits while the printer works through it: it acknowledges nothing else.
@@ -143,7 +165,17 @@ public enum LabelPrint {
         do {
             let link = try Zebra.route(printer.zebraLinks)
             try Zebra.holding(link) { held in
-                try Zebra.send(job.data, to: held)
+                // Once the labels are sent, darkness and speed go back whatever happens to them (queued
+                // behind them if the printer stopped), so the next app's labels don't print with Peel Good's.
+                // Only a printer that refuses the job before any byte goes out is left alone.
+                var sent = false
+                defer { if sent, let restore = job.restore { try? held.write(restore, timeout: 10) } }
+                let status = try Zebra.status(held)
+                if !status.problems.isEmpty {
+                    throw Failed(description: "\(held.label) can't print: \(status.problems.joined(separator: ", "))")
+                }
+                sent = true
+                try held.write(job.data, timeout: 10)
                 try Zebra.waitUntilPrinted(held, timeout: 15 + 3 * Double(job.labels))
             }
             return "\(job.data.count) bytes of ZPL, printed on \(printer.displayName) (\(link.label))"

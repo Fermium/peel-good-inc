@@ -208,6 +208,12 @@ final class Store: ObservableObject {
     func toneGamma(for p: PrinterInfo) -> Double { settings.savedToneGamma(p.name) ?? LabelOptions().toneGamma }
     func setToneGamma(_ v: Double, for p: PrinterInfo) { change { settings.setToneGamma(v, for: p.name) } }
 
+    /// A Zebra's darkness adjustment and print speed for Peel Good's labels; nil is the printer's own.
+    func darkness(for p: PrinterInfo) -> Int? { settings.savedDarkness(p.name) }
+    func setDarkness(_ v: Int?, for p: PrinterInfo) { change { settings.setDarkness(v, for: p.name) } }
+    func printSpeed(for p: PrinterInfo) -> Int? { settings.savedPrintSpeed(p.name) }
+    func setPrintSpeed(_ v: Int?, for p: PrinterInfo) { change { settings.setPrintSpeed(v, for: p.name) } }
+
     func options(for p: PrinterInfo) -> LabelOptions { settings.options(for: p).options }
 
     // MARK: Last print

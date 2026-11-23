@@ -39,8 +39,12 @@ final class PrintJob: ObservableObject {
     /// Hands the saved PDF to the print system. Swapped in tests and dry runs.
     var sender: Sender = PrintJob.defaultSender
 
+    /// A Zebra also gets its darkness and speed for Peel Good's labels, read at send time so a change
+    /// made over MCP applies to the next job.
     static let liveSender: Sender = { file, printer, size, copies in
-        try LabelPrint.send(file: file, printer: printer, size: size, copies: copies)
+        let tuning = AppSettings.userDefaults(.standard).zplTuning(printer.name)
+        if printer.speaksZPL, let summary = tuning.summary { Log.info(.print, "\(printer.name): \(summary) for this job") }
+        return try LabelPrint.send(file: file, printer: printer, size: size, copies: copies, tuning: tuning)
     }
 
     /// Logs instead of printing: `-dryRunPrinting` for the whole app, `-apiDryRun` for API and MCP jobs.

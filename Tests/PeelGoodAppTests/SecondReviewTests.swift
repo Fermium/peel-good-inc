@@ -132,6 +132,35 @@ final class SecondReviewTests: XCTestCase {
                        config.store.printers.isEmpty ? "printer_not_found" : "invalid_nudgeXmm")
     }
 
+    /// set_printer_settings sets a Zebra's darkness and speed for Peel Good's labels (null or 0 clears
+    /// them), get_settings shows them, and a printer that isn't a Zebra refuses them.
+    func testZebraDarknessAndSpeedOverMCP() throws {
+        let settings = AppSettings.memory()
+        settings.remember(Zebra.Profile(serial: "99J000000013", usbSerial: "99J000000013", product: "GX420t", dotsPerMM: 8,
+                                        headDots: 832, maximumLength: 39))
+        let store = Store(settings: settings)
+        let config = AppConfigurator(store: store, rules: RuleEngine(fileURL: nil), folders: .inMemory())
+        let zebra = "Zebra_99J000000013"
+        XCTAssertEqual(try config.setPrinterSettings(["printer": zebra, "darkness": 10, "printSpeed": 3]),
+                       ["\(zebra) darkness: none → 10", "\(zebra) printSpeed: none → 3"])
+        XCTAssertEqual(store.settings.zplTuning(zebra), ZPL.Tuning(darkness: 10, speed: 3))
+        let listed = try XCTUnwrap((try config.settings()["printers"] as? [[String: Any]])?.first { $0["name"] as? String == zebra })
+        XCTAssertEqual(listed["darkness"] as? Int, 10)
+        XCTAssertEqual(listed["printSpeed"] as? Int, 3)
+
+        XCTAssertEqual(try config.setPrinterSettings(["printer": zebra, "darkness": 0, "printSpeed": NSNull()]),
+                       ["\(zebra) darkness: 10 → none", "\(zebra) printSpeed: 3 → none"])
+        XCTAssertTrue(store.settings.zplTuning(zebra).isEmpty)
+        XCTAssertTrue(try XCTUnwrap((try config.settings()["printers"] as? [[String: Any]])?.first { $0["name"] as? String == zebra })["darkness"] is NSNull)
+
+        XCTAssertEqual(code { try config.setPrinterSettings(["printer": zebra, "darkness": 31]) }, "invalid_darkness")
+        XCTAssertEqual(code { try config.setPrinterSettings(["printer": zebra, "darkness": 2.5]) }, "invalid_darkness")
+        XCTAssertEqual(code { try config.setPrinterSettings(["printer": zebra, "printSpeed": 0]) }, "invalid_printSpeed")
+        if let other = store.printers.first(where: { !$0.speaksZPL }) {
+            XCTAssertEqual(code { try config.setPrinterSettings(["printer": other.name, "darkness": 5]) }, "invalid_darkness")
+        }
+    }
+
     // MARK: Rules over MCP
 
     /// add_rule checks fit and ink like set_printer_settings (any letter case) and refuses unknown printers.

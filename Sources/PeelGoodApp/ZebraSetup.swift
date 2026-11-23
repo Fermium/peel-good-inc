@@ -119,7 +119,9 @@ enum ZebraSetup {
         guard alert.runModal() == .alertFirstButtonReturn else { return }
         Task {
             do {
-                let result = try await Task.detached { try Zebra.moveCalibration(try Zebra.route(links), dx: dx, dy: dy) }.value
+                let result = try await Task.detached {
+                    try Zebra.holding(try Zebra.route(links)) { try Zebra.moveCalibration($0, dx: dx, dy: dy) }
+                }.value
                 store.setNudge(.zero, for: printer)
                 Log.notice(.app, "moved calibration (\(dx), \(dy)) dots to \(printer.name): LEFT POSITION \(result.leftPosition), LABEL TOP \(result.labelTop)")
             } catch {

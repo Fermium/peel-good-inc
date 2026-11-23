@@ -402,6 +402,22 @@ final class CoreTests: XCTestCase {
         XCTAssertThrowsError(try OptionOverrides(nudgeMM: CGPoint(x: 11, y: 0)).apply(to: LabelOptions(), on: nil))
     }
 
+    /// A Zebra's darkness and speed are saved per printer; nothing saved, or darkness 0, changes nothing.
+    func testZPLTuningIsSavedPerPrinter() {
+        let s = AppSettings.memory()
+        XCTAssertEqual(s.zplTuning("Zebra_1"), ZPL.Tuning())
+        XCTAssertTrue(s.zplTuning("Zebra_1").isEmpty)
+        s.setDarkness(10, for: "Zebra_1")
+        s.setPrintSpeed(3, for: "Zebra_1")
+        XCTAssertEqual(s.zplTuning("Zebra_1"), ZPL.Tuning(darkness: 10, speed: 3))
+        XCTAssertEqual(s.zplTuning("Zebra_2"), ZPL.Tuning(), "per printer")
+        s.setDarkness(0, for: "Zebra_1")
+        XCTAssertNil(s.savedDarkness("Zebra_1"), "0 is stored as nothing")
+        XCTAssertNil(s.string("darkness.Zebra_1"))
+        s.setPrintSpeed(nil, for: "Zebra_1")
+        XCTAssertTrue(s.zplTuning("Zebra_1").isEmpty)
+    }
+
     func testZebrasAreRememberedBySerial() throws {
         let s = AppSettings.memory()
         XCTAssertTrue(s.scanForZebras, "the scan at launch is on until turned off")

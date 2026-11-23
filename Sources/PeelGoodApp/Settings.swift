@@ -449,6 +449,21 @@ struct PrinterDetail: View {
                         Button("Move to Printer…") { ZebraSetup.moveCalibrationToPrinter(printer, store: store) }
                             .disabled(store.nudge(for: printer) == .zero)
                     }
+                    LabeledContent("Darkness adjustment") {
+                        NumberField(value: Binding(
+                            get: { Double(store.darkness(for: printer) ?? 0) },
+                            set: { store.setDarkness(Int($0.rounded()), for: printer) }
+                        ), range: Double(Limits.darkness.lowerBound)...Double(Limits.darkness.upperBound))
+                    }
+                    Picker("Print speed", selection: Binding(
+                        get: { store.printSpeed(for: printer) },
+                        set: { store.setPrintSpeed($0, for: printer) }
+                    )) {
+                        Text("Printer's setting").tag(Int?.none)
+                        ForEach(Array(Limits.printSpeed), id: \.self) { Text("\($0) in/s").tag(Int?.some($0)) }
+                    }
+                    Text("Applied while printing, then reset. Not saved to the printer.")
+                        .font(.callout).foregroundStyle(.secondary)
                 }
             } header: {
                 Text("Advanced")
@@ -466,7 +481,7 @@ struct PrinterDetail: View {
         .formStyle(.grouped)
         .onAppear {
             // A calibrated printer shows its offset (and, for a Zebra, the move to the printer).
-            if store.nudge(for: printer) != .zero { showAdvanced = true }
+            if store.nudge(for: printer) != .zero || store.darkness(for: printer) != nil || store.printSpeed(for: printer) != nil { showAdvanced = true }
             refreshPreview()
         }
     }

@@ -49,6 +49,9 @@ struct APIPrinter: Codable, Sendable, Equatable {
     var ink: String
     /// Direct placement's scale, in percent.
     var scale: Double? = nil
+    /// A Zebra's darkness adjustment and print speed for Peel Good's labels, when set.
+    var darkness: Int? = nil
+    var printSpeed: Int? = nil
 }
 
 struct APISize: Codable, Sendable, Equatable {
