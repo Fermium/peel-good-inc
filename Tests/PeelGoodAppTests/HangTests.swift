@@ -100,6 +100,41 @@ final class HangTests: XCTestCase {
         XCTAssertLessThan(Date().timeIntervalSince(t), 1)
     }
 
+    /// Health, /v1/jobs and list_jobs don't need the main thread at all: block it outright and they still answer.
+    func testHealthAndJobsAnswerWhileTheMainThreadIsBlocked() async throws {
+        let api = APIController.shared
+        UserDefaults.standard.set(port, forKey: "apiPort")
+        api.attach(MockLabelService(), configurator: AppConfigurator(store: Store(), rules: RuleEngine(fileURL: nil), folders: .inMemory()))
+        api.httpEnabled = true
+        api.mcpEnabled = true
+        for _ in 0..<100 where api.status != .running(port: port) { try await Task.sleep(for: .milliseconds(50)) }
+        XCTAssertEqual(api.status, .running(port: port))
+        let client = Client(port: port, token: api.token)
+        let session = try await client.session()
+
+        let blocked: TimeInterval = 6
+        DispatchQueue.main.async { Thread.sleep(forTimeInterval: blocked) }
+        let results = await Task.detached { () -> [(String, String, TimeInterval)] in
+            try? await Task.sleep(for: .milliseconds(300))   // the main thread is asleep by now
+            var out: [(String, String, TimeInterval)] = []
+            for path in ["/v1/health", "/v1/jobs"] {
+                let t = Date()
+                let status: String
+                do { status = "\(try await client.get(path).0)" } catch { status = "\(error)" }
+                out.append((path, status, Date().timeIntervalSince(t)))
+            }
+            let t = Date()
+            let jobs: String
+            do { jobs = try await client.tool(session, id: 20, "list_jobs", [:]) } catch { jobs = "\(error)" }
+            out.append(("list_jobs", jobs.contains("\"result\"") ? "200" : jobs, Date().timeIntervalSince(t)))
+            return out
+        }.value
+        for (what, status, seconds) in results {
+            XCTAssertEqual(status, "200", what)
+            XCTAssertLessThan(seconds, 2, "\(what) waited for the main thread")
+        }
+    }
+
     func testProbeReportsWaitingThenRecovers() async throws {
         let first = await FileAccess.probe(pipe, limit: 0.5)
         XCTAssertEqual(first, .waiting)

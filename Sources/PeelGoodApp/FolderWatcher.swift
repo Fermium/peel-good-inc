@@ -73,10 +73,12 @@ final class FolderWatcher: ObservableObject {
                     told = true
                     Log.warning(.files, "\(url.lastPathComponent): waiting for macOS to let Peel Good Inc. read \(folder)")
                     Notifier.shared.tell(title: "Peel Good Inc. needs to read \(folder)",
-                                         body: "macOS is asking whether Peel Good Inc. may read files in \(folder). Click Allow; \(url.lastPathComponent) waits until then.")
+                                         body: "macOS is asking whether Peel Good Inc. may read files in \(folder). Click Allow; \(url.lastPathComponent) waits up to \(Int(Self.accessLimit / 60)) minutes.")
                 }
                 if Date().timeIntervalSince(started) > Self.accessLimit {
                     Log.error(.files, "\(url.lastPathComponent): \(folder) still can't be read after \(Int(Self.accessLimit)) s; skipped")
+                    Notifier.shared.tell(title: "\(url.lastPathComponent) wasn't printed",
+                                         body: "Peel Good Inc. still can't read \(folder). Allow it in System Settings > Privacy & Security > Files and Folders, then drop the file on Peel Good Inc.")
                     return false
                 }
                 try? await Task.sleep(for: .seconds(2))
