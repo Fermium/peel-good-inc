@@ -12,6 +12,8 @@ final class APIServerState: Sendable {
         var http = false
         var mcp = false
         var port = 0
+        /// The service's recent jobs, once the app is ready.
+        var jobs: JobBoard?
     }
 
     private let lock = OSAllocatedUnfairLock(initialState: Snapshot())
@@ -111,7 +113,9 @@ struct APIResponder: HTTPResponder {
                               headers: [("Retry-After", String(wait))])
             }
             guard let r = await collect(request, context, path: path) else { return .error(Self.tooLarge) }
-            return await Self.dispatch(r, APIRoutes.ServerFlags(http: s.http, mcp: s.mcp, port: s.port))
+            let flags = APIRoutes.ServerFlags(http: s.http, mcp: s.mcp, port: s.port)
+            if let reply = APIRoutes.answerNow(r, flags: flags, jobs: s.jobs) { return reply }
+            return await Self.dispatch(r, flags)
 
         default:
             return .error(.notFound("No endpoint at \(path).", code: "no_endpoint"))
@@ -199,7 +203,7 @@ final class APIServer: Sendable {
     /// Starts listening. `onRunning` gets the bound port; `onExit` gets the error that stopped it, if any.
     init(port: Int, state: APIServerState, onRunning: @escaping @Sendable (Int) -> Void, onExit: @escaping @Sendable (Error?) -> Void) {
         self.port = port
-        let mcp = MCPSessions(port: port)
+        let mcp = MCPSessions(port: port, state: state)
         self.mcp = mcp
         var logger = Logger(label: AppIdentity.bundleID + ".api")
         logger.logLevel = .critical   // stopping cancels open keep-alive connections, which Hummingbird logs as errors

@@ -22,7 +22,8 @@ final class AppLabelService: LabelService {
     var waitLimit: Duration = .seconds(120)
     /// A preview gives up after this many seconds with error preview_timeout, so an MCP or HTTP call always returns.
     var previewLimit: TimeInterval = 60
-    private var recent: [APIJob] = []
+    private var recent: [APIJob] = [] { didSet { board.set(recent) } }
+    nonisolated let board = JobBoard()
     private var waiters: [String: CheckedContinuation<Void, Never>] = [:]
     nonisolated static let maxJobs = 50
 
@@ -206,7 +207,9 @@ final class AppLabelService: LabelService {
     /// Every page of every file becomes a label, in order.
     private static func compose(_ files: [URL], _ options: LabelOptions) async throws -> [ComposedLabel] {
         do {
-            return try await Task.detached(priority: .userInitiated) { try PrintJob.composeAll(files, options) }.value
+            return try await PrintJob.composeBounded(files, options)
+        } catch let e as PrintJob.ComposeTimeout {
+            throw APIError(status: 504, code: "compose_timeout", message: e.description)
         } catch {
             throw APIError.unprocessable("\(error)", code: "unreadable")
         }

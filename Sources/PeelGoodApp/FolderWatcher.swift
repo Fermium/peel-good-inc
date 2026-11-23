@@ -3,6 +3,7 @@ import CoreServices
 import CryptoKit
 import SwiftUI
 import UserNotifications
+import LabelKit
 import PeelGoodCore
 
 /// Watches folders (not their subfolders) for new printable files and hands each one over once:
@@ -32,7 +33,56 @@ final class FolderWatcher: ObservableObject {
         seen = settings.watchedSeen
     }
 
-    func start() { restart() }
+    func start() {
+        restart()
+        // After an update macOS may ask again whether the app can read these folders. Ask now, while someone is
+        // likely at the Mac, rather than when a file lands (issue #10).
+        for folder in folders {
+            Task {
+                if case .failed(let code) = await FileAccess.probe(folder) {
+                    Log.warning(.files, "can't read \(folder.lastPathComponent): \(String(cString: strerror(code)))")
+                }
+            }
+        }
+    }
+
+    /// How long a new file waits for macOS to let the app read its folder before it's skipped.
+    nonisolated(unsafe) static var accessLimit: TimeInterval = 600
+    nonisolated(unsafe) static var hashLimit: TimeInterval = 60
+
+    /// Waits, without holding a thread, until the file can be opened. macOS holds `open()` while it asks whether the
+    /// app may read the folder; that used to park a Swift concurrency thread per file, for good (issue #10).
+    private func waitForAccess(_ url: URL) async -> Bool {
+        let folder = url.deletingLastPathComponent().lastPathComponent
+        let started = Date()
+        var told = false
+        while true {
+            switch await FileAccess.probe(url) {
+            case .readable:
+                if told { Log.info(.files, "\(url.lastPathComponent): \(folder) can be read now") }
+                return true
+            case .failed(let code):
+                Log.error(.files, "\(url.lastPathComponent): can't read it: \(String(cString: strerror(code)))")
+                if code == EPERM || code == EACCES {
+                    Notifier.shared.tell(title: "Peel Good Inc. can't read \(folder)",
+                                         body: "Turn on Peel Good Inc. in System Settings > Privacy & Security > Files and Folders, then add \(url.lastPathComponent) again.")
+                }
+                return false
+            case .waiting:
+                if !told {
+                    told = true
+                    Log.warning(.files, "\(url.lastPathComponent): waiting for macOS to let Peel Good Inc. read \(folder)")
+                    Notifier.shared.tell(title: "Peel Good Inc. needs to read \(folder)",
+                                         body: "macOS is asking whether Peel Good Inc. may read files in \(folder). Click Allow; \(url.lastPathComponent) waits until then.")
+                }
+                if Date().timeIntervalSince(started) > Self.accessLimit {
+                    Log.error(.files, "\(url.lastPathComponent): \(folder) still can't be read after \(Int(Self.accessLimit)) s; skipped")
+                    return false
+                }
+                try? await Task.sleep(for: .seconds(2))
+            }
+        }
+    }
 
     private func restart() {
         if let stream {
@@ -86,7 +136,12 @@ final class FolderWatcher: ObservableObject {
             if size > 0 && size == last { break }
             last = size
         }
-        guard let hash = await Task.detached(priority: .utility, operation: { Self.sha256(url) }).value else { return }
+        guard await waitForAccess(url) else { return }
+        let hashing = Self.hashLimit
+        guard let hash = await Bounded.run(on: FileAccess.queue, limit: hashing, { Self.sha256(url) }, fallback: {
+            Log.error(.files, "\(url.lastPathComponent): reading it took over \(Int(hashing)) s; skipped")
+            return nil
+        }) else { return }
         guard !seen.contains(hash) else {
             Log.info(.files, "\(url.lastPathComponent) arrived again, already handled")
             return

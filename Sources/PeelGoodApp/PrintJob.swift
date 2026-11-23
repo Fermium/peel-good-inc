@@ -112,9 +112,7 @@ final class PrintJob: ObservableObject {
     private func compose() async {
         let files = files, options = options
         do {
-            let labels = try await Task.detached(priority: .userInitiated) {
-                try Self.composeAll(files, options)
-            }.value
+            let labels = try await Self.composeBounded(files, options)
             self.labels = labels
             self.previews = labels.compactMap { l in
                 l.bitmap.cgImage().map { NSImage(cgImage: $0, size: l.placement.target) }
@@ -134,6 +132,33 @@ final class PrintJob: ObservableObject {
             finish(.failed("\(error)"))
         }
     }
+
+    /// Composing reads the files and checks every code with Vision, which has hung before (issue #6), so it runs on
+    /// its own Dispatch queue, never the Swift concurrency pool, and gives up after `composeLimit` seconds (issue #10).
+    /// A job that runs over fails; it never prints labels whose codes weren't checked.
+    nonisolated static let composing = DispatchQueue(label: "PeelGood.compose", qos: .userInitiated, attributes: .concurrent)
+    nonisolated(unsafe) static var composeLimit: TimeInterval = 120
+
+    struct ComposeTimeout: Error, CustomStringConvertible {
+        let seconds: TimeInterval
+        var description: String {
+            "Reading the file and checking its codes took over \(Int(seconds)) seconds and was stopped. Nothing printed. Try again; if it keeps happening, quit and reopen Peel Good Inc."
+        }
+    }
+
+    nonisolated static func composeBounded(_ files: [URL], _ o: LabelOptions) async throws -> [ComposedLabel] {
+        let limit = composeLimit
+        let outcome = await Bounded.run(on: composing, limit: limit) {
+            Composed(result: Result { try composeAll(files, o) })
+        } fallback: {
+            Log.error(.job, "composing \(files.map(\.lastPathComponent).joined(separator: ", ")) took over \(Int(limit)) s; stopped")
+            return Composed(result: .failure(ComposeTimeout(seconds: limit)))
+        }
+        return try outcome.result.get()
+    }
+
+    /// Labels are only handed from the compose queue to one waiting caller.
+    private struct Composed: @unchecked Sendable { let result: Result<[ComposedLabel], Error> }
 
     /// Every page of every file becomes a label, in order.
     nonisolated static func composeAll(_ files: [URL], _ o: LabelOptions) throws -> [ComposedLabel] {
