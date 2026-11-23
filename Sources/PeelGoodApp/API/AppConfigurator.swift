@@ -61,7 +61,8 @@ final class AppConfigurator {
                 return ["name": p.name, "displayName": p.displayName, "isLabelPrinter": p.isLabelPrinter,
                         "hidden": store.hiddenPrinters.contains(p.name), "size": store.size(for: p).description,
                         "fit": store.fit(for: p).rawValue, "scale": store.scale(for: p), "ink": store.ink(for: p).rawValue,
-                        "cutoff": store.cutoff(for: p), "toneGamma": store.toneGamma(for: p), "nudgeXmm": Double(n.x), "nudgeYmm": Double(n.y)]
+                        "cutoff": store.cutoff(for: p), "toneGamma": store.toneGamma(for: p), "nudgeXmm": Double(n.x), "nudgeYmm": Double(n.y),
+                        "darkness": store.darkness(for: p) ?? NSNull(), "printSpeed": store.printSpeed(for: p) ?? NSNull()]
             },
             "watchedFolders": folders.get().map(\.path),
             "api": [
@@ -196,6 +197,19 @@ final class AppConfigurator {
             case "toneGamma":
                 let v = try Self.number(value, key, Limits.toneGamma)
                 steps.append { self.change(label, self.store.toneGamma(for: p), v) { self.store.setToneGamma(v, for: p) } }
+            case "darkness", "printSpeed":
+                guard p.speaksZPL else {
+                    throw APIError.badRequest("\(key) only applies to Zebra printers; \(p.displayName) prints through its driver.", code: "invalid_\(key)")
+                }
+                if key == "darkness" {
+                    // null and 0 both mean the printer's own darkness.
+                    let v = value is NSNull ? nil : try Self.int(value, key, Limits.darkness)
+                    let new = v == 0 ? nil : v
+                    steps.append { self.change(label, self.store.darkness(for: p), new) { self.store.setDarkness(new, for: p) } }
+                } else {
+                    let v = value is NSNull ? nil : try Self.int(value, key, Limits.printSpeed)
+                    steps.append { self.change(label, self.store.printSpeed(for: p), v) { self.store.setPrintSpeed(v, for: p) } }
+                }
             case "nudgeXmm", "nudgeYmm":
                 let v = try Self.number(value, key, Limits.nudgeMM)
                 steps.append {

@@ -4,7 +4,9 @@ import SwiftUI
 
 /// Settings › Printers › a Zebra: the printer's own configuration (darkness, speed, media, mode).
 /// It applies to every app's labels, so edits wait for Save to Printer, which shows what changes and
-/// saves it on the printer (^JUS), like Move to Printer does for the offset.
+/// saves it on the printer (^JUS), like Move to Printer does for the offset. Everything here takes the
+/// printer the way a print does (`Zebra.holding`), so it waits for a print in progress instead of
+/// landing in the middle of it, and failures go to the log as well as on screen.
 struct ZebraSettingsSection: View {
     let printer: PrinterInfo
     let links: [Zebra.Link]
@@ -93,12 +95,13 @@ struct ZebraSettingsSection: View {
         let links = links
         Task {
             do {
-                let read = try await Task.detached { try Zebra.config(try Zebra.route(links))?.config }.value
+                let read = try await Task.detached { try Zebra.holding(try Zebra.route(links)) { try Zebra.config($0)?.config } }.value
                 // Keep edits made while reading; otherwise show what the printer has.
                 if let old = current, edited != old {} else if let read { edited = read }
                 current = read
                 if read == nil { message = "The printer can't answer right now (paused, open or busy)." }
             } catch {
+                Log.error(.app, "\(printer.name): couldn't read the printer's settings: \(error)")
                 message = "\(error)"
             }
             loading = false
@@ -128,7 +131,9 @@ struct ZebraSettingsSection: View {
         busy = true
         Task {
             do {
-                let after = try await Task.detached { try Zebra.apply(wanted, over: old, save: true, to: try Zebra.route(links)) }.value
+                let after = try await Task.detached {
+                    try Zebra.holding(try Zebra.route(links)) { try Zebra.apply(wanted, over: old, save: true, to: $0) }
+                }.value
                 Log.notice(.app, "\(printer.name): saved \(wanted.changes(from: old).joined(separator: "; "))")
                 if let after {
                     current = after
@@ -141,6 +146,7 @@ struct ZebraSettingsSection: View {
                 busy = false
                 if wanted.tracking != old.tracking { calibrate() }
             } catch {
+                Log.error(.app, "\(printer.name): couldn't save \(wanted.changes(from: old).joined(separator: "; ")): \(error)")
                 message = "\(error)"
                 busy = false
             }
@@ -157,14 +163,15 @@ struct ZebraSettingsSection: View {
         run("Calibrating. Wait for the printer to stop.") { try Zebra.calibrate($0) }
     }
 
-    private func run(_ done: String, _ action: @escaping @Sendable (Zebra.Link) throws -> Void) {
+    private func run(_ done: String, _ action: @escaping @Sendable (any Zebra.Channel) throws -> Void) {
         let links = links
         busy = true
         Task {
             do {
-                try await Task.detached { try action(try Zebra.route(links)) }.value
+                try await Task.detached { try Zebra.holding(try Zebra.route(links)) { try action($0) } }.value
                 message = done
             } catch {
+                Log.error(.app, "\(printer.name): \(error)")
                 message = "\(error)"
             }
             busy = false

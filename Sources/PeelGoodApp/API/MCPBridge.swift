@@ -240,6 +240,8 @@ enum MCPTools {
         "toneGamma": ["type": "number", "minimum": .double(Limits.toneGamma.lowerBound), "maximum": .double(Limits.toneGamma.upperBound), "description": "Dot gain for photo and halftone. 1 turns tone correction off."],
         "nudgeXmm": ["type": "number", "minimum": .double(Limits.nudgeMM.lowerBound), "maximum": .double(Limits.nudgeMM.upperBound), "description": "Alignment, + moves right."],
         "nudgeYmm": ["type": "number", "minimum": .double(Limits.nudgeMM.lowerBound), "maximum": .double(Limits.nudgeMM.upperBound), "description": "Alignment, + moves down."],
+        "darkness": ["type": ["integer", "null"], "minimum": .int(Limits.darkness.lowerBound), "maximum": .int(Limits.darkness.upperBound), "description": .string(Limits.darknessDescription)],
+        "printSpeed": ["type": ["integer", "null"], "minimum": .int(Limits.printSpeed.lowerBound), "maximum": .int(Limits.printSpeed.upperBound), "description": .string(Limits.printSpeedDescription)],
     ]
 
     /// The rule format, generated from the rule model so it can't drift.
@@ -292,7 +294,7 @@ enum MCPTools {
               description: "Changes app settings. Only the fields given change. MCP can't change the MCP switch, its permissions or the token." + settingsNote,
               inputSchema: schema(settingsProps), annotations: edits()), .settings),
         (Tool(name: "set_printer_settings", title: "Change printer settings",
-              description: "Changes one printer's label size, scaling, ink, threshold or alignment." + settingsNote,
+              description: "Changes one printer's label size, scaling, ink, threshold or alignment, and a Zebra's darkness and print speed for Peel Good's labels." + settingsNote,
               inputSchema: schema(printerProps, required: ["printer"]), annotations: edits()), .settings),
         (Tool(name: "set_watched_folders", title: "Set watched folders",
               description: "Replaces the folders watched for new labels. Pass an empty list to stop watching." + settingsNote,

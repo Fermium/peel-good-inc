@@ -47,6 +47,9 @@ struct LabelRun {
         var ink: String
         var cutoffPercent: Int
         var nudgeMM: [Double]
+        /// A Zebra's darkness adjustment (^MD) and print speed (^PR) for this job; nil leaves the printer's.
+        var darkness: Int?
+        var printSpeed: Int?
         var fromApp: [String]
         var copies: Int
         /// The app's rule that matched the first file, when rules were applied.
@@ -116,6 +119,18 @@ struct LabelRun {
         var options = try Layout.apply(inv, to: decision?.options ?? saved?.options ?? LabelOptions(), on: printer, tool: ctx.tool)
         let given = try Layout.overrides(inv).given
         var fromAppKeys = (saved?.saved ?? []).subtracting(given)
+        // A Zebra's darkness and speed: the app's for the printer, then the command line.
+        let savedTuning = printer.map { ctx.defaults.zplTuning($0.name) } ?? .init()
+        var tuning = try Layout.tuning(inv, base: savedTuning)
+        if printer?.speaksZPL == true {
+            if savedTuning.darkness != nil, inv["darkness"] == nil { fromAppKeys.insert("darkness") }
+            if savedTuning.speed != nil, inv["print-speed"] == nil { fromAppKeys.insert("printSpeed") }
+        } else {
+            if inv["darkness"] != nil || inv["print-speed"] != nil, let printer {
+                notes.append("--darkness and --print-speed only apply to Zebra printers; \(printer.displayName) prints as its driver is set.")
+            }
+            tuning = .init()
+        }
         var copies = try Layout.copies(inv)
         if inv["copies"] == nil, let d = decision { copies = d.copies }
 
@@ -140,9 +155,9 @@ struct LabelRun {
         var report = Report(command: name, printer: printer?.name, printerModel: printer?.displayName, printerFrom: chosen?.1,
                             size: options.size.description, media: options.size.cupsMedia, ink: options.ink.rawValue,
                             cutoffPercent: Int((options.cutoff * 100).rounded()), nudgeMM: [options.nudgeMM.x, options.nudgeMM.y],
-                            fromApp: fromAppKeys.sorted(), copies: copies, rule: decision?.ruleName, notes: notes,
+                            darkness: tuning.darkness, printSpeed: tuning.speed, fromApp: fromAppKeys.sorted(), copies: copies, rule: decision?.ruleName, notes: notes,
                             dryRun: inv.has("dry-run"), sent: false, outputFolder: outDir.path, files: [])
-        header(printer: printer, from: chosen?.1, options: options, fromApp: fromAppKeys, copies: copies,
+        header(printer: printer, from: chosen?.1, options: options, tuning: tuning, fromApp: fromAppKeys, copies: copies,
                rule: decision.flatMap { $0.isFallback ? nil : $0.ruleName })
         for note in notes { ctx.say("  \(ctx.out.warn) \(ctx.out.yellow(note))") }
 
@@ -150,7 +165,7 @@ struct LabelRun {
         var labels: [ComposedLabel] = []
         for url in inputs {
             do {
-                let (file, composed) = try process(url, options: options, printer: printer, outDir: outDir, sends: sends)
+                let (file, composed) = try process(url, options: options, tuning: tuning, printer: printer, outDir: outDir, sends: sends)
                 report.files.append(file)
                 labels += composed
             } catch let e as CLIError {
@@ -164,7 +179,7 @@ struct LabelRun {
             if failed {
                 if sends { ctx.note("\(ctx.err.fail) nothing sent: every file has to be readable") }
             } else {
-                try send(labels, inputs: inputs, report: &report, printer: printer, options: options, outDir: outDir,
+                try send(labels, inputs: inputs, report: &report, printer: printer, options: options, tuning: tuning, outDir: outDir,
                          copies: copies, sends: sends)
             }
         }
@@ -220,11 +235,12 @@ struct LabelRun {
         }
     }
 
-    private func header(printer: PrinterInfo?, from: String?, options: LabelOptions, fromApp: Set<String>, copies: Int, rule: String?) {
+    private func header(printer: PrinterInfo?, from: String?, options: LabelOptions, tuning: ZPL.Tuning, fromApp: Set<String>, copies: Int, rule: String?) {
         let s = ctx.out
         var parts = [s.bold(options.size.primary), "ink \(options.ink.rawValue)"]
         if options.cutoff != 0.5 { parts.append("cutoff \(Int((options.cutoff * 100).rounded()))%") }
         if options.nudgeMM != .zero { parts.append(String(format: "nudge %g,%g mm", options.nudgeMM.x, options.nudgeMM.y)) }
+        if let t = tuning.summary { parts.append(t) }
         if copies > 1 { parts.append("\(copies) copies") }
         let on = printer.map { " on \(s.bold($0.displayName)) \(s.dim("(\($0.name))"))" } ?? ""
         ctx.say("\(s.accent("●")) \(parts.joined(separator: "\(s.dot) "))\(on)")
@@ -238,7 +254,7 @@ struct LabelRun {
     }
 
     /// Composes one file's pages and writes its own label PDF (and PNGs for previews). Doesn't send.
-    private func process(_ url: URL, options: LabelOptions, printer: PrinterInfo?, outDir: URL, sends: Bool) throws -> (File, [ComposedLabel]) {
+    private func process(_ url: URL, options: LabelOptions, tuning: ZPL.Tuning, printer: PrinterInfo?, outDir: URL, sends: Bool) throws -> (File, [ComposedLabel]) {
         let s = ctx.out
         let pages: [SourcePage]
         do { pages = try DocumentLoader.load(url) } catch {
@@ -298,7 +314,7 @@ struct LabelRun {
         file.pdf = pdf.path
         if kind == .preview, let printer, printer.speaksZPL {
             let zpl = outDir.appendingPathComponent("\(base).label.zpl")
-            do { try LabelPrint.zplJob(file: pdf, printer: printer, copies: 1).data.write(to: zpl) } catch { throw CLIError("\(error)") }
+            do { try LabelPrint.zplJob(file: pdf, printer: printer, copies: 1, tuning: tuning).data.write(to: zpl) } catch { throw CLIError("\(error)") }
             file.zpl = zpl.path
         }
 
@@ -313,7 +329,7 @@ struct LabelRun {
     /// Writes every label into one PDF and sends it once with the copies, then saves it to History once,
     /// with the first file as its source: what the app does with a drop of several files.
     private func send(_ labels: [ComposedLabel], inputs: [URL], report: inout Report, printer: PrinterInfo, options: LabelOptions,
-                      outDir: URL, copies: Int, sends: Bool) throws {
+                      tuning: ZPL.Tuning, outDir: URL, copies: Int, sends: Bool) throws {
         let s = ctx.out
         guard let first = inputs.first, !labels.isEmpty else { return }
         let base = first.deletingPathExtension().lastPathComponent
@@ -333,7 +349,7 @@ struct LabelRun {
         if printer.speaksZPL {
             let url = pdf.deletingPathExtension().appendingPathExtension("zpl")
             do {
-                zpl = try LabelPrint.zplJob(file: pdf, printer: printer, copies: copies)
+                zpl = try LabelPrint.zplJob(file: pdf, printer: printer, copies: copies, tuning: tuning)
                 try zpl?.data.write(to: url)
             } catch { throw CLIError("\(error)", hint: "`\(ctx.tool) doctor` checks the printer.", code: .printer) }
             report.zpl = url.path

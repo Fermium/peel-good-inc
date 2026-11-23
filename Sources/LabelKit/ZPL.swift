@@ -34,12 +34,85 @@ public enum ZPL {
         /// Send ^LL. Only continuous media needs it: on gap or mark media the printer measures each
         /// label, and a longer ^LL than it measured feeds blank labels (LPrint issues #95, #196).
         public var labelLength = true
+        /// Heat and speed for these labels only (^MD, ^PR). Empty sends neither, as before.
+        public var tuning = Tuning()
+        /// What the printer is set to, which ^PR needs: it sets slew and backfeed too, and they're put
+        /// back after the job. No speed is sent while this is unknown.
+        public var printerSpeeds: Speeds?
 
         public init(compression: Compression = .z64, orientation: Orientation = .normal, copies: Int = 1) {
             self.compression = compression
             self.orientation = orientation
             self.copies = copies
         }
+    }
+
+    /// Darkness and speed for Peel Good's labels, never saved on the printer.
+    ///
+    /// ^MD is relative to the printer's own darkness (~SD) and, unlike ~SD, a format command, so it
+    /// waits its turn in the queue instead of jumping ahead. It stays in force after the job (a G-series
+    /// printer even keeps it through a power cycle) and ^PR does until the printer restarts, so each
+    /// job that sends them is followed by `restore`, sent once the labels have printed.
+    public struct Tuning: Equatable, Sendable {
+        /// Added to the printer's darkness, −30…30 (^MD). Nil or 0 leaves it as it is.
+        public var darkness: Int?
+        /// Inches per second (^PR). Nil leaves the printer's speed. Slower prints darker.
+        public var speed: Int?
+
+        public static let darknessRange = -30...30
+        public static let speedRange = Zebra.Config.speedRange
+
+        public init(darkness: Int? = nil, speed: Int? = nil) {
+            self.darkness = darkness
+            self.speed = speed
+        }
+
+        public var isEmpty: Bool { (darkness ?? 0) == 0 && speed == nil }
+
+        /// "darkness +10, 3 in/s", or nil when nothing changes.
+        public var summary: String? {
+            var parts: [String] = []
+            if let d = darkness, d != 0 { parts.append(String(format: "darkness %+d", d)) }
+            if let s = speed { parts.append("\(s) in/s") }
+            return parts.isEmpty ? nil : parts.joined(separator: ", ")
+        }
+    }
+
+    /// The printer's print, feed (slew) and backfeed speeds in inches per second: ^PR sets all three,
+    /// so a speed change is only sent when all three are known and can be put back.
+    public struct Speeds: Equatable, Sendable {
+        public var print: Int
+        public var slew: Int
+        public var backfeed: Int
+        public init(print: Int, slew: Int, backfeed: Int) {
+            self.print = print
+            self.slew = slew
+            self.backfeed = backfeed
+        }
+
+        func command(print value: Int) -> String { "^PR\(value),\(slew),\(backfeed)" }
+    }
+
+    /// The commands each label starts with for `options.tuning`, "" when there are none.
+    static func tuningCommands(_ options: Options) -> String {
+        var s = ""
+        if let d = options.tuning.darkness, d != 0 { s += "^MD\(Tuning.darknessRange.clamped(d))\n" }
+        if let speed = options.tuning.speed, let current = options.printerSpeeds {
+            let v = Tuning.speedRange.clamped(speed)
+            if v != current.print { s += current.command(print: v) + "\n" }
+        }
+        return s
+    }
+
+    /// Puts back what `job` changed: ^MD0 and the printer's own speeds. Nil when the job changed nothing.
+    public static func restore(_ options: Options) -> Data? {
+        var s = ""
+        if let d = options.tuning.darkness, d != 0 { s += "^MD0\n" }
+        if let speed = options.tuning.speed, let current = options.printerSpeeds,
+           Tuning.speedRange.clamped(speed) != current.print {
+            s += current.command(print: current.print) + "\n"
+        }
+        return s.isEmpty ? nil : Data("^XA\n\(s)^XZ\n".utf8)
     }
 
     /// One ^XA…^XZ format per label. A single label prints its copies with ^PQ; a set repeats in order.
@@ -58,12 +131,13 @@ public enum ZPL {
     /// One label, laid out as Zebra's own driver does (^PW the label's width, the image at 0,0), so the
     /// printer's calibration (LEFT POSITION ^LS, LABEL TOP ^LT) places it as it does for every other app.
     /// Where the roll sits on the head differs by model and by how it's loaded; that's calibrated, never
-    /// assumed. ^PO, ^LH and ^PW are stated because they persist from whatever printed before; darkness,
-    /// speed, media and print mode stay as the printer is set up.
+    /// assumed. ^PO, ^LH and ^PW are stated because they persist from whatever printed before; media and
+    /// print mode stay as the printer is set up, and darkness and speed too unless `options.tuning` says.
     public static func format(_ bitmap: GrayBitmap, options: Options = Options(), quantity: Int = 1) -> String {
         let rows = bitmap.packedBlack()
         var s = "^XA\n^PO\(options.orientation == .inverted ? "I" : "N")\n^LH0,0\n^PW\(bitmap.width)\n"
         if options.labelLength { s += "^LL\(bitmap.height)\n" }
+        s += tuningCommands(options)
         let perBand = max(1, options.bandBytes / max(1, rows.rowBytes))
         var y = 0
         while y < bitmap.height {
@@ -181,4 +255,8 @@ public enum ZPL {
         if n % 20 > 0 { s += String(UnicodeScalar(UInt8(ascii: "F") + UInt8(n % 20))) }
         return s
     }
+}
+
+private extension ClosedRange where Bound == Int {
+    func clamped(_ v: Int) -> Int { Swift.min(Swift.max(v, lowerBound), upperBound) }
 }

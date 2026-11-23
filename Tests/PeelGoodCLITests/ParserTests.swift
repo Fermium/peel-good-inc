@@ -162,6 +162,18 @@ final class ParserTests: XCTestCase {
         XCTAssertEqual(o.paddingMM, 3)
     }
 
+    func testDarknessAndPrintSpeed() throws {
+        let saved = ZPL.Tuning(darkness: 4, speed: 3)
+        XCTAssertEqual(try Layout.tuning(try parse("print a.pdf"), base: saved), saved, "the app's setting when not given")
+        XCTAssertEqual(try Layout.tuning(try parse("print a.pdf --darkness 10 --print-speed 2")), ZPL.Tuning(darkness: 10, speed: 2))
+        XCTAssertEqual(try Layout.tuning(try parse("print a.pdf --darkness=+10")), ZPL.Tuning(darkness: 10))
+        XCTAssertEqual(try Layout.tuning(try parse("print a.pdf --darkness -5")), ZPL.Tuning(darkness: -5))
+        XCTAssertEqual(try Layout.tuning(try parse("print a.pdf --darkness 0 --print-speed printer"), base: saved), ZPL.Tuning())
+        XCTAssertThrowsError(try Layout.tuning(try parse("print a.pdf --darkness 31")))
+        XCTAssertThrowsError(try Layout.tuning(try parse("print a.pdf --darkness dark")))
+        XCTAssertThrowsError(try Layout.tuning(try parse("print a.pdf --print-speed 0")))
+    }
+
     func testLayoutErrors() throws {
         XCTAssertThrowsError(try Layout.apply(try parse("print a.pdf --size big"), to: LabelOptions()))
         XCTAssertThrowsError(try Layout.apply(try parse("print a.pdf --cutoff 140"), to: LabelOptions()))

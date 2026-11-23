@@ -91,6 +91,7 @@ When it starts, *Peel Good Inc.* looks for Zebra printers on USB and your networ
 - label size, scaling and ink
 - a position offset, which can be moved onto the printer to be used by every app
 - the printer's own darkness, speed, media and print mode
+- darkness and speed for *Peel Good Inc.*'s labels only, sent with each job and put back after it (also over MCP and `--darkness`, `--print-speed`)
 - live status: head open, out of labels, paused
 
 Tested on a Zebra GX420t.

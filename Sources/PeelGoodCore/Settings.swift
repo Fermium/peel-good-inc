@@ -17,6 +17,8 @@ public enum SettingsKey: String, CaseIterable, Sendable {
 public enum PrinterSettingsKey: String, CaseIterable, Sendable {
     /// `fit` holds 0.5.4's names (fit, fill) and is only read; `placement` holds today's (`FitMode` raw values).
     case size, fit, placement, ink, cutoff, nudgeX, nudgeY, toneGamma, scale
+    /// A Zebra's darkness adjustment (^MD) and print speed (^PR) for Peel Good's labels.
+    case darkness, printSpeed
     public func key(_ printer: String) -> String { "\(rawValue).\(printer)" }
 }
 
@@ -232,6 +234,23 @@ public struct AppSettings: @unchecked Sendable {
 
     /// Dot gain for photo and halftone; nil uses LabelKit's default.
     public func savedToneGamma(_ printer: String) -> Double? { double(PrinterSettingsKey.toneGamma.key(printer)) }
+
+    /// Added to a Zebra's own darkness for Peel Good's labels, −30…30; nil (or 0) changes nothing.
+    public func savedDarkness(_ printer: String) -> Int? { int(PrinterSettingsKey.darkness.key(printer)) }
+
+    /// A Zebra's print speed for Peel Good's labels in in/s; nil uses the printer's own.
+    public func savedPrintSpeed(_ printer: String) -> Int? { int(PrinterSettingsKey.printSpeed.key(printer)) }
+
+    /// Darkness and speed as a Zebra job sends them.
+    public func zplTuning(_ printer: String) -> ZPL.Tuning {
+        ZPL.Tuning(darkness: savedDarkness(printer), speed: savedPrintSpeed(printer))
+    }
+
+    /// 0 and nil both mean "as the printer is set"; nil is stored.
+    public func setDarkness(_ v: Int?, for printer: String) {
+        set(v.flatMap { $0 == 0 ? nil : $0 }, PrinterSettingsKey.darkness.key(printer))
+    }
+    public func setPrintSpeed(_ v: Int?, for printer: String) { set(v, PrinterSettingsKey.printSpeed.key(printer)) }
 
     public func setSize(_ size: LabelSize, for printer: String) { set(size.description, PrinterSettingsKey.size.key(printer)) }
     public func setFit(_ fit: FitMode, for printer: String) { set(fit.rawValue, PrinterSettingsKey.placement.key(printer)) }

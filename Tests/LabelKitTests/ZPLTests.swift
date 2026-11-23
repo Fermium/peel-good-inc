@@ -341,3 +341,61 @@ private final class ScriptedPrinter: Zebra.Channel, @unchecked Sendable {
     #expect(try Zebra.waitUntilPrinted(busy, timeout: 5, every: 0.01).isIdle)
     #expect(throws: Zebra.Failed.self) { try Zebra.waitUntilPrinted(ScriptedPrinter([ScriptedPrinter.status(formats: 1, paused: true)]), timeout: 5, every: 0.01) }
 }
+
+// MARK: Darkness and speed (issue #13)
+
+private func text(_ data: Data?) -> String? { data.map { String(decoding: $0, as: UTF8.self) } }
+
+@Test func noTuningLeavesTheJobAsBefore() {
+    // The exact bytes of a label before darkness and speed existed: nothing about heat or speed.
+    let white = GrayBitmap(width: 16, height: 2, pixels: [UInt8](repeating: 255, count: 32))
+    let options = ZPL.Options(compression: .hex)
+    #expect(text(ZPL.job([white], options: options)) == "^XA\n^PON\n^LH0,0\n^PW16\n^LL2\n^FO0,0^GFA,4,4,2,00000000^FS\n^XZ\n")
+    #expect(ZPL.restore(options) == nil)
+    var zero = options
+    zero.tuning = ZPL.Tuning(darkness: 0)
+    zero.printerSpeeds = ZPL.Speeds(print: 6, slew: 6, backfeed: 2)
+    #expect(text(ZPL.job([white], options: zero)) == text(ZPL.job([white], options: options)), "0 is no change")
+    #expect(ZPL.restore(zero) == nil)
+    #expect(ZPL.Tuning().isEmpty && ZPL.Tuning(darkness: 0).isEmpty && ZPL.Tuning().summary == nil)
+}
+
+@Test func darknessGoesInEveryLabelAndIsPutBack() {
+    let one = GrayBitmap(width: 16, height: 2, pixels: [UInt8](repeating: 0, count: 32))
+    var options = ZPL.Options(compression: .hex)
+    options.tuning = ZPL.Tuning(darkness: 10)
+    let job = text(ZPL.job([one, one], options: options))!
+    #expect(job.components(separatedBy: "^MD10\n").count - 1 == 2, "one ^MD per format")
+    #expect(job.contains("^LL2\n^MD10\n^FO0,0"), "after the layout, before the graphic")
+    #expect(!job.contains("~SD") && !job.contains("^JUS") && !job.contains("^PR"), "never the printer's saved darkness")
+    #expect(text(ZPL.restore(options)) == "^XA\n^MD0\n^XZ\n")
+    #expect(options.tuning.summary == "darkness +10")
+
+    options.tuning.darkness = -45
+    #expect(text(ZPL.job([one], options: options))!.contains("^MD-30\n"), "clamped to −30…30")
+    options.tuning.darkness = 99
+    #expect(text(ZPL.job([one], options: options))!.contains("^MD30\n"))
+}
+
+@Test func speedNeedsThePrinterSpeedsToPutBack() {
+    let one = GrayBitmap(width: 16, height: 2, pixels: [UInt8](repeating: 0, count: 32))
+    var options = ZPL.Options(compression: .hex)
+    options.tuning = ZPL.Tuning(speed: 2)
+    // Unknown speeds: ^PR alone would reset slew and backfeed and couldn't be undone, so nothing is sent.
+    #expect(!text(ZPL.job([one], options: options))!.contains("^PR"))
+    #expect(ZPL.restore(options) == nil)
+
+    options.printerSpeeds = ZPL.Speeds(print: 4, slew: 6, backfeed: 2)
+    #expect(text(ZPL.job([one], options: options))!.contains("^LL2\n^PR2,6,2\n^FO0,0"))
+    #expect(text(ZPL.restore(options)) == "^XA\n^PR4,6,2\n^XZ\n")
+
+    options.tuning = ZPL.Tuning(darkness: 5, speed: 2)
+    #expect(text(ZPL.job([one], options: options))!.contains("^MD5\n^PR2,6,2\n"))
+    #expect(text(ZPL.restore(options)) == "^XA\n^MD0\n^PR4,6,2\n^XZ\n")
+    #expect(options.tuning.summary == "darkness +5, 2 in/s")
+
+    options.tuning = ZPL.Tuning(speed: 4)
+    #expect(!text(ZPL.job([one], options: options))!.contains("^PR") && ZPL.restore(options) == nil, "already at that speed")
+    options.tuning = ZPL.Tuning(speed: 40)
+    #expect(text(ZPL.job([one], options: options))!.contains("^PR14,6,2\n"), "clamped to 1…14 in/s")
+}
