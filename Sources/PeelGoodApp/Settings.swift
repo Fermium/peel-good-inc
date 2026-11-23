@@ -462,7 +462,7 @@ struct PrinterDetail: View {
                         Text("Printer's setting").tag(Int?.none)
                         ForEach(Array(Limits.printSpeed), id: \.self) { Text("\($0) in/s").tag(Int?.some($0)) }
                     }
-                    Text("Darkness is added to the printer's own. Both apply to Peel Good's labels only; the printer goes back to its settings after each job.")
+                    Text("Applied while printing, then reset. Not saved to the printer.")
                         .font(.callout).foregroundStyle(.secondary)
                 }
             } header: {

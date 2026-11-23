@@ -157,9 +157,9 @@ public enum Manual {
     public static let toneGamma = CLIOption("tone-gamma", value: "G", help: "Printer dot gain for photo and halftone: coverage c prints as c^G. Default 0.65, 1 turns it off.")
     public static let nudge = CLIOption("nudge", value: "X,Y", help: "Shift in mm, +x right, +y down. Default: the app's calibration.")
     public static let darkness = CLIOption("darkness", value: "N",
-                                           help: "Zebra only: added to the printer's own darkness for these labels, \(Limits.darkness.lowerBound) to \(Limits.darkness.upperBound) (ZPL ^MD). Put back after the job. Default: the app's setting, else 0.")
+                                           help: "Zebra only: added to the printer's own darkness for these labels, \(Limits.darkness.lowerBound) to \(Limits.darkness.upperBound) (ZPL ^MD). Applied while printing, then reset. Not saved to the printer. Default: the app's setting, else 0.")
     public static let printSpeed = CLIOption("print-speed", value: "IPS",
-                                             help: "Zebra only: print speed for these labels in inches per second, \(Limits.printSpeed.lowerBound) to \(Limits.printSpeed.upperBound), or printer for its own (ZPL ^PR). Slower prints darker. Default: the app's setting, else the printer's.")
+                                             help: "Zebra only: print speed for these labels in inches per second, \(Limits.printSpeed.lowerBound) to \(Limits.printSpeed.upperBound), or printer for its own (ZPL ^PR). Slower prints darker. Applied while printing, then reset. Not saved to the printer. Default: the app's setting, else the printer's.")
 
     public static let layout: [CLIOption] = [
         printer, size,
