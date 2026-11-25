@@ -25,7 +25,8 @@ final class AppConfigurator {
     let rules: RuleEngine
     let folders: Folders
     /// Settings MCP may never change, with the reason given back.
-    static let protectedKeys: Set<String> = ["mcpEnabled", "mcpCanUseLocalFiles", "mcpCanChangeSettings", "token"]
+    static let protectedKeys: Set<String> = ["mcpEnabled", "mcpCanUseLocalFiles", "mcpCanChangeSettings", "mcpSettingsGrant",
+                                             "mcpSettingsUntil", "mcpSettingsEnded", "token"]
 
     init(store: Store, rules: RuleEngine, folders: Folders) {
         self.store = store
@@ -68,6 +69,10 @@ final class AppConfigurator {
             "api": [
                 "httpEnabled": api.httpEnabled, "mcpEnabled": api.mcpEnabled, "port": api.port,
                 "mcpCanUseLocalFiles": api.mcpCanUseLocalFiles, "mcpCanChangeSettings": api.mcpCanChangeSettings,
+                // off, timed (For 45 Minutes) or always; when timed ends, and when it last ended on its own.
+                "mcpSettingsGrant": api.mcpSettingsGrant.rawValue,
+                "mcpSettingsUntil": api.mcpSettingsUntil.map { ISO8601DateFormatter().string(from: $0) } ?? NSNull(),
+                "mcpSettingsEnded": api.mcpSettingsEnded.map { ISO8601DateFormatter().string(from: $0) } ?? NSNull(),
             ] as [String: Any],
         ]
     }
@@ -333,6 +338,11 @@ final class AppConfigurator {
         }
         if let v = o["scale"], !(v is NSNull) {
             o["scale"] = try Self.number(v, "scale", Limits.scalePercent)
+        }
+        if let v = o["snap"], !(v is NSNull) {
+            guard let n = v as? NSNumber, CFGetTypeID(n) == CFBooleanGetTypeID() else {
+                throw APIError.badRequest("snap must be true or false.", code: "invalid_rule")
+            }
         }
         if let v = o["ink"], !(v is NSNull) {
             let text = try Self.string(v, "ink")

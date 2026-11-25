@@ -88,16 +88,25 @@ func letterPage(labelLandscape: Bool = false) -> SourcePage {
 let dpp: CGFloat = 200.0 / 72
 
 @Test func snapsScaleToWholeDots() {
-    // A module 3.62 dots wide at this scale rounds up to 4 when there's room, down to 3 when not.
+    // A module 3.62 dots wide at this scale rounds up to 4 when there's room.
     let module = 3.62 / dpp
     #expect(abs(CodeFit.snappedScale(1, module: module, dotsPerPoint: dpp) * module * dpp - 4) < 1e-9)
-    #expect(abs(CodeFit.snappedScale(1, module: module, dotsPerPoint: dpp, limit: 1.05) * module * dpp - 3) < 1e-9)
-    // 3.3 is nearest to 3 even with room to grow.
-    #expect(abs(CodeFit.snappedScale(1, module: 3.3 / dpp, dotsPerPoint: dpp) * 3.3 - 3) < 1e-9)
-    // Never shrinks a code below the floor, nor the label by more than a third.
+    // Rounding down is fine within 5% (4.1 → 4 is 2.4% smaller)...
+    #expect(abs(CodeFit.snappedScale(1, module: 4.1 / dpp, dotsPerPoint: dpp, limit: 1) * 4.1 - 4) < 1e-9)
+    // ...but not past it: 3.8 → 3 would be 21% smaller and 4 doesn't fit, so it stays.
+    #expect(CodeFit.snappedScale(1, module: 3.8 / dpp, dotsPerPoint: dpp, limit: 1.04) == 1)
+    // 3.3 is nearest to 3, but that's 9% smaller: it snaps up to 4 instead when there's room...
+    #expect(abs(CodeFit.snappedScale(1, module: 3.3 / dpp, dotsPerPoint: dpp) * 3.3 - 4) < 1e-9)
+    // ...and stays as it is when there isn't (#15: never more than 5% smaller).
+    #expect(CodeFit.snappedScale(1, module: 3.3 / dpp, dotsPerPoint: dpp, limit: 1.1) == 1)
+    #expect(CodeFit.snappedScale(1, module: 2.4 / dpp, dotsPerPoint: dpp, limit: 1.02) == 1)
+    // Never shrinks a code below the floor.
     #expect(CodeFit.snappedScale(1, module: 1.4 / dpp, dotsPerPoint: dpp, limit: 1, floor: 2) == 1)
     #expect(CodeFit.snappedScale(1, module: 1.9 / dpp, dotsPerPoint: dpp, limit: 1) == 1)
-    #expect(abs(CodeFit.snappedScale(1, module: 2.9 / dpp, dotsPerPoint: dpp, limit: 1) * 2.9 - 2) < 1e-9)
+    #expect(CodeFit.snappedScale(1, module: 2.9 / dpp, dotsPerPoint: dpp, limit: 1) == 1)
+    // The 5% counts from the unsnapped size, not from a scale already shrunk for quiet zones.
+    #expect(CodeFit.snappedScale(0.96, module: 4.1 / dpp, dotsPerPoint: dpp, limit: 0.96, baseline: 1) == 0.96)
+    #expect(abs(CodeFit.snappedScale(0.99, module: 4.1 / dpp, dotsPerPoint: dpp, limit: 0.99, baseline: 1) * 4.1 - 4) < 1e-9)
 }
 
 @Test func fitLimitKeepsContentOnLabel() {
@@ -171,14 +180,15 @@ func codePage(size: CGSize = CGSize(width: 288, height: 432), turned: Bool = fal
 }
 
 @Test func fitsCodesToDotGrid() {
-    let label = LabelComposer.compose(codePage(), LabelOptions())
+    // 0.73 pt bars are 2.03 dots at 100%: 2 dots is well within snapping's 5%.
+    let label = LabelComposer.compose(codePage(module: 0.73), LabelOptions())
     #expect(label.missingCodes.isEmpty)
     let bars = label.codeReports.first { $0.symbology == "Code128" }!
-    #expect(bars.moduleDots == bars.moduleDots.rounded() && !bars.redrawn)
+    #expect(abs(bars.moduleDots - bars.moduleDots.rounded()) < 1e-9 && !bars.redrawn)
     let qr = label.codeReports.first { $0.symbology == "QR" }!
     #expect(qr.redrawn && qr.moduleDots == qr.moduleDots.rounded())
     // Every bar and space is a whole number of modules.
-    let n = Int(bars.moduleDots)
+    let n = Int(bars.moduleDots.rounded())
     let runs = CodeAnalysis.analyze(label).first { $0.symbology == "Code128" }!.runs
     #expect(runs.keys.allSatisfy { $0 % n == 0 })
 

@@ -247,6 +247,9 @@ struct OutcomeSections: View {
                 .help("100% prints 1 mm on the page as 1 mm on the label.")
             }
 
+            Toggle("Snap barcodes to the printer's dots", isOn: Binding(get: { outcome.snap ?? true }, set: { outcome.snap = $0 ? nil : false }))
+                .help("Sizes the label so barcode bars are whole printer dots, at most 5% smaller than without. Turn off to print codes exactly as the placement sizes them.")
+
             Picker("Ink", selection: $outcome.ink) {
                 Text(inherited { $0.ink.title }).tag(InkMode?.none)
                 Divider()

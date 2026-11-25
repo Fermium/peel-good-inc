@@ -181,6 +181,7 @@ enum APIRoutes {
             request.ink = form.field("ink")
             request.scale = try APIPrintRequest.given(form.field("scale")).map { try number($0, "scale") }
             request.rotate = form.field("rotate")
+            request.snap = try APIPrintRequest.given(form.field("snap")).map { try bool($0, "snap") }
             request.copies = try APIPrintRequest.given(form.field("copies")).map { try int($0, "copies") }
             for (i, part) in form.files.enumerated() {
                 uploads.append((try uploadName(part.filename, contentType: part.contentType, index: i), part.data))
@@ -272,8 +273,17 @@ enum APIRoutes {
         r.ink = r.ink ?? given(query["ink"])
         r.rotate = r.rotate ?? given(query["rotate"])
         if r.scale == nil, let z = given(query["scale"]) { r.scale = try number(z, "scale") }
+        if r.snap == nil, let b = given(query["snap"]) { r.snap = try bool(b, "snap") }
         if r.copies == nil, let c = given(query["copies"]) { r.copies = try int(c, "copies") }
         return r
+    }
+
+    nonisolated static func bool(_ text: String, _ name: String) throws -> Bool {
+        switch text.trimmingCharacters(in: .whitespaces).lowercased() {
+        case "true", "yes", "1", "on": return true
+        case "false", "no", "0", "off": return false
+        default: throw APIError.badRequest("\(name) must be true or false.", code: "invalid_\(name)")
+        }
     }
 
     nonisolated static func number(_ text: String, _ name: String) throws -> Double {

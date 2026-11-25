@@ -211,6 +211,7 @@ enum OpenAPI {
             Field("scale", .number(Limits.scaleDescription)),
             Field("rotate", .string("auto turns the page when the placement needs it; none keeps it as drawn.", values: RotationMode.allCases.map(\.rawValue))),
             Field("ink", .string(values: Limits.inks)),
+            Field("snap", .boolean(Limits.snapDescription)),
             Field("copies", .integer(min: Limits.copies.lowerBound, max: Limits.copies.upperBound)),
         ], "Up to \(APILimits.maxFiles) files, each sent as a part named file, up to \(APILimits.maxFileBytes / 1_048_576) MB each and \(APILimits.maxLabels) pages in all. Every page of every file prints.")),
         ("Code", .object([
@@ -324,6 +325,7 @@ enum OpenAPI {
         Parameter(name: "scale", location: .query, required: false, schema: .number(Limits.scaleDescription), example: "100"),
         Parameter(name: "rotate", location: .query, required: false, schema: .string("auto turns the page when the placement needs it; none keeps it as drawn.", values: RotationMode.allCases.map(\.rawValue)), example: "auto"),
         Parameter(name: "ink", location: .query, required: false, schema: .string(values: Limits.inks), example: "auto"),
+        Parameter(name: "snap", location: .query, required: false, schema: .boolean(Limits.snapDescription), example: "true"),
         Parameter(name: "copies", location: .query, required: false, schema: .integer(min: Limits.copies.lowerBound, max: Limits.copies.upperBound), example: "1"),
         Parameter(name: "filename", location: .query, required: false, schema: .string("Name for a raw body, shown in jobs."), example: "label.pdf"),
     ]

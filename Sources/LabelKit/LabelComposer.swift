@@ -211,14 +211,24 @@ public enum LabelComposer {
         let expected = crop.barcodes.filter { crop.rect.intersects($0.rect) }
         let geometry = expected.compactMap { CodeFit.measure($0, on: page) }
         let primary = o.snapCodes ? CodeFit.primary(geometry) : nil
-        if o.snapCodes && !geometry.isEmpty && !asIs && !direct { crop.rect = CodeFit.withQuietZones(crop.rect, geometry, page: page.bounds) }
-        let c = crop.rect
         let target = o.size.points
+        let plainCrop = crop.rect
+        if o.snapCodes && !geometry.isEmpty && !asIs && !direct {
+            // Quiet zones grow the crop, which shrinks the label: only within snapping's 5%.
+            let grown = CodeFit.withQuietZones(crop.rect, geometry, page: page.bounds)
+            func best(_ r: CGRect) -> CGFloat {
+                max(min(target.width / r.width, target.height / r.height), min(target.width / r.height, target.height / r.width))
+            }
+            if best(grown) >= best(plainCrop) * CodeFit.maxShrink { crop.rect = grown }
+        }
+        let c = crop.rect
 
         // Fit page keeps the whole page on the label even after the nudge shifts it; it never scales up,
         // so a label-sized page prints 1:1 when there's no nudge.
-        let room = asIs ? CGSize(width: max(1, target.width - 2 * abs(o.nudgeMM.x) * mm),
-                                 height: max(1, target.height - 2 * abs(o.nudgeMM.y) * mm)) : target
+        // Fill label keeps the ink (not its white padding) inside the same room (#12).
+        let nudged = CGSize(width: max(1, target.width - 2 * abs(o.nudgeMM.x) * mm),
+                            height: max(1, target.height - 2 * abs(o.nudgeMM.y) * mm))
+        let room = asIs ? nudged : target
         let cap: (CGFloat) -> CGFloat = { asIs ? min(1, $0) : $0 }
         let straight = cap(min(room.width / c.width, room.height / c.height))
         let turned = cap(min(room.width / c.height, room.height / c.width))
@@ -232,7 +242,8 @@ public enum LabelComposer {
         // Near a tie, turn so 1D bars run along the feed (picket fence): each bar edge then sits on
         // fixed head elements, while bars across the feed blur with paper stepping and heat build-up.
         // Fit page turns only when the page needs it to fit.
-        if o.rotation == .auto, !asIs, !direct, let p = primary, p.isLinear, max(straight, turned) <= min(straight, turned) * 1.1 {
+        // Like snapping, this may cost at most 5% of the size.
+        if o.rotation == .auto, !asIs, !direct, let p = primary, p.isLinear, min(straight, turned) >= max(straight, turned) * CodeFit.maxShrink {
             rotated = !p.scanAlongX
         }
         let (cw, ch) = rotated ? (c.height, c.width) : (c.width, c.height)
@@ -242,6 +253,17 @@ public enum LabelComposer {
         case .fitPage: min(1, room.width / cw, room.height / ch)
         case .direct: CGFloat(o.scalePercent / 100)
         }
+        if o.fit == .fill {
+            // The nudge shifts the drawing; keep the ink on the label after the shift (#12). White padding may go.
+            scale = min(scale, CodeFit.fitLimit(content: crop.ink.intersection(c), crop: c, rotated: rotated, target: nudged, margin: 0))
+        }
+        // The size before snapping, for snapping's 5% rule: the crop without quiet zones, as with snapping off.
+        let unsnapped: CGFloat = {
+            guard o.fit == .fill || o.fit == .cover, plainCrop != c else { return scale }
+            let (pw, ph) = rotated ? (plainCrop.height, plainCrop.width) : (plainCrop.width, plainCrop.height)
+            let s = o.fit == .fill ? min(target.width / pw, target.height / ph) : max(target.width / pw, target.height / ph)
+            return o.fit == .fill ? min(s, CodeFit.fitLimit(content: crop.ink.intersection(plainCrop), crop: plainCrop, rotated: rotated, target: nudged, margin: 0)) : s
+        }()
         // Direct keeps its exact scale: codes print at their designed size.
         if let p = primary, !direct {
             // Scaling up is fine while the ink (with its padding) still fits; white margins may go.
@@ -249,12 +271,13 @@ public enum LabelComposer {
                 .insetBy(dx: -CGFloat(o.paddingMM) * mm, dy: -CGFloat(o.paddingMM) * mm).intersection(c)
             // Fit page may only shrink to whole-dot modules, so the page never grows past 100% or off the label.
             let limit: CGFloat = switch o.fit {
-            case .fill: max(scale, CodeFit.fitLimit(content: content, crop: c, rotated: rotated, target: target, margin: 1 / dots))
+            case .fill: max(scale, min(CodeFit.fitLimit(content: content, crop: c, rotated: rotated, target: target, margin: 1 / dots),
+                                       CodeFit.fitLimit(content: crop.ink.intersection(c), crop: c, rotated: rotated, target: nudged, margin: 1 / dots)))
             case .cover: .infinity
             case .fitPage, .direct: scale
             }
             scale = CodeFit.snappedScale(scale, module: p.narrow, dotsPerPoint: dots, limit: limit,
-                                         floor: CGFloat(p.isLinear ? CodeFit.minLinear : CodeFit.minGrid))
+                                         floor: CGFloat(p.isLinear ? CodeFit.minLinear : CodeFit.minGrid), baseline: unsnapped)
         }
 
         var placement = Placement(crop: c, rotated: rotated, counterClockwise: o.rotation == .ccw, scale: scale,
@@ -321,7 +344,8 @@ public enum LabelComposer {
             warnings.append("\(code.symbology) won't scan at this size. Use a bigger label.")
         }
         warnings += reports.compactMap(\.message)
-        let clip = Clip(drawn: c.applying(placement.transform), on: target)
+        // Fill label trims to the ink, so only ink cut off counts; its white padding may run off with the nudge.
+        let clip = Clip(drawn: (o.fit == .fill ? crop.ink.intersection(c) : c).applying(placement.transform), on: target)
         if direct {
             let inkClip = Clip(drawn: crop.ink.applying(placement.transform), on: target)
             if !inkClip.isEmpty { warnings.append("At this size the design doesn't fit: \(inkClip) of it is cut off.") }

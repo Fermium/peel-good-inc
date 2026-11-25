@@ -35,6 +35,9 @@ public enum Limits {
     public static let scaleDescription = "Direct placement only: percent of physical size, \(Int(scalePercent.lowerBound)) to \(Int(scalePercent.upperBound)). "
         + "100 prints 1 mm on the page as 1 mm on the label; 95 or 105 nudge it smaller or bigger. "
         + "A value given here wins over the matching rule's, which wins over the printer's setting (100 unless changed)."
+    public static let snapDescription = "Fit barcodes to the printer's dot grid (default true): bars become whole dots, and the label ends up "
+        + "at most 5% smaller than without snapping. false prints codes at the size the placement gives them. "
+        + "A value given here wins over the matching rule's."
 
     /// "Immediately", "After 1.5 s".
     public static func countdownTitle(_ seconds: Double) -> String {

@@ -83,10 +83,13 @@ struct APIPrintRequest: Codable, Sendable, Equatable {
     var scale: Double?
     /// auto, none, cw or ccw. auto turns the page when the placement needs it; none keeps it as drawn.
     var rotate: String?
+    /// false: don't fit barcodes to the dot grid. Wins over the rule's; nil snaps them.
+    var snap: Bool?
 
     init(path: String? = nil, printer: String? = nil, size: String? = nil, fit: String? = nil, ink: String? = nil, copies: Int? = nil,
-         scale: Double? = nil, rotate: String? = nil) {
+         scale: Double? = nil, rotate: String? = nil, snap: Bool? = nil) {
         self.scale = scale
+        self.snap = snap
         self.rotate = Self.given(rotate)
         self.path = Self.given(path)
         self.printer = Self.given(printer)
@@ -104,7 +107,7 @@ struct APIPrintRequest: Codable, Sendable, Equatable {
 
     /// Every text value through `given`.
     var normalized: APIPrintRequest {
-        APIPrintRequest(path: path, printer: printer, size: size, fit: fit, ink: ink, copies: copies, scale: scale, rotate: rotate)
+        APIPrintRequest(path: path, printer: printer, size: size, fit: fit, ink: ink, copies: copies, scale: scale, rotate: rotate, snap: snap)
     }
 }
 
@@ -286,7 +289,7 @@ extension APIError {
 
 extension APIPrintRequest {
     /// The size, fit, scale, rotation and ink asked for, checked when applied.
-    var overrides: OptionOverrides { OptionOverrides(size: size, fit: fit, ink: ink, rotation: rotate, scalePercent: scale) }
+    var overrides: OptionOverrides { OptionOverrides(size: size, fit: fit, ink: ink, rotation: rotate, snapCodes: snap, scalePercent: scale) }
 }
 
 struct APIErrorBody: Codable, Sendable {

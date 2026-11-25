@@ -251,6 +251,34 @@ final class APITests: XCTestCase {
         XCTAssertEqual(api.mcpSettingsGrant, .timed)
     }
 
+    /// #16: when For 45 Minutes has run out, MCP is told so, rather than just that the setting is off.
+    func testSettingsRefusalSaysWhenTheGrantRanOut() {
+        let api = APIController.shared
+        let saved = api.mcpSettingsGrant
+        defer { api.mcpSettingsGrant = saved }
+
+        api.mcpSettingsGrant = .off
+        XCTAssertNil(api.mcpSettingsEnded)
+        XCTAssertFalse(MCPPermission.settings.refusal.message.contains("turned itself off"))
+
+        UserDefaults.standard.set(Date(timeIntervalSince1970: 1_800_000_000), forKey: "apiMCPSettingsEnded")
+        let message = MCPPermission.settings.refusal.message
+        XCTAssertTrue(message.contains("For 45 Minutes and turned itself off at"), message)
+        XCTAssertTrue(message.contains("Always"), message)
+
+        // Choosing again clears it.
+        api.mcpSettingsGrant = .always
+        XCTAssertNil(api.mcpSettingsEnded)
+    }
+
+    func testSnapOptionFromQueryAndForm() throws {
+        XCTAssertEqual(try APIRoutes.merge(APIPrintRequest(), query: ["snap": "false"]).snap, false)
+        XCTAssertEqual(try APIRoutes.merge(APIPrintRequest(), query: ["snap": "1"]).snap, true)
+        XCTAssertNil(try APIRoutes.merge(APIPrintRequest(), query: [:]).snap)
+        XCTAssertThrowsError(try APIRoutes.merge(APIPrintRequest(), query: ["snap": "maybe"]))
+        XCTAssertEqual(APIPrintRequest(snap: false).overrides.snapCodes, false)
+    }
+
     /// The old switch and "Turn off after 45 minutes" become the pop-up, once.
     func testSettingsPermissionMigratesFromSwitch() {
         let api = APIController.shared

@@ -90,8 +90,10 @@ enum CodeFit {
     static let minGrid = 3.0, cautionGrid = 4.0
     /// Quiet zone kept around codes, in modules.
     static let quietLinear: CGFloat = 10, quietGrid: CGFloat = 4
-    /// Snapping never shrinks the label by more than this.
-    static let maxShrink: CGFloat = 2.0 / 3.0
+    /// Snapping never makes the label smaller than this share of its unsnapped size (Davide's rule, #15):
+    /// at most 5% smaller. When the nearest whole dot would shrink it more, snapping goes up instead,
+    /// or leaves the scale alone.
+    public static let maxShrink: CGFloat = 0.95
 
     // MARK: Scale and position
 
@@ -100,20 +102,25 @@ enum CodeFit {
         codes.min { a, b in a.isLinear != b.isLinear ? a.isLinear : a.narrow < b.narrow }
     }
 
-    /// The scale nearest to `scale` that makes `module` (page points) a whole number of dots, without going
-    /// over `limit`. Rounds down unless rounding up still fits. Leaves the scale alone rather than shrink
-    /// a code below `floor` dots (it's too small either way, and gets a warning) or the label by over a third.
+    /// The scale near `scale` that makes `module` (page points) a whole number of dots. Tries the nearest
+    /// whole dot first, then the other one. A candidate must not go over `limit`, must keep the label at
+    /// least `maxShrink` of `baseline` (the unsnapped scale; `scale` when not given), and must not shrink
+    /// a code below `floor` dots (it's too small either way, and gets a warning). With no candidate left,
+    /// the scale stays as it is: the code then prints between dots, and the preview's code check says
+    /// whether it still scans.
     static func snappedScale(_ scale: CGFloat, module: CGFloat, dotsPerPoint: CGFloat, limit: CGFloat = .infinity,
-                             floor: CGFloat = 1) -> CGFloat {
+                             floor: CGFloat = 1, baseline: CGFloat? = nil) -> CGFloat {
         let perScale = module * dotsPerPoint
         guard perScale > 0 else { return scale }
         let now = scale * perScale
-        var n = now.rounded()
-        if n / perScale > limit * (1 + 1e-9) { n = (limit * perScale).rounded(.down) }
-        n = min(n, now.rounded(.up))
-        guard n >= 1, n >= floor || n >= now else { return scale }
-        let snapped = n / perScale
-        return snapped < scale * maxShrink ? scale : snapped
+        let lowest = (baseline ?? scale) * maxShrink
+        let down = now.rounded(.down), up = now.rounded(.up)
+        for n in (now - down <= up - now ? [down, up] : [up, down]) {
+            let s = n / perScale
+            guard n >= 1, s <= limit * (1 + 1e-9), s >= lowest * (1 - 1e-9), n >= floor || n >= now else { continue }
+            return s
+        }
+        return scale
     }
 
     /// The largest scale at which `content` still fits on the label, centered on the crop as placements are.

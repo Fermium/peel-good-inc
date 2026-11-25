@@ -57,6 +57,8 @@ public struct AppSettings: @unchecked Sendable {
     public static func userDefaults(_ d: UserDefaults, source: String = AppIdentity.bundleID) -> AppSettings {
         AppSettings(source: source, read: { d.object(forKey: $0) }, write: { k, v in
             if let v { d.set(v, forKey: k) } else { d.removeObject(forKey: k) }
+            // On disk now, not on cfprefsd's schedule: settings change rarely and must survive a force quit (#16).
+            d.synchronize()
         })
     }
 

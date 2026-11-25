@@ -129,7 +129,26 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(d.printer.name, Self.label.name, "the rule's printer matches like --printer does")
         XCTAssertEqual(d.copies, 2)
         XCTAssertEqual(d.options.ink, .crisp)
+        XCTAssertTrue(d.options.snapCodes, "codes snap unless the rule says not to")
         XCTAssertEqual(decide(.drop)?.isFallback, true)
+    }
+
+    /// #15: a rule can leave barcodes off the dot grid; rules saved before then still snap.
+    func testRuleSnapToggle() throws {
+        func outcome(_ json: String) throws -> RuleOutcome { try JSONDecoder().decode(RuleOutcome.self, from: Data(json.utf8)) }
+        XCTAssertNil(try outcome(#"{"copies": 1}"#).snap)
+        XCTAssertEqual(try outcome(#"{"snap": false}"#).snap, false)
+        var rule = Rule(name: "Customs forms", conditions: [RuleCondition(field: .trigger, op: .is, values: [RuleTrigger.cli.rawValue])])
+        rule.outcome.snap = false
+        let json = String(decoding: try JSONEncoder().encode(rule.outcome), as: UTF8.self)
+        XCTAssertTrue(json.contains(#""snap":false"#), json)
+        XCTAssertFalse(String(decoding: try JSONEncoder().encode(RuleOutcome()), as: UTF8.self).contains("snap"))
+        let d = try XCTUnwrap(RuleBook(rules: [rule]).decide(RuleContext(trigger: .cli, fileName: "cn.pdf", kind: .pdf),
+                                                              printers: PrinterResolver(printers: Self.printers).eligible,
+                                                              current: Self.label, defaults: { _ in LabelOptions() }))
+        XCTAssertFalse(d.options.snapCodes)
+        // A call's snap wins over the rule's.
+        XCTAssertTrue(try OptionOverrides(snapCodes: true).apply(to: d.options, on: nil).snapCodes)
     }
 
     /// The CLI reads rules.json and never moves a file it can't read.
