@@ -255,6 +255,9 @@ public struct RuleOutcome: Codable, Hashable, Sendable {
     /// Percent of physical size for direct placement; nil uses the printer's.
     public var scale: Double?
     public var ink: InkMode?
+    /// Fit barcodes to the printer's dot grid; nil (the default) snaps them. false prints codes at the
+    /// size the placement gives them, for forms whose code is fine as drawn (#15).
+    public var snap: Bool?
     /// nil follows General > Before printing for files you hand over, Rules > New files for watched folders.
     public var action: RuleAction?
     public var copies = 1
@@ -266,7 +269,7 @@ public struct RuleOutcome: Codable, Hashable, Sendable {
     public init() {}
 
     /// Older files also have `playSound`; it's ignored, since sounds follow General.
-    public enum CodingKeys: String, CodingKey { case printer, size, fit, scale, ink, action, copies, tag }
+    public enum CodingKeys: String, CodingKey { case printer, size, fit, scale, ink, snap, action, copies, tag }
 
     /// Set in a decoder's `userInfo` (by `RuleBook.load`) for a rules.json older than version 2, whose
     /// fit values are 0.5.4's names: fit (now fill) and fill (now cover).
@@ -280,6 +283,7 @@ public struct RuleOutcome: Codable, Hashable, Sendable {
         fit = try c.decodeIfPresent(String.self, forKey: .fit).flatMap { legacy ? FitMode(legacy: $0) : FitMode(parsing: $0) }
         scale = try c.decodeIfPresent(Double.self, forKey: .scale)
         ink = try c.decodeIfPresent(String.self, forKey: .ink).flatMap(InkMode.init(rawValue:))
+        snap = try c.decodeIfPresent(Bool.self, forKey: .snap)
         action = try c.decodeIfPresent(RuleAction.self, forKey: .action)
         copies = max(1, try c.decodeIfPresent(Int.self, forKey: .copies) ?? 1)
         // Before tag modes, a missing tag meant "no tag" and an object was the rule's own tag.
@@ -293,6 +297,7 @@ public struct RuleOutcome: Codable, Hashable, Sendable {
         try c.encodeIfPresent(fit?.rawValue, forKey: .fit)
         try c.encodeIfPresent(scale, forKey: .scale)
         try c.encodeIfPresent(ink?.rawValue, forKey: .ink)
+        try c.encodeIfPresent(snap, forKey: .snap)
         try c.encodeIfPresent(action, forKey: .action)
         try c.encode(copies, forKey: .copies)
         try c.encode(tag, forKey: .tag)

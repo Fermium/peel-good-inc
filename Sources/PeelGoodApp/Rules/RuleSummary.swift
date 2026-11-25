@@ -18,6 +18,7 @@ enum RuleSummary {
         if let size = o.labelSize { parts.append(size.display) }
         if let fit = o.fit { parts.append(fit == .direct && o.scale != nil ? "\(fit.title) \(Int(o.scale!.rounded()))%" : fit.title) }
         if let ink = o.ink { parts.append(ink.title) }
+        if o.snap == false { parts.append("codes not snapped") }
         if let action = o.action { parts.append(action.shortTitle) }
         if o.copies > 1 { parts.append("\(o.copies) copies") }
         switch o.tag {

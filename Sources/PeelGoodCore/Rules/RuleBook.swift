@@ -211,6 +211,7 @@ public struct RuleBook: Codable {
         if let fit = o.fit { options.fit = fit }
         if let scale = o.scale { options.scalePercent = min(max(scale, Limits.scalePercent.lowerBound), Limits.scalePercent.upperBound) }
         if let ink = o.ink { options.ink = ink }
+        if let snap = o.snap { options.snapCodes = snap }
 
         var action = o.action ?? (context.trigger.isUnattended ? unattended : .print)
         if action == .ask && !context.trigger.isUnattended { action = .review }

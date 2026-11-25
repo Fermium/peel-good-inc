@@ -144,10 +144,15 @@ enum MCPPermission: String, Sendable {
         }
     }
 
-    var refusal: APIError {
+    @MainActor var refusal: APIError {
         let how = self == .settings ? "Set \u{201C}\(settingTitle)\u{201D} to For 45 Minutes or Always"
                                     : "Turn on \u{201C}\(settingTitle)\u{201D}"
-        return APIError(status: 403, code: "permission_required", message: "\(how) in Peel Good Inc. Settings > API, then try again.")
+        var message = "\(how) in Peel Good Inc. Settings > API, then try again."
+        if self == .settings, let ended = APIController.shared.mcpSettingsEnded {
+            message = "\u{201C}\(settingTitle)\u{201D} was set to For 45 Minutes and turned itself off at "
+                + "\(ended.formatted(date: .abbreviated, time: .shortened)). " + message + " Always keeps it on."
+        }
+        return APIError(status: 403, code: "permission_required", message: message)
     }
 
     @MainActor var isGranted: Bool {
@@ -190,6 +195,7 @@ enum MCPTools {
         "rotate": ["type": "string", "enum": .array(RotationMode.allCases.map { .string($0.rawValue) }),
                    "description": "auto (default) turns the page when the placement needs it; none keeps it as drawn; cw or ccw always turn it."],
         "ink": ["type": "string", "enum": .array(Limits.inks.map { .string($0) }), "description": .string(inkDescription)],
+        "snap": ["type": "boolean", "description": .string(Limits.snapDescription)],
     ]
 
     /// "auto picks per page, crisp hard cutoff, sharp text and codes, …", from LabelKit.
@@ -252,7 +258,7 @@ enum MCPTools {
         }.joined(separator: "; ")
         return """
         A rule is {name, isEnabled, matchAll, conditions: [{field, op, values: [text], number}], \
-        outcome: {printer, size, fit: fill|fit-page|direct|cover, scale: percent for direct, ink, action: print|review|ask, copies, tag: default|none|{name, color}}}. \
+        outcome: {printer, size, fit: fill|fit-page|direct|cover, scale: percent for direct, ink, snap: false to leave barcodes off the dot grid, action: print|review|ask, copies, tag: default|none|{name, color}}}. \
         Outcome fields left out use the default printer and its settings; action review shows the preview. \
         tag default uses the tag in General, none adds no tag; nothing is tagged while General's Finder tag is off. \
         Rules run top to bottom; the first match wins, else Everything else, which always uses the default printer and its settings. \
@@ -449,7 +455,7 @@ enum MCPTools {
     private static func request(_ args: [String: Value]) throws -> APIPrintRequest {
         APIPrintRequest(path: args["path"]?.stringValue, printer: args["printer"]?.stringValue, size: args["size"]?.stringValue,
                         fit: args["fit"]?.stringValue, ink: args["ink"]?.stringValue, copies: try int(args["copies"], "copies"),
-                        scale: try number(args["scale"], "scale"), rotate: args["rotate"]?.stringValue)
+                        scale: try number(args["scale"], "scale"), rotate: args["rotate"]?.stringValue, snap: try bool(args["snap"], "snap"))
     }
 
     private static func number(_ value: Value?, _ name: String) throws -> Double? {
@@ -458,6 +464,13 @@ enum MCPTools {
         if let n = value.intValue { return Double(n) }
         if let s = value.stringValue { return try APIPrintRequest.given(s).map { try APIRoutes.number($0, name) } }
         throw APIError.badRequest("\(name) must be a number.", code: "invalid_\(name)")
+    }
+
+    private static func bool(_ value: Value?, _ name: String) throws -> Bool? {
+        guard let value, !value.isNull else { return nil }
+        if let b = value.boolValue { return b }
+        if let s = value.stringValue { return try APIPrintRequest.given(s).map { try APIRoutes.bool($0, name) } }
+        throw APIError.badRequest("\(name) must be true or false.", code: "invalid_\(name)")
     }
 
     private static func int(_ value: Value?, _ name: String) throws -> Int? {

@@ -20,6 +20,7 @@ final class APIController: ObservableObject {
     private enum Key {
         static let http = "apiHTTPEnabled", mcp = "apiMCPEnabled", port = "apiPort"
         static let mcpLocalFiles = "apiMCPLocalFiles", mcpSettingsGrant = "apiMCPSettingsGrant", mcpSettingsUntil = "apiMCPSettingsUntil"
+        static let mcpSettingsEnded = "apiMCPSettingsEnded"
         static let legacySettings = "apiMCPSettings", legacyAutoOff = "apiMCPSettingsAutoOff"
     }
 
@@ -37,18 +38,18 @@ final class APIController: ObservableObject {
 
     var httpEnabled: Bool {
         get { defaults.bool(forKey: Key.http) }
-        set { objectWillChange.send(); defaults.set(newValue, forKey: Key.http); Log.notice(.api, "HTTP API \(newValue ? "on" : "off")"); apply() }
+        set { objectWillChange.send(); defaults.set(newValue, forKey: Key.http); flush(); Log.notice(.api, "HTTP API \(newValue ? "on" : "off")"); apply() }
     }
 
     var mcpEnabled: Bool {
         get { defaults.bool(forKey: Key.mcp) }
-        set { objectWillChange.send(); defaults.set(newValue, forKey: Key.mcp); Log.notice(.api, "MCP server \(newValue ? "on" : "off")"); apply() }
+        set { objectWillChange.send(); defaults.set(newValue, forKey: Key.mcp); flush(); Log.notice(.api, "MCP server \(newValue ? "on" : "off")"); apply() }
     }
 
     /// MCP may print paths on this Mac, the clipboard, and reprint. Off by default; only Settings can change it.
     var mcpCanUseLocalFiles: Bool {
         get { defaults.bool(forKey: Key.mcpLocalFiles) }
-        set { objectWillChange.send(); defaults.set(newValue, forKey: Key.mcpLocalFiles); Log.notice(.api, "MCP local files \(newValue ? "allowed" : "not allowed")") }
+        set { objectWillChange.send(); defaults.set(newValue, forKey: Key.mcpLocalFiles); flush(); Log.notice(.api, "MCP local files \(newValue ? "allowed" : "not allowed")") }
     }
 
     /// `mcpCanUseLocalFiles` from any thread (UserDefaults is thread-safe), for list_jobs off the main thread.
@@ -79,6 +80,8 @@ final class APIController: ObservableObject {
             objectWillChange.send()
             defaults.set(newValue.rawValue, forKey: Key.mcpSettingsGrant)
             mcpSettingsUntil = newValue == .timed ? Date().addingTimeInterval(Self.settingsGrant) : nil
+            defaults.removeObject(forKey: Key.mcpSettingsEnded)
+            flush()
             Log.notice(.api, "MCP settings changes: \(newValue.title.lowercased())" + (mcpSettingsUntil.map { ", until \($0.formatted(date: .omitted, time: .shortened))" } ?? ""))
             scheduleSettingsExpiry()
         }
@@ -98,6 +101,14 @@ final class APIController: ObservableObject {
         set { defaults.set(newValue, forKey: Key.mcpSettingsUntil) }
     }
 
+    /// When For 45 Minutes last turned itself off; nil once the permission is set again. MCP's refusal and
+    /// get_settings say so, so an expired grant isn't mistaken for a lost setting (#16).
+    var mcpSettingsEnded: Date? { defaults.object(forKey: Key.mcpSettingsEnded) as? Date }
+
+    /// Writes the settings domain to disk now. UserDefaults hands each write to cfprefsd straight away,
+    /// so a force quit doesn't lose it; this also covers cfprefsd itself going away before its own flush.
+    private func flush() { defaults.synchronize() }
+
     private var settingsExpiry: Task<Void, Never>?
 
     /// Turns the timed settings permission off when its time is up, including after a relaunch.
@@ -115,7 +126,9 @@ final class APIController: ObservableObject {
             guard !Task.isCancelled, let self else { return }
             self.objectWillChange.send()
             self.defaults.set(SettingsGrant.off.rawValue, forKey: Key.mcpSettingsGrant)
+            self.defaults.set(until, forKey: Key.mcpSettingsEnded)
             self.mcpSettingsUntil = nil
+            self.flush()
             Log.notice(.api, "MCP settings changes turned off after 45 minutes")
         }
     }

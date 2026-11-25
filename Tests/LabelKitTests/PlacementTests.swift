@@ -102,7 +102,9 @@ func placed(_ label: ComposedLabel) -> CGRect { label.page.bounds.applying(label
     let label = LabelComposer.compose(codePage(), o)   // a 4x6 page: fits at 100% or just under
     #expect(label.scale <= 1)
     #expect(!label.trimmed)
-    #expect(CGRect(origin: .zero, size: o.size.points).insetBy(dx: -0.01, dy: -0.01).contains(placed(label)))
+    // Up to half a dot over: lining the code up with the dots shifts the page by less than that.
+    let halfDot = 0.5 * 72 / o.dpi
+    #expect(CGRect(origin: .zero, size: o.size.points).insetBy(dx: -halfDot, dy: -halfDot).contains(placed(label)))
 }
 
 @Test func defaultStillTrimsAndFills() {

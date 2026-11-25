@@ -57,12 +57,14 @@ A rule sets the printer, label size, scaling, ink, copies, whether to print, pre
 
 | Scaling | `fit` value | What it does |
 |---|---|---|
-| **Fill label** (default) | `fill` | Trims white margins and enlarges (or shrinks) the label until it touches the edges. |
+| **Fill label** (default) | `fill` | Trims white margins and enlarges (or shrinks) the label until it touches the edges. With a printer nudge, the ink stays on the label after the shift; only white padding may run off. |
 | **Fit page** | `fit-page` | The whole page as designed: no trim, turned only when it has to be, never enlarged, shrunk only as far as the whole page (and the printer's nudge) needs to fit. For labels whose margins matter. |
 | **Direct** | `direct` + `scale` | True 1:1: 1 mm on the page is 1 mm on the label (PDFs by their page size, images by their DPI, 72 dpi when an image has none). No trim, no auto-scaling, centred, turned only when the page's orientation doesn't match the label's (`rotate=none` keeps it as drawn). Whatever falls off the label is clipped, and the job says by how much, for example "clipped 3.0 mm left/right". `scale` (default 100 %) nudges it on purpose: 95 or 105. |
 | **Cover** | `cover` | Trims white margins and covers the whole label; what overflows is cut off. |
 
 The scaling and scale used are the first of these that gives one: the `fit` and `scale` sent to `print_label` / `preview_label` (MCP), the HTTP API or `peelgood --fit … --scale …`; the matching rule's Scaling and Scale; the printer's in Settings → Printers. The preview is the label exactly as it prints, nudge and clipping included, and every job reports each label's `fit`, `trimmed`, `scalePercent`, `rotated`, `clippedMM` (when something is cut) and a one-line `placement`.
+
+**Barcodes and the dot grid.** By default the label is sized so the main barcode's bars are whole printer dots, and lined up with them. Snapping never makes the label more than 5 % smaller than it would be without it: when the nearest whole dot is further away, it snaps up instead if that still fits, or leaves the size alone (the preview still checks that the code scans). Turn it off for one job with `snap=false` (MCP, HTTP API) or `peelgood --no-snap`, or for a rule with its "Snap barcodes to the printer's dots" switch (`"snap": false` in the rule's outcome). The call's choice wins over the rule's.
 
 Up to 0.5.4 the two choices were called Fit (now **Fill label**) and Fill (now **Cover**). `fit` still works as a value and means Fill label. Saved printer settings and rules from 0.5.4 are moved to the new names the first time they're read, so they print exactly as before: a rule that said Fill now says Cover.
 
@@ -152,7 +154,7 @@ curl -H "Authorization: Bearer $(cat ~/Library/Application\ Support/Peel\ Good/t
   -F file=@label.pdf http://127.0.0.1:47311/v1/print
 ```
 
-MCP: printers, sizes, preview, print, jobs, settings and rules. Reading local files and changing settings each have their own switch.
+MCP: printers, sizes, preview, print, jobs, settings and rules. Reading local files and changing settings each have their own switch. "Let MCP change settings" is Off, For 45 Minutes or Always: For 45 Minutes turns itself off when the time is up, also across a relaunch. `get_settings` shows which (`api.mcpSettingsGrant`, `mcpSettingsUntil`, and `mcpSettingsEnded` when it last ran out), and a refused tool says when the 45 minutes ended.
 
 ```sh
 claude mcp add --transport http peel-good http://127.0.0.1:47311/mcp \
